@@ -75,7 +75,10 @@ function readScope(ctx: ClientContext): SessionScope | undefined {
  */
 export function mountWorkspacePanel(ctx: ClientContext): () => void {
   const isMobile = window.matchMedia(MOBILE_QUERY)
-  const initialOpen = readStorage(STORAGE_OPEN, '1') !== '0'
+  // 默认关闭：新用户（无 localStorage 记录）首次进入时右边栏不默认展开，
+  // 避免新会话页面被面板占据。用户手动打开过（localStorage='1'）或会话内
+  // 触发 agentlex-workspace:panel-open 时仍会正常打开。
+  const initialOpen = readStorage(STORAGE_OPEN, '0') !== '0'
   const initialWidth = Math.min(
     MAX_WIDTH,
     Math.max(MIN_WIDTH, Number(readStorage(STORAGE_WIDTH, String(DEFAULT_WIDTH))) || DEFAULT_WIDTH),

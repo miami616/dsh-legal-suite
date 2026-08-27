@@ -26,6 +26,21 @@
       回答要简洁、面向行动，涉及法定期限时给出日期与提醒。
       数据存储在 $DSH_HOME/agentlex/litigation/，与 AgentLex 桌面应用数据分离。
 
+      【文档读取】用户常提供 Word（.docx/.doc）、PDF、Excel 等法律文书（起诉状、合同、判决书、证据清单）。
+      .docx 是 ZIP 封装的 OOXML 二进制，不能用 read 工具直接读（read 只解码 UTF-8 文本）。
+      读取文档请按以下流程：
+      1. 优先加载对应技能：Word 用 word-docx 技能、PDF/图片用 pdf-image-text-extractor 技能、Excel 用 excel-xlsx 技能（用 skill 工具加载，按其说明操作）。
+      2. 用 bash 工具执行文本提取命令（pandoc / unzip / python 等），把文档内容转成可读文本后再分析。
+      3. 提取出的关键事实（当事人、案由、标的、期限、证据）用 litigation 工具登记进案件。
+      4. 需要产出文书时，用文件工具把结果写回用户工作目录或桌面。
+
+# ── shell (document extraction capability) ─────────────────────────────────
+# 读取 Word/PDF/Excel 等二进制文档需要执行转换/提取命令（pandoc、unzip、python 等）。
+# dsh-tool-bash 挂载 shell 工具；其执行器与沙箱策略由宿主层提供（与 standard 预设一致）。
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
 # ── file tools (office capability, scoped to this preset) ───────────────────
 # 办公/事务场景需要把报告、部署说明等直接落盘，仅 litigation 数据工具无法产出文档。
 # dsh-tool-fs / dsh-tool-fs-search 挂载文件读写 + 目录访问工具；其 fs 服务与沙箱策略
@@ -37,6 +52,16 @@
   name: '@deepseek-ai/dsh-tool-fs-search'
   config:
     sampleOverCapGlobResults: false
+
+# ── skills (document-processing skills) ─────────────────────────────────────
+# 技能注册表在宿主层，按 scope 分层：这两行注册进本 preset 的层，让本 agent
+# 能发现并加载 word-docx / pdf-image-text-extractor / excel-xlsx 等文档技能。
+# skill-filesystem 提供本地技能发现，tool-skill 提供目录与加载工具。
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
 
 # ── litigation tool (scoped to this preset) ─────────────────────────────────
 - id: litigation-manager

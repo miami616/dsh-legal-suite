@@ -13,6 +13,36 @@
       回答要简洁、面向行动。
       数据存储在 $DSH_HOME/agentlex/nonlitigation/，与 AgentLex 桌面应用数据分离。
 
+      【文档读取】用户常提供 Word（.docx/.doc）、PDF、Excel 等合同/协议/尽调材料。
+      .docx 是 ZIP 封装的 OOXML 二进制，不能用 read 工具直接读（read 只解码 UTF-8 文本）。
+      读取文档请按以下流程：
+      1. 优先加载对应技能：Word 用 word-docx 技能、PDF/图片用 pdf-image-text-extractor 技能、Excel 用 excel-xlsx 技能（用 skill 工具加载，按其说明操作）。
+      2. 用 bash 工具执行文本提取命令（pandoc / unzip / python 等），把文档内容转成可读文本后再分析。
+      3. 提取出的关键事实（当事人、标的、期限、义务）用 nonlitigation 工具登记进项目。
+      4. 需要产出文书时，用文件工具把结果写回用户工作目录或桌面。
+
+# ── shell (document extraction capability) ─────────────────────────────────
+# 读取 Word/PDF/Excel 等二进制文档需要执行转换/提取命令（pandoc、unzip、python 等）。
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+# ── file tools (office capability, scoped to this preset) ───────────────────
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── skills (document-processing skills) ─────────────────────────────────────
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
 - id: nonlitigation-manager
   name: 'dsh-legal-suite'
   config:

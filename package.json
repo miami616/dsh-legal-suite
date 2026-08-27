@@ -1,7 +1,7 @@
 {
   "name": "dsh-legal-suite",
-  "version": "0.1.0",
-  "description": "AgentLex 法律事务 DSH 插件（单包合一）：诉讼案件 / 非诉项目 / 任务中心 / 皮肤 / 工作区右边栏，一个 entry、一个版本。",
+  "version": "0.1.2",
+  "description": "AI 驱动的法律行业案件管理与 Agent 工具：诉讼案件 / 非诉项目 / 任务中心 / 期限引擎 / 技能与 MCP，Agent 预设直接办案，运行于 DeepSeek Harness。",
   "type": "module",
   "license": "GPL-3.0",
   "keywords": [
@@ -11,7 +11,12 @@
     "dsh-plugin",
     "legal",
     "law",
-    "agentlex"
+    "agentlex",
+    "legal-tech",
+    "case-management",
+    "legal-agent",
+    "ai-agent",
+    "litigation"
   ],
   "dependencies": {
     "js-yaml": "^4.1.1",

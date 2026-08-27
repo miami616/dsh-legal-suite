@@ -1,0 +1,44 @@
+/**
+ * Timeline styles — AgentLex design language (--lit-* tokens).
+ */
+
+.timeline { display: flex; flex-direction: column; gap: 14px; font-family: var(--lit-font); }
+.tlError { margin: 0; font-size: 12px; color: var(--lit-error); }
+.tlEmpty { color: var(--lit-ink-subtle); font-size: 13px; }
+
+.tlList { position: relative; display: flex; flex-direction: column; padding-left: 16px; }
+.tlList::before { content: ''; position: absolute; left: 4px; top: 6px; bottom: 6px; width: 2px; background: var(--lit-line); }
+.tlRow { position: relative; padding: 4px 0 14px 4px; }
+.tlDot { position: absolute; left: -16px; top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--lit-accent); border: 2px solid var(--lit-paper-elevated); box-shadow: 0 0 0 1px var(--lit-accent-subtle); }
+.tlDotDone { background: var(--lit-success); box-shadow: 0 0 0 1px var(--lit-success-bg); }
+.tlContent { display: flex; flex-direction: column; gap: 3px; }
+.tlTitleRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tlTitle { font-size: 13px; font-weight: 600; color: var(--lit-ink); }
+.tlTitleDone { font-size: 13px; color: var(--lit-ink-subtle); text-decoration: line-through; }
+.tlType { font-size: 10px; padding: 1px 7px; border-radius: 999px; background: var(--lit-paper-inset); color: var(--lit-ink-muted); font-weight: 500; }
+.tlSource { font-size: 10px; padding: 1px 7px; border-radius: 999px; background: var(--lit-info-bg); color: var(--lit-info); font-weight: 500; }
+.tlDetail { font-size: 12px; color: var(--lit-ink-muted); }
+.tlMeta { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--lit-ink-subtle); }
+.tlDate { font-family: var(--lit-font-mono); }
+.tlRelPast { color: var(--lit-ink-subtle); }
+.tlRelFuture { color: var(--lit-info); }
+.tlAction { background: none; border: none; color: var(--lit-ink-subtle); font-size: 11px; cursor: pointer; padding: 1px 5px; border-radius: 4px; font-family: var(--lit-font); }
+.tlAction:hover { color: var(--lit-ink); background: var(--lit-hover-bg); }
+.tlActionDanger { background: none; border: none; color: var(--lit-ink-subtle); font-size: 11px; cursor: pointer; padding: 1px 5px; border-radius: 4px; font-family: var(--lit-font); }
+.tlActionDanger:hover { color: var(--lit-error); background: var(--lit-error-bg); }
+
+.addEventBtn { align-self: flex-start; background: none; border: 1px dashed var(--lit-line-strong); color: var(--lit-ink-muted); font-size: 12px; padding: 8px 14px; border-radius: var(--lit-radius-md); cursor: pointer; font-family: var(--lit-font); }
+.addEventBtn:hover { border-color: var(--lit-accent); color: var(--lit-accent); background: var(--lit-accent-subtle); }
+
+/* --- form ------------------------------------------------------------------ */
+.form { border: 1px solid var(--lit-line); border-radius: var(--lit-radius-lg); background: var(--lit-paper-elevated); padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--lit-shadow-card); }
+.formRow { display: flex; gap: 8px; }
+.formInput { flex: 1; height: 32px; padding: 0 10px; font-size: 12px; color: var(--lit-ink); background: var(--lit-paper); border: 1px solid var(--lit-line); border-radius: var(--lit-radius-sm); outline: none; min-width: 0; font-family: var(--lit-font); }
+.formInput:focus { border-color: var(--lit-accent); box-shadow: 0 0 0 2px var(--lit-accent-subtle); }
+.formSelect { height: 32px; padding: 0 8px; font-size: 12px; color: var(--lit-ink); background: var(--lit-paper); border: 1px solid var(--lit-line); border-radius: var(--lit-radius-sm); outline: none; font-family: var(--lit-font); }
+.formActions { display: flex; justify-content: flex-end; gap: 8px; }
+.formCancel { height: 28px; padding: 0 12px; font-size: 12px; border-radius: var(--lit-radius-sm); cursor: pointer; background: var(--lit-btn-secondary-bg); border: none; color: var(--lit-btn-secondary-text); font-family: var(--lit-font); font-weight: 550; }
+.formCancel:hover { background: var(--lit-btn-secondary-bg-hover); }
+.formSubmit { height: 28px; padding: 0 12px; font-size: 12px; border-radius: var(--lit-radius-sm); cursor: pointer; background: var(--lit-btn-primary-bg); border: none; color: var(--lit-btn-primary-text); font-weight: 600; font-family: var(--lit-font); }
+.formSubmit:hover { background: var(--lit-btn-primary-bg-hover); }
+.formSubmit:disabled { opacity: .5; cursor: default; }

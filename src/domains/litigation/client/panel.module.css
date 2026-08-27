@@ -1,0 +1,519 @@
+/**
+ * Litigation panel styles — AgentLex warm-paper design language.
+ *
+ * Design tokens (`--lit-*`) reproduce the AgentLex myagents-default palette
+ * and switch on dsh's dark-mode marker (`body[data-ds-dark-theme]`), so the
+ * panel keeps the AgentLex look in both dsh color schemes. The center-column
+ * takeover rules are attribute-scoped and must stay in this stylesheet
+ * (imported by mount.tsx, so the styles load with the plugin).
+ */
+
+/* --- AgentLex design tokens ------------------------------------------------- */
+
+:root {
+  --lit-ink: #1c1612;
+  --lit-ink-secondary: #2e2825;
+  --lit-ink-muted: #6f6156;
+  --lit-ink-subtle: #a69a90;
+  --lit-ink-faint: #c4b8ad;
+
+  --lit-paper: #f9f5ee;
+  --lit-paper-elevated: #fffcf7;
+  --lit-paper-inset: #ece2d4;
+  --lit-hover-bg: rgba(194, 109, 58, 0.07);
+  --lit-hover-bg-strong: rgba(194, 109, 58, 0.12);
+
+  --lit-accent: #c26d3a;
+  --lit-accent-hover: #e18a58;
+  --lit-accent-strong: #b05e2d;
+  --lit-accent-subtle: rgba(194, 109, 58, 0.08);
+  --lit-accent-muted: rgba(194, 109, 58, 0.15);
+  --lit-accent-cool: #2e6f5e;
+  --lit-accent-cool-hover: #3d8a75;
+  --lit-on-accent: #ffffff;
+
+  --lit-success: #2d8a5e;
+  --lit-success-bg: #e2f0e8;
+  --lit-error: #dc2626;
+  --lit-error-bg: #fee2e2;
+  --lit-error-hover: #b91c1c;
+  --lit-warning: #d97706;
+  --lit-warning-bg: #fef3c7;
+  --lit-info: #4a7ab5;
+  --lit-info-bg: #e4ecf4;
+
+  --lit-line: rgb(28 22 18 / 0.28);
+  --lit-line-strong: rgb(28 22 18 / 0.44);
+  --lit-line-subtle: rgb(28 22 18 / 0.16);
+
+  --lit-btn-primary-bg: #c26d3a;
+  --lit-btn-primary-bg-hover: #b05e2d;
+  --lit-btn-primary-text: #ffffff;
+  --lit-btn-dark-bg: #1c1612;
+  --lit-btn-dark-bg-hover: #3a3532;
+  --lit-btn-dark-text: #ffffff;
+  --lit-btn-secondary-bg: #f2f0ec;
+  --lit-btn-secondary-bg-hover: #e8e6e2;
+  --lit-btn-secondary-text: #1c1612;
+
+  --lit-radius-sm: 6px;
+  --lit-radius-md: 10px;
+  --lit-radius-lg: 14px;
+  --lit-radius-xl: 20px;
+  --lit-shadow-card: 0 1px 2px rgb(28 22 18 / 0.04);
+  --lit-shadow-pop: 0 8px 24px rgb(28 22 18 / 0.12), 0 2px 6px rgb(28 22 18 / 0.06);
+  --lit-font: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', sans-serif;
+  --lit-font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'Consolas', Menlo, monospace;
+}
+
+body[data-ds-dark-theme] {
+  --lit-ink: #e4dcd4;
+  --lit-ink-secondary: #cfc5ba;
+  --lit-ink-muted: #968a7e;
+  --lit-ink-subtle: #685c52;
+  --lit-ink-faint: #4a4038;
+
+  --lit-paper: #1a1614;
+  --lit-paper-elevated: #242018;
+  --lit-paper-inset: #12100e;
+  --lit-hover-bg: rgba(212, 128, 63, 0.12);
+  --lit-hover-bg-strong: rgba(212, 128, 63, 0.20);
+
+  --lit-accent: #d4803f;
+  --lit-accent-hover: #e89860;
+  --lit-accent-strong: #b05e2d;
+  --lit-accent-subtle: rgba(212, 128, 63, 0.12);
+  --lit-accent-muted: rgba(212, 128, 63, 0.20);
+  --lit-accent-cool: #4aad8a;
+  --lit-accent-cool-hover: #5ec49e;
+
+  --lit-success: #4aad7a;
+  --lit-success-bg: rgba(74, 173, 122, 0.15);
+  --lit-error: #ef4444;
+  --lit-error-bg: rgba(239, 68, 68, 0.15);
+  --lit-error-hover: #dc2626;
+  --lit-warning: #f59e0b;
+  --lit-warning-bg: rgba(245, 158, 11, 0.15);
+  --lit-info: #6b9fd4;
+  --lit-info-bg: rgba(107, 159, 212, 0.15);
+
+  --lit-line: rgb(228 220 212 / 0.10);
+  --lit-line-strong: rgb(228 220 212 / 0.18);
+  --lit-line-subtle: rgb(228 220 212 / 0.06);
+
+  --lit-btn-primary-bg: #b05e2d;
+  --lit-btn-primary-bg-hover: #9c5027;
+  --lit-btn-primary-text: #ffffff;
+  --lit-btn-dark-bg: #443e36;
+  --lit-btn-dark-bg-hover: #564e44;
+  --lit-btn-dark-text: #e4dcd4;
+  --lit-btn-secondary-bg: #302a22;
+  --lit-btn-secondary-bg-hover: #3a342c;
+  --lit-btn-secondary-text: #e4dcd4;
+
+  --lit-shadow-card: 0 1px 2px rgb(0 0 0 / 0.30);
+  --lit-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.42), 0 2px 6px rgb(0 0 0 / 0.22);
+}
+
+/* --- center-column takeover (global rules, attribute-scoped) -----------------
+ *
+ * v3 layout: opening the 诉讼案件 panel takes over the center column as a
+ * full page — the conversation is hidden while the panel is active, and the
+ * panel fills the whole center width (原 AgentLex 桌面版「诉讼页面在主区」的
+ * 观感)。The center column is a flex column; while the panel is active it
+ * flips to `flex-direction: row`, the conversation subtree is hidden, and the
+ * panel becomes the only in-flow item. */
+
+.view {
+  position: absolute;
+  inset: 0;
+  display: none;
+  z-index: 60;
+  background: var(--dsw-alias-bg-base, var(--lit-paper));
+}
+
+[data-pane='conversation'],
+[class*='centerCol'] {
+  position: relative;
+}
+
+[data-dsh-litigation-view] {
+  position: absolute;
+  inset: 0;
+  display: none;
+  z-index: 60;
+  background: var(--dsw-alias-bg-base, var(--lit-paper));
+}
+
+html[data-dsh-litigation-active]:not([data-dsh-nonlitigation-active]):not([data-dsh-task-active]):not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-litigation-view] {
+  display: block;
+}
+
+/* 会话视图在面板打开时隐藏，面板成为整列覆盖（与任务/非诉面板一致）。 */
+html[data-dsh-litigation-active]:not([data-dsh-nonlitigation-active]):not([data-dsh-task-active]):not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'] > :not([data-dsh-litigation-view]),
+html[data-dsh-litigation-active]:not([data-dsh-nonlitigation-active]):not([data-dsh-task-active]):not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [class*='centerCol'] > :not([data-dsh-litigation-view]) {
+  display: none !important;
+}
+
+/* Panel inner host: fills the panel, holds the React tree. */
+.host {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Floating close button on the conversation side of the panel edge. */
+.closeFab {
+  position: absolute;
+  top: 12px;
+  left: -34px;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--lit-line);
+  border-radius: 8px 0 0 8px;
+  background: var(--lit-paper-elevated);
+  color: var(--lit-ink-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.closeFab:hover {
+  background: var(--lit-hover-bg);
+  color: var(--lit-ink);
+}
+
+/* Drag handle on the panel's left edge (resize). */
+.resizeHandle {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 70;
+}
+
+/* --- sidebar entry row ------------------------------------------------------- */
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 14px;
+  background: transparent;
+  border: none;
+  border-radius: 9px;
+  color: var(--lit-ink-muted);
+  font: inherit;
+  font-family: var(--lit-font);
+  font-size: 15px;
+  font-weight: 550;
+  line-height: 24px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+
+.entry:hover {
+  background: var(--lit-hover-bg);
+}
+
+.entry[data-active='true'] {
+  background: var(--lit-accent-subtle);
+  color: var(--lit-accent);
+}
+
+.entryIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.entryLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- panel shell ------------------------------------------------------------- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--lit-font);
+  color: var(--lit-ink);
+  background: var(--dsw-alias-bg-base, var(--lit-paper));
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 14px 24px 12px;
+  border-bottom: 1px solid var(--lit-line-subtle);
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 28px;
+  color: var(--lit-ink);
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--lit-ink-subtle);
+}
+
+.agentToggle {
+  margin-left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--lit-radius-sm);
+  border: 1px solid var(--lit-accent);
+  background: var(--lit-accent-subtle);
+  color: var(--lit-accent);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--lit-font);
+  cursor: pointer;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+
+.agentToggle:hover:not(:disabled) {
+  background: var(--lit-accent-muted);
+  box-shadow: var(--lit-shadow-card);
+}
+
+.agentToggle:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.close {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--lit-ink-subtle);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--lit-radius-sm);
+}
+
+.close:hover {
+  background: var(--lit-hover-bg);
+  color: var(--lit-ink);
+}
+
+.body {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+
+.comingSoon {
+  color: var(--lit-ink-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.healthRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 12px;
+}
+
+.healthLabel {
+  color: var(--lit-ink-subtle);
+}
+
+.healthOk {
+  color: var(--lit-success);
+}
+
+.healthBad {
+  color: var(--lit-error);
+}
+
+/* --- detail navigation + confirm ------------------------------------------ */
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--lit-ink-muted);
+  font-family: var(--lit-font);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--lit-radius-sm);
+  white-space: nowrap;
+}
+
+.backBtn:hover {
+  background: var(--lit-hover-bg);
+  color: var(--lit-ink);
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgb(0 0 0 / 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirmBox {
+  min-width: 340px;
+  max-width: 90vw;
+  padding: 20px;
+  background: var(--lit-paper-elevated);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-lg);
+  box-shadow: var(--lit-shadow-pop);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-family: var(--lit-font);
+}
+
+.confirmText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--lit-ink);
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ghostBtn {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-family: var(--lit-font);
+  border-radius: var(--lit-radius-sm);
+  cursor: pointer;
+  background: var(--lit-btn-secondary-bg);
+  border: none;
+  color: var(--lit-btn-secondary-text);
+  font-weight: 550;
+}
+
+.ghostBtn:hover {
+  background: var(--lit-btn-secondary-bg-hover);
+}
+
+.dangerBtn {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-family: var(--lit-font);
+  border-radius: var(--lit-radius-sm);
+  cursor: pointer;
+  background: var(--lit-error);
+  border: none;
+  color: var(--lit-on-accent, #ffffff);
+  font-weight: 600;
+}
+
+.dangerBtn:hover {
+  background: var(--lit-error-hover);
+}
+
+/* ═══ v2 视觉打磨：面板头部与确认弹窗 ═══ */
+.header {
+  padding: 18px 28px 14px;
+  border-bottom-color: var(--lit-line-subtle);
+  background: linear-gradient(180deg, var(--dsw-alias-bg-layer-1, var(--lit-paper-elevated)), var(--dsw-alias-bg-base, var(--lit-paper)));
+}
+.title { letter-spacing: -0.01em; }
+.subtitle { letter-spacing: 0.01em; }
+.close { border-radius: var(--lit-radius-sm); }
+.backBtn { border-radius: var(--lit-radius-sm); transition: background-color 0.15s; }
+
+.modalOverlay { backdrop-filter: blur(3px); }
+.confirmBox {
+  border-radius: var(--lit-radius-xl);
+  border-color: var(--lit-line-subtle);
+  box-shadow: 0 24px 64px rgb(28 22 18 / 0.18), 0 4px 12px rgb(28 22 18 / 0.08);
+}
+.dangerBtn { border-radius: var(--lit-radius-md); }
+.ghostBtn { border-radius: var(--lit-radius-md); }
+
+/* ═══ 手机版（视口 ≤1023px，与 dsh-mobile-hanui 外壳一致）═══ */
+.panel { position: relative; }
+
+@media (max-width: 1023px) {
+  /* 手机版：面板占满整列（无并排空间），不再缩进会话。 */
+  [data-dsh-litigation-view] {
+    width: 100%;
+    border-left: none;
+    box-shadow: none;
+  }
+  /* 手机版：保持列方向，会话被面板覆盖（无并排空间）。 */
+  html[data-dsh-litigation-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'],
+  html[data-dsh-litigation-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [class*='centerCol'] {
+    flex-direction: column;
+  }
+  .closeFab {
+    left: auto;
+    right: 10px;
+    top: 10px;
+    border-radius: 8px;
+  }
+  .resizeHandle { display: none; }
+  .header {
+    padding: 10px 14px 8px;
+    align-items: center;
+    gap: 8px;
+  }
+  .title {
+    font-size: 15px;
+    line-height: 20px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .subtitle { display: none; }
+  .close { margin-left: auto; padding: 6px 10px; }
+  .agentToggle { margin-left: auto; }
+  .backBtn { padding: 6px 8px; }
+  .confirmBox {
+    width: calc(100vw - 32px);
+    min-width: 0;
+    max-width: none;
+    padding: 18px 16px;
+    border-radius: var(--lit-radius-lg);
+  }
+  .confirmActions { gap: 8px; }
+  .ghostBtn { flex: 1; height: 40px; }
+  .dangerBtn { flex: 1.2; height: 40px; }
+}

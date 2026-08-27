@@ -58,6 +58,12 @@ interface ConnectionLike {
 
 interface SessionsManagerLike {
   open(sessionId: string): void
+  /** The useSessions list feed — used to wait for a freshly created session to
+   *  appear before open() (open throws on unknown ids). */
+  list?: {
+    getSnapshot(): { byId?: Record<string, unknown>; ids?: string[] }
+    subscribe?(listener: () => void): () => void
+  }
 }
 
 /** Minimal client context: a cordis-like `get(name)` service resolver. */
@@ -123,6 +129,71 @@ export function openExistingSession(
   if (!sessions) return false
   sessions.open(sessionId)
   return true
+}
+
+/**
+ * Wait for a freshly created session to appear in the sessions list feed,
+ * then select it. `sessions.open` throws on unknown ids, and a just-created
+ * session may not be in the client's list snapshot yet (the list refreshes
+ * asynchronously after the create RPC). Polling the list feed (with a
+ * subscribe fallback) closes that gap so the UI reliably jumps to the new
+ * session.
+ * @returns true when the session was selected; false when it never appeared.
+ */
+async function openWhenListed(
+  sessions: SessionsManagerLike,
+  sessionId: string,
+): Promise<boolean> {
+  const list = sessions.list
+  const listed = (): boolean => {
+    const snap = list?.getSnapshot()
+    if (snap?.byId && snap.byId[sessionId]) return true
+    if (snap?.ids && snap.ids.includes(sessionId)) return true
+    return false
+  }
+  if (listed()) {
+    sessions.open(sessionId)
+    return true
+  }
+  // 列表尚未包含新会话：轮询等待（最多 ~5s），期间若订阅可用则优先订阅。
+  const DEADLINE = Date.now() + 5000
+  const wait = (): Promise<boolean> => new Promise((resolve) => {
+    let done = false
+    const finish = (ok: boolean): void => {
+      if (done) return
+      done = true
+      resolve(ok)
+    }
+    const unsub = list?.subscribe?.(() => {
+      if (listed()) {
+        unsub?.()
+        finish(true)
+      }
+    })
+    const timer = window.setInterval(() => {
+      if (listed()) {
+        window.clearInterval(timer)
+        unsub?.()
+        finish(true)
+      } else if (Date.now() > DEADLINE) {
+        window.clearInterval(timer)
+        unsub?.()
+        finish(false)
+      }
+    }, 100)
+  })
+  const ok = await wait()
+  if (ok) {
+    sessions.open(sessionId)
+    return true
+  }
+  // 超时兜底：会话可能已在列表但快照未刷新，仍尝试 open（失败静默）。
+  try {
+    sessions.open(sessionId)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -207,7 +278,9 @@ export async function createBusinessSession(
     }
   }
 
-  // 5. Switch the DSH UI to this session.
-  sessions.open(sessionId)
+  // 5. Switch the DSH UI to this session. Wait for the session to appear in
+  //    the list first (open throws on unknown ids; a just-created session may
+  //    not be in the client's list snapshot yet).
+  await openWhenListed(sessions, sessionId)
   return sessionId
 }

@@ -1,0 +1,70 @@
+/**
+ * Task tree styles — AgentLex design language (--lit-* tokens).
+ */
+
+.tree { display: flex; flex-direction: column; gap: 14px; font-family: var(--lit-font); }
+.treeError { margin: 0; font-size: 12px; color: var(--lit-error); }
+.treeEmpty { color: var(--lit-ink-subtle); font-size: 13px; padding: 12px 0; }
+.groups { display: flex; flex-direction: column; gap: 14px; }
+
+/* --- group -------------------------------------------------------------- */
+.group { border: 1px solid var(--lit-line); border-radius: var(--lit-radius-lg); background: var(--lit-paper-elevated); overflow: hidden; box-shadow: var(--lit-shadow-card); }
+.groupHeader { display: flex; align-items: center; gap: 8px; padding: 9px 14px; background: var(--lit-paper-elevated); border-bottom: 1px solid var(--lit-line-subtle); }
+.groupName { flex: 1; font-size: 13px; font-weight: 650; color: var(--lit-ink); background: none; border: none; outline: none; padding: 2px 4px; border-radius: var(--lit-radius-sm); font-family: var(--lit-font); }
+.groupName:hover, .groupName:focus { background: var(--lit-hover-bg); }
+.groupCount { font-size: 11px; color: var(--lit-ink-subtle); font-family: var(--lit-font-mono); }
+.groupActions { display: flex; gap: 2px; }
+.iconBtn { background: none; border: none; color: var(--lit-ink-subtle); cursor: pointer; font-size: 12px; padding: 3px 7px; border-radius: var(--lit-radius-sm); }
+.iconBtn:hover { background: var(--lit-hover-bg); color: var(--lit-ink); }
+.iconBtnDanger { background: none; border: none; color: var(--lit-ink-subtle); cursor: pointer; font-size: 11px; padding: 3px 7px; border-radius: var(--lit-radius-sm); opacity: 0; }
+.group:hover .iconBtnDanger, .task:hover .iconBtnDanger { opacity: 1; }
+.iconBtnDanger:hover { background: var(--lit-error-bg); color: var(--lit-error); }
+
+.taskList { display: flex; flex-direction: column; }
+.task { border-bottom: 1px solid var(--lit-line-subtle); }
+.task:last-child { border-bottom: none; }
+.taskRow { display: flex; align-items: center; gap: 8px; padding: 7px 14px; }
+.taskRow:hover { background: var(--lit-hover-bg); }
+.statusToggle { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--lit-line-strong); background: none; color: var(--lit-success); font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: none; transition: border-color 0.12s, background 0.12s; }
+.statusToggle:hover { border-color: var(--lit-accent); }
+.statusToggleDone { composes: statusToggle; background: var(--lit-success); border-color: var(--lit-success); color: #fff; }
+.taskTitle { flex: 1; min-width: 0; font-size: 13px; color: var(--lit-ink); background: none; border: none; outline: none; padding: 2px 4px; border-radius: var(--lit-radius-sm); font-family: var(--lit-font); }
+.taskTitle:hover, .taskTitle:focus { background: var(--lit-hover-bg); }
+.taskTitleDone { color: var(--lit-ink-subtle); text-decoration: line-through; }
+.deadline { font-size: 11px; color: var(--lit-ink-subtle); flex: none; white-space: nowrap; font-family: var(--lit-font-mono); }
+.deadlineOverdue { font-size: 11px; color: var(--lit-error); flex: none; white-space: nowrap; font-weight: 600; font-family: var(--lit-font-mono); }
+.priority { font-size: 10px; padding: 1px 7px; border-radius: 999px; flex: none; font-weight: 600; }
+.p-high { background: var(--lit-error-bg); color: var(--lit-error); }
+.p-medium { background: var(--lit-warning-bg); color: var(--lit-warning); }
+.p-low { background: var(--lit-paper-inset); color: var(--lit-ink-muted); }
+.keydateBadge { font-size: 10px; padding: 1px 7px; border-radius: 999px; flex: none; font-weight: 600; background: var(--lit-accent-subtle); color: var(--lit-accent); white-space: nowrap; font-family: var(--lit-font-mono); }
+.keydateToggle { width: 20px; height: 20px; flex: none; background: none; border: 1px solid var(--lit-line-strong); border-radius: var(--lit-radius-sm); color: var(--lit-ink-subtle); font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.keydateToggle:hover { border-color: var(--lit-accent); color: var(--lit-accent); }
+.keydateToggle:disabled { opacity: .4; cursor: default; }
+.keydateOn { border-color: var(--lit-accent); background: var(--lit-accent-subtle); color: var(--lit-accent); }
+
+/* --- children ------------------------------------------------------------- */
+.taskChildren { padding: 0 14px 10px 38px; display: flex; flex-direction: column; gap: 4px; }
+.subtaskRow { display: flex; align-items: center; gap: 8px; padding: 3px 4px; }
+.subCheck, .subCheckDone { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--lit-line-strong); background: none; color: #fff; font-size: 10px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: none; transition: background 0.12s; }
+.subCheckDone { background: var(--lit-success); border-color: var(--lit-success); }
+.subLabel { font-size: 12px; color: var(--lit-ink); flex: 1; }
+.subLabelDone { font-size: 12px; color: var(--lit-ink-subtle); text-decoration: line-through; flex: 1; }
+.checkList { border-top: 1px dashed var(--lit-line); margin-top: 4px; padding-top: 4px; }
+.checkMeta { font-size: 10px; color: var(--lit-ink-subtle); padding: 2px 4px; }
+.subAddBtn { align-self: flex-start; background: none; border: none; color: var(--lit-ink-subtle); font-size: 11px; cursor: pointer; padding: 3px 6px; border-radius: var(--lit-radius-sm); font-family: var(--lit-font); }
+.subAddBtn:hover { color: var(--lit-ink); background: var(--lit-hover-bg); }
+.subtaskAdd { display: flex; gap: 6px; margin-top: 2px; }
+
+/* --- inline add / inputs --------------------------------------------------- */
+.inlineAdd { display: flex; gap: 6px; padding: 8px 14px; }
+.subInput { flex: 1; height: 28px; padding: 0 9px; font-size: 12px; color: var(--lit-ink); background: var(--lit-paper); border: 1px solid var(--lit-line); border-radius: var(--lit-radius-sm); outline: none; min-width: 0; font-family: var(--lit-font); }
+.subInput:focus { border-color: var(--lit-accent); box-shadow: 0 0 0 2px var(--lit-accent-subtle); }
+.smallBtn { height: 28px; padding: 0 12px; font-size: 12px; border-radius: var(--lit-radius-sm); cursor: pointer; background: var(--lit-btn-primary-bg); border: none; color: var(--lit-btn-primary-text); font-weight: 550; flex: none; font-family: var(--lit-font); }
+.smallBtn:hover { background: var(--lit-btn-primary-bg-hover); }
+.smallBtn:disabled { opacity: .5; cursor: default; }
+.groupAdd { display: flex; gap: 6px; }
+.groupNameInput { flex: 1; height: 30px; padding: 0 10px; font-size: 13px; color: var(--lit-ink); background: var(--lit-paper); border: 1px solid var(--lit-line); border-radius: var(--lit-radius-sm); outline: none; font-family: var(--lit-font); }
+.groupNameInput:focus { border-color: var(--lit-accent); }
+.addGroupBtn { align-self: flex-start; background: none; border: 1px dashed var(--lit-line-strong); color: var(--lit-ink-muted); font-size: 12px; padding: 8px 14px; border-radius: var(--lit-radius-md); cursor: pointer; font-family: var(--lit-font); }
+.addGroupBtn:hover { border-color: var(--lit-accent); color: var(--lit-accent); background: var(--lit-accent-subtle); }

@@ -96,7 +96,10 @@ export async function pickDirectoryPath(initialPath = ''): Promise<string | null
     const ctxKeys = ctxRef !== undefined ? Object.keys(ctxRef as object).slice(0, 12).join(',') : '(无 ctx)'
     const hasGet = ctxRef !== undefined && typeof (ctxRef as { get?: unknown }).get === 'function'
     recordError(`workspaces 服务解析失败（hasCtx=${ctxRef !== undefined}，hasGet=${hasGet}，ctxKeys=${ctxKeys}）`)
-    return null
+    // 原生选择框不可达（workspaces 未解析/未注入）时，退回应用内目录浏览框，
+    // 保证「选择文件夹」在任何环境都有可用 UI，而不是静默返回 null 让调用方
+    // 落到手填。宿主装配 native 能力时（本机 loopback）仍优先走原生框。
+    return await openBrowseDirectoryDialog(initialPath)
   }
   try {
     const picked = await workspaces.pickDirectory()

@@ -1,0 +1,398 @@
+/**
+ * Case-folder tab styles — pixel-parity with dsh-better-sidebar's native
+ * file tab. The rules below mirror the plugin's own sidebar.module.css
+ * (explorer rows / tree-panel search / menu) using the same
+ * --dsw-alias-* semantic tokens and fonts, so the 案件文件夹 tab renders
+ * with the exact same colors, hover fills and row geometry as the native
+ * 文件 tab in both light and dark skins.
+ */
+
+/* ── Tab body ──────────────────────────────────────────────────────── */
+
+.tab {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The search + refresh strip (mirror of the native tree panel header). */
+.searchRow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* The tree body (mirror of explorerBody). */
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px 6px 8px;
+}
+
+/* One tree row (mirror of explorerRow: 34px, radius 8, hover fill, 22px
+   indent step, 14px ink, mount fade). */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  font: var(--dsw-font-s-14);
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: 8px;
+  animation: cf-row-in 150ms var(--ds-ease-in-out, ease-in-out);
+}
+
+.row:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.rowDir {
+  font: var(--dsw-font-s-strong-14);
+}
+
+.rowName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowIcon {
+  flex: none;
+}
+
+.rowMeta {
+  flex: none;
+  margin-left: auto;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The hover-revealed @-reference pill (mirror of explorerRef). */
+.rowRef {
+  flex: none;
+  display: none;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-strong-11);
+  cursor: pointer;
+}
+
+.rowRef:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.row:hover .rowRef,
+.row:focus-within .rowRef {
+  display: inline-flex;
+}
+
+.rowCopied {
+  flex: none;
+  margin-left: auto;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.hint {
+  padding: 8px 12px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* Flat search-result rows (mirror of editorSearchResult). */
+.searchResult {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchResult:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* ── Folder picker (path-less tab opened from the + menu) ──────────── */
+
+.picker {
+  padding: 12px 8px;
+}
+
+.pickerTitle {
+  padding: 0 8px 2px;
+  font: var(--dsw-font-s-strong-14);
+  color: var(--dsw-alias-label-primary);
+}
+
+.pickerHint {
+  padding: 0 8px 10px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.pickerInputRow {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px 10px;
+}
+
+.pickerInput {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.pickerInput:focus {
+  outline: none;
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.pickerButton {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+  cursor: pointer;
+}
+
+.pickerButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.pickerButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pickerGroup {
+  padding: 8px 8px 2px;
+  font: var(--dsw-font-xxxs-strong-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.pickerSub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* ── Context menu (right-click on tree rows) ───────────────────────── */
+
+.menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 172px;
+  max-width: 260px;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: 0 6px 24px var(--dsw-alias-overlay-shadow, rgba(0, 0, 0, 0.18));
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menuItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.menuItemIcon {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.menuSeparator {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--dsw-alias-border-l1);
+}
+
+/* ── In-tab preview modals (image / text fallback) ─────────────────── */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.modalBox {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 720px;
+  max-height: 80%;
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.modalHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.modalTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--dsw-font-s-strong-14);
+  color: var(--dsw-alias-label-primary);
+}
+
+.modalClose {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.modalClose:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.modalPre {
+  padding: 12px;
+  margin: 0;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.modalImage {
+  padding: 12px;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+/* Mount fade for tree rows (the app's session-row reveal). */
+@keyframes cf-row-in {
+  from { opacity: 0; }
+}

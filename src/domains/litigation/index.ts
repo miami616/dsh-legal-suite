@@ -22,6 +22,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Events } from '@deepseek-ai/cordis'
+import { syncShippedPreset } from '../../shared/preset-sync.ts'
 import { createCaseStore } from './store/case-store.ts'
 import { createScheduleStore } from './store/schedule-store.ts'
 import { createTimelineStore } from './store/timeline-store.ts'
@@ -108,6 +109,12 @@ export function resolveDataDir(configured?: string): string {
  * idempotent and runs on every host-plane apply, so manually installed copies
  * can be deleted freely (the next boot restores the shipped preset).
  *
+ * The copy rewrites the preset's agent-plugin row (`name: dsh-legal-suite`) to
+ * this package's own absolute entry URL, because the agent-preset loader
+ * resolves `name:` from the App install tree, not from the profile's
+ * node_modules — a bare package name fails with "Cannot find package".
+ * See src/shared/preset-sync.ts.
+ *
  * Multiple apply/sync calls race on the same target (a reload re-runs apply
  * with a fresh closure); the module-level queue serializes them and the copy
  * is done entry-by-entry into an explicitly created target directory, so
@@ -124,11 +131,7 @@ async function syncPresetsOnce(presetIds: string[]): Promise<void> {
     const source = join(packageRoot, 'presets', presetId)
     const target = join(home, '.agent-presets', presetId)
     try {
-      await rm(target, { recursive: true, force: true })
-      await mkdir(target, { recursive: true })
-      for (const entry of await readdir(source, { withFileTypes: true })) {
-        await cp(join(source, entry.name), join(target, entry.name), { recursive: true, force: true })
-      }
+      await syncShippedPreset(source, target)
     } catch (error) {
       console.warn(`[agentlex-litigation] preset sync failed (${presetId}):`, error)
     }

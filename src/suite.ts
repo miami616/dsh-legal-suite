@@ -1,10 +1,10 @@
 // @ts-nocheck
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings';
 import z from 'schemastery';
-import { cp, mkdir, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
+import { syncShippedPreset } from './shared/preset-sync.ts';
 export const name = 'dsh-legal-suite';
 export const inject = ['webServer'];
 export const AGENTLEX_SUITE_SETTINGS_NS = settingsNamespace('agentlex-legal-suite');
@@ -156,12 +156,12 @@ async function ensureAgentPresets() {
             const src = join(pkgRoot, 'presets', preset);
             const dst = join(userPresetRoot, preset);
             try {
-                // 先清空旧目录再整目录复制：避免历史残留（如 Finder 生成的
-                // .DS_Store、半同步状态）导致 cp 叠加出损坏预设或 rmdir ENOTEMPTY
-                // （issue:「非诉管家 agent 预设提示错误」）。
-                await rm(dst, { recursive: true, force: true });
-                await mkdir(dst, { recursive: true });
-                await cp(src, dst, { recursive: true, force: true });
+                // 先清空旧目录再整目录复制（同步时把预设的 name 裸包名改写为本包
+                // 绝对入口 URL，见 src/shared/preset-sync.ts）：避免历史残留（如
+                // Finder 生成的 .DS_Store、半同步状态）导致 cp 叠加出损坏预设或
+                // rmdir ENOTEMPTY（issue:「非诉管家 agent 预设提示错误」），同时
+                // 修复「预设无法挂载：Cannot find package 'dsh-legal-suite'」。
+                await syncShippedPreset(src, dst);
                 count++;
             }
             catch (error) {

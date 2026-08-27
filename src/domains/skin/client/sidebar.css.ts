@@ -218,12 +218,13 @@ html[data-agentlex-theme] [data-agentlex-group-items] button[data-dsh-task-entry
   text-align: left;
   transition: background-color 120ms ease, color 120ms ease;
 }
-/* 行间距：2px（与大类按钮的 1px/2px 上下边距节奏一致，密排）。
+/* 行间距：5px（比大类按钮的 1px/2px 上下边距节奏略松，三个子项视觉上
+   更分明）。
    必须 !important：同文件基础规则 button[...]{margin:0} 的特异性
    （3 个属性）高于后继选择器（2 个属性），不加 !important 会被永久压掉，
    表现为 10→20→30px 改了几轮界面毫无变化。 */
 html[data-agentlex-theme] [data-agentlex-group-items] > div > button + button {
-  margin-top: 2px !important;
+  margin-top: 5px !important;
 }
 /* 图标：单色（无主题色块），20px 列内 15px 图标 */
 html[data-agentlex-theme] [data-agentlex-group-items] button[data-dsh-litigation-entry] > span:first-child,

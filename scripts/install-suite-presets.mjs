@@ -12,10 +12,11 @@
  *
  * Usage: node scripts/install-suite-presets.mjs
  */
-import { cp, mkdir } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { syncShippedPreset } from '../lib/shared/preset-sync.js'
 
 const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 const userPresetRoot = join(home, '.agent-presets')
@@ -43,8 +44,11 @@ for (const preset of PRESETS) {
   const src = join(pkgRoot, 'presets', preset)
   const dst = join(userPresetRoot, preset)
   try {
+    // syncShippedPreset 会把 agent.cordis.yml 里的 name: 'dsh-legal-suite'
+    // 改写为本包绝对入口 URL（agent 预设加载器解析不到裸包名，见
+    // src/shared/preset-sync.ts），其余文件原样复制。
     await mkdir(dst, { recursive: true })
-    await cp(src, dst, { recursive: true, force: true })
+    await syncShippedPreset(src, dst)
     console.log(`[agentlex-suite] 预设已安装 → ${dst}`)
     installed++
   } catch (err) {

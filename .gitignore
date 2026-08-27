@@ -10,3 +10,6 @@ lib/
 
 # local codebase-memory index artifact
 .codebase-memory/
+
+# local isolated test instance (new-port regression tests)
+.dsh-test/

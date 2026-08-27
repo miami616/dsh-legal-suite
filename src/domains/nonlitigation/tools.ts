@@ -56,7 +56,7 @@ function resolveHostBaseUrl(ctx: Context): string {
 
 async function api(body: Record<string, unknown>, baseUrl: string): Promise<unknown> {
   const path = String(body.route ?? 'projects')
-  const { path: _omit, ...payload } = body
+  const { route: _omit, ...payload } = body
   const response = await fetch(`${baseUrl}/api/agentlex-nonlitigation/${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -119,7 +119,7 @@ export function registerNonLitigationHttpTool(ctx: Context): () => void {
       const action = args.action as Action
       if (!ACTIONS.includes(action)) throw new Error(`unknown action: ${String(args.action)}`)
       const route = HTTP_ROUTE[action]
-      const body: Record<string, unknown> = { path: route.path }
+      const body: Record<string, unknown> = { route: route.path }
       if (args.projectId !== undefined) body.projectId = String(args.projectId)
       if (args.name !== undefined) body.name = String(args.name)
       if (args.projectType !== undefined) body.projectType = String(args.projectType)

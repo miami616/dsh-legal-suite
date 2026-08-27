@@ -22,29 +22,36 @@
       汇总近期到期事项（deadlines 默认只列未到期事项，需查历史过期可传 includeOverdue=true）。
       三套体系分工：任务树=执行清单、关键日期=提醒清单、时间轴=程序节点；同一事项只登记必要的体系，避免重复。
       工作方式：优先使用 litigation 工具完成数据读写（工具变更会实时刷新界面），
-      需产出报告/文档时用文件工具读写到用户工作目录或桌面（遵循沙箱白名单）；
+      需产出报告/文档时用文件工具写入沙箱白名单内的路径（通常是用户工作目录；写白名单外位置需用户显式授权）；
       回答要简洁、面向行动，涉及法定期限时给出日期与提醒。
       数据存储在 $DSH_HOME/agentlex/litigation/，与 AgentLex 桌面应用数据分离。
 
       【文档读取】用户常提供 Word（.docx/.doc）、PDF、Excel 等法律文书（起诉状、合同、判决书、证据清单）。
       .docx 是 ZIP 封装的 OOXML 二进制，不能用 read 工具直接读（read 只解码 UTF-8 文本）。
-      读取文档请按以下流程：
+      读取文档请按以下流程（先探测可用能力，再决定路径）：
       1. 优先加载对应技能：Word 用 word-docx 技能、PDF/图片用 pdf-image-text-extractor 技能、Excel 用 excel-xlsx 技能（用 skill 工具加载，按其说明操作）。
-      2. 用 bash 工具执行文本提取命令（pandoc / unzip / python 等），把文档内容转成可读文本后再分析。
-      3. 提取出的关键事实（当事人、案由、标的、期限、证据）用 litigation 工具登记进案件。
-      4. 需要产出文书时，用文件工具把结果写回用户工作目录或桌面。
+      2. 若当前会话提供 shell 工具（macOS/Linux 为 bash，Windows 为 PowerShell），用 shell 执行文本提取命令（pandoc / unzip / python 等），把文档内容转成可读文本后再分析。
+      3. 若无 shell 工具（或环境缺 pandoc/unzip/python），改用 read_image 读取 PDF/图片页，或请用户把文档另存为纯文本 (.txt) 再提交；不要假设已读取成功。
+      4. 提取出的关键事实（当事人、案由、标的、期限、证据）用 litigation 工具登记进案件。
+      5. 需要产出文书时，用文件工具写入沙箱白名单内的路径（通常是用户工作目录）；写白名单外位置（如桌面）需用户显式授权，被拒时改写到工作目录并说明。
 
 # ── shell (document extraction capability) ─────────────────────────────────
 # 读取 Word/PDF/Excel 等二进制文档需要执行转换/提取命令（pandoc、unzip、python 等）。
-# dsh-tool-bash 挂载 shell 工具；其执行器与沙箱策略由宿主层提供（与 standard 预设一致）。
+# 与 DSH standard 预设一致：bash 仅在非 Windows 启用，Windows 用 PowerShell
+# （tool-pwsh）替代——两条分支任一平台上都至少有一个 shell 工具可用。
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
   disabled: !!js process.platform === 'win32'
 
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
 # ── file tools (office capability, scoped to this preset) ───────────────────
 # 办公/事务场景需要把报告、部署说明等直接落盘，仅 litigation 数据工具无法产出文档。
-# dsh-tool-fs / dsh-tool-fs-search 挂载文件读写 + 目录访问工具；其 fs 服务与沙箱策略
-# 由宿主层提供（白名单为用户工作目录、桌面、可配置路径），本行只登记模型可见的工具。
+# dsh-tool-fs / dsh-tool-fs-search 挂载文件读写 + 目录访问工具；fs 服务与沙箱
+# 策略由宿主层提供——实际白名单以宿主 sandbox 为准（当前为工作目录等，
+# 桌面等白名单外路径需用户显式授权），本行只登记模型可见的工具，不扩展权限。
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
 

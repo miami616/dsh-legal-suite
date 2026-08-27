@@ -1,5 +1,11 @@
 # AgentLex Legal Suite
 
+[![npm version](https://img.shields.io/npm/v/dsh-legal-suite.svg?style=flat-square)](https://www.npmjs.com/package/dsh-legal-suite)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-legal-suite.svg?style=flat-square)](https://www.npmjs.com/package/dsh-legal-suite)
+[![GitHub release](https://img.shields.io/github/v/release/miami616/dsh-legal-suite.svg?style=flat-square)](https://github.com/miami616/dsh-legal-suite/releases)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg?style=flat-square)](./LICENSE)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-miami616%2Fdsh--legal--suite-181717.svg?logo=github&style=flat-square)](https://github.com/miami616/dsh-legal-suite)
+
 **AI 驱动的法律行业案件管理与 Agent 工具** —— 面向律师与法律工作者的智能工作台，运行于 DeepSeek Harness（DSH）之上。
 
 AgentLex Legal Suite 不是传统意义上的"案件台账软件"，而是一套**以 AI Agent 为核心**的法律事务操作系统：案件数据、任务树、期限引擎与 Agent 预设深度耦合，让模型能直接读写案件、盯防期限、落盘文书，把"记录案件"升级为"AI 帮你办案"。
@@ -76,10 +82,23 @@ pnpm pack --dry-run                  # 发布前核对 tarball 内容
 
 ## 发布
 
+本项目为开源项目，托管于 GitHub：[miami616/dsh-legal-suite](https://github.com/miami616/dsh-legal-suite)，发布到公共 npm registry。
+
+### 发布到 npm
+
 ```bash
 pnpm build
 pnpm publish            # 公共 npm（.npmrc 已指向 registry.npmjs.org）
 ```
+
+### 打 GitHub Release
+
+```bash
+git tag v0.1.2
+git push origin v0.1.2
+```
+
+在 [GitHub Releases 页面](https://github.com/miami616/dsh-legal-suite/releases) 填写版本说明并发布。
 
 ## License
 

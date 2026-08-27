@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/miami616/dsh-legal-suite/discussions
+    about: 提问、讨论功能或用例，请使用 Discussions。

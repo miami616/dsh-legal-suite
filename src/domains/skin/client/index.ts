@@ -22,15 +22,12 @@ import { CONVERSATION_TYPOGRAPHY_CSS, CONVERSATION_ENHANCE_CSS, CONVERSATION_TIT
 import { BUSINESS_MODULES_CSS } from './business-modules.ts'
 import { mountAgentLexSidebarGroup } from './sidebar-group.ts'
 import { buildThemesCss, findTheme, DEFAULT_THEME_KEY } from './themes.ts'
-import { getSkinConfig, initThemeFromStorage, loadSkinConfig, setSkinConfig, subscribe as subscribeSkinConfig, type AgentLexSkinConfig } from './config.ts'
+import { getSkinConfig, guardStoredBrand, initThemeFromStorage, loadSkinConfig, restoreBrandFromStorage, setSkinConfig, subscribe as subscribeSkinConfig, type AgentLexSkinConfig } from './config.ts'
 import {
   AgentLexSettingsSection,
   bindAgentLexSettingsScope,
-  bindDesktopNotificationScope,
   bindModuleDataDirScopes,
   bindWorkspaces,
-  DesktopSettingsSection,
-  type DesktopNotificationSettings,
 } from './settings-section.tsx'
 
 export const inject = ['slots', 'locale', 'theme', 'settingsScope', 'workspaces']
@@ -51,8 +48,11 @@ export function apply(ctx: ClientContext): void {
   const disposers: Array<() => void> = []
 
   // 0. Load customizable skin config (brand/hero copy).
-  // 先同步初始化主题（读 localStorage），避免刷新时先显示默认主题再跳转的闪烁。
+  // 先同步初始化主题与品牌（读 localStorage），避免刷新时先显示默认主题再跳转的闪烁；
+  // 品牌（欢迎称呼 userName 等）同样先本地恢复，避免 settings scope 水合时序竞态
+  // 导致首页称呼刷新后退回默认 'User'。
   initThemeFromStorage()
+  restoreBrandFromStorage()
   void loadSkinConfig()
   const settingsScope = (ctx as unknown as { settingsScope?: { bind<T>(spec: { namespace: string }): SettingsScope<T> } }).settingsScope
   const agentlexScope = settingsScope?.bind<AgentLexSkinConfig>({ namespace: 'agentlex-legal-suite' })
@@ -64,7 +64,10 @@ export function apply(ctx: ClientContext): void {
         // theme 由 localStorage/默认主题管理（scope 的 resolved 值带 host 默认
         // 'warm'，会覆盖用户选择与默认 pure），这里排除，只同步其余字段。
         const { theme: _ignored, ...rest } = value
-        setSkinConfig(rest)
+        // 品牌字段（欢迎称呼 userName 等）：localStorage 已有用户偏好时，scope 的
+        // 默认值（如 userName='User'）不得回写覆盖——避免水合时序竞态把首页称呼
+        // 重置为默认。guardStoredBrand 会过滤掉品牌字段。
+        setSkinConfig(guardStoredBrand(rest))
       }
     }
     syncFromScope()
@@ -75,10 +78,6 @@ export function apply(ctx: ClientContext): void {
     litigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-litigation' }),
     nonlitigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-nonlitigation' }),
   })
-  // Desktop notification scope (namespace owned by dsh-desktop-notifications).
-  bindDesktopNotificationScope(
-    settingsScope?.bind<DesktopNotificationSettings>({ namespace: 'dsh-desktop-notifications' }),
-  )
   // 目录选择器（设置页「数据目录 → 选择目录…」按钮，走 client-runtime 的 workspaces.pickDirectory()）。
   bindWorkspaces(ctx.workspaces)
 
@@ -222,19 +221,7 @@ export function apply(ctx: ClientContext): void {
     console.warn('[agentlex-skin] settings section registration failed:', error)
   }
 
-  // Independent「桌面」settings entry: Profile switching (desktop-profiles) +
-  // privacy-safe desktop notifications. Rendered as its own section so users
-  // find it without digging into the skin page.
-  try {
-    disposers.push(ctx.slots.register({
-      name: 'settings.section',
-      id: 'agentlex-desktop',
-      order: 51,
-      label: '桌面',
-    }, DesktopSettingsSection))
-  } catch (error) {
-    console.warn('[agentlex-skin] desktop settings section registration failed:', error)
-  }
+  // 注：原独立的「桌面」settings.section（Profile 切换 / 桌面通知）已按需求移除。
 
   const unsubscribeSkin = subscribeSkinConfig(() => {
     syncSkin()

@@ -298,14 +298,16 @@ html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] table tr:nt
  *
  * 锚定规律与哈希无关：`[data-slot="conversation.session"]` 是会话视图的
  * slot 出口；标题文本元素统一以 `_title` 后缀结尾（CSS Modules 命名约定），
- * 且位于 titleRow / titleCluster 行容器内。官方默认 14px 偏小，提到 16px
- * 与正文档对齐；行高同步放大避免挤压。
+ * 且位于 titleRow / titleCluster 行容器内。官方默认 14px 偏小，放大到
+ * 25px 并加粗，行高同步放大避免挤压，让会话标题更醒目。
  */
 export const CONVERSATION_TITLE_CSS = `
 html[data-agentlex-theme] [data-slot="conversation.session"] :is([class*="_titleRow"], [class*="titleCluster"]) [class$="_title"],
 html[data-agentlex-theme] [data-slot="conversation.session"] [class*="_titleRow"][class$="_title"],
 html[data-agentlex-theme] [data-slot="conversation.session"] [class*="titleCluster"][class$="_title"] {
-  font-size: 16px !important;
-  line-height: 24px !important;
+  font-size: 25px !important;
+  line-height: 34px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.01em !important;
 }
 `.trim()

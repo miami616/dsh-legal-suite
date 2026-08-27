@@ -2,10 +2,9 @@
  * AgentLex 设置页。
  *
  * - AgentLexSettingsSection：注册 `settings.section`「AgentLex 设置」——外观主题 / 品牌与欢迎语 / 数据目录 / 模块开关。
- * - DesktopSettingsSection：注册独立的「桌面」settings.section——Profile 切换 / 新建安全 Web Profile / 桌面通知。
  *
- * Profile 切换借鉴 anywhere-labs desktop-profiles 设计（先持久化 → 重启生效 → 失败回退）；
- * 桌面通知借鉴 desktop-notifications（隐私安全：固定文案，不含会话内容）。
+ * 注：原独立的「桌面」settings.section（Profile 切换 / 桌面通知）已按需求移除，
+ * 相关实现（DesktopSettingsSection / DesktopNotificationSettings）一并删除。
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { IWorkspaces, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
@@ -38,32 +37,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       owner: AgentLexWorkbenchItemOwnerProps
     }
   }
-}
-
-/** Desktop notification settings — mirrors the dsh-desktop-notifications host schema. */
-export interface DesktopNotificationSettings {
-  enabled: boolean
-  notifyOnTurnCompletion: boolean
-  notifyOnTurnFailure: boolean
-  notifyOnJobCompletion: boolean
-  notifyOnJobFailure: boolean
-}
-
-let notificationScope: SettingsScope<DesktopNotificationSettings> | undefined
-
-export function bindDesktopNotificationScope(
-  next: SettingsScope<DesktopNotificationSettings> | undefined,
-): void {
-  notificationScope = next
-}
-
-function notificationSnapshot(): DesktopNotificationSettings | undefined {
-  return notificationScope?.getSnapshot().value
-}
-
-function notificationSubscribe(listener: () => void): () => void {
-  if (!notificationScope) return () => {}
-  return notificationScope.subscribe(listener)
 }
 
 let scope: SettingsScope<AgentLexSkinConfig> | undefined
@@ -450,183 +423,6 @@ export function AgentLexSettingsSection(props: {
           onCancel={() => setDirPicker(null)}
         />
       )}
-    </div>
-  )
-}
-
-/** Desktop profile state from the preload bridge (window.dshDesktop). */
-interface DesktopProfileState {
-  active: string
-  defaultProfile: string
-  profiles: Array<{ name: string; webCapable: boolean; hasSuite: boolean; exists: boolean }>
-}
-
-const dshDesktopApi = (): {
-  profileState(): Promise<DesktopProfileState>
-  setProfile(name: string): Promise<{ ok: boolean }>
-  createProfile(name: string): Promise<{ ok: boolean }>
-} | undefined => {
-  const api = (window as unknown as { dshDesktop?: Record<string, unknown> }).dshDesktop
-  if (!api) return undefined
-  return api as unknown as {
-    profileState(): Promise<DesktopProfileState>
-    setProfile(name: string): Promise<{ ok: boolean }>
-    createProfile(name: string): Promise<{ ok: boolean }>
-  }
-}
-
-/**
- * 桌面设置（独立「桌面」设置项）：
- * - Profile：切换启动时使用的 Profile / 新建安全 Web Profile（借鉴 desktop-profiles）
- * - 桌面通知：回合或后台任务完成/失败时系统通知，只含固定文案、不含会话内容
- */
-export function DesktopSettingsSection(): React.JSX.Element | null {
-  const notifications = useSyncExternalStore(notificationSubscribe, notificationSnapshot)
-  const [profileState, setProfileState] = useState<DesktopProfileState | null>(null)
-  const [profileBusy, setProfileBusy] = useState(false)
-  const [newProfileName, setNewProfileName] = useState('')
-  const [profileError, setProfileError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const api = dshDesktopApi()
-    if (!api) return
-    let cancelled = false
-    api.profileState().then((state) => { if (!cancelled) setProfileState(state) }).catch(() => {})
-    return () => { cancelled = true }
-  }, [])
-
-  const switchProfile = (name: string): void => {
-    const api = dshDesktopApi()
-    if (!api || profileBusy) return
-    setProfileBusy(true)
-    setProfileError(null)
-    api.setProfile(name)
-      .then(() => { setProfileState((prev) => (prev ? { ...prev, active: name } : prev)) })
-      .catch((error: unknown) => setProfileError(error instanceof Error ? error.message : String(error)))
-      .finally(() => setProfileBusy(false))
-  }
-
-  const createProfile = (): void => {
-    const name = newProfileName.trim()
-    if (!name || profileBusy) return
-    const api = dshDesktopApi()
-    if (!api) return
-    setProfileBusy(true)
-    setProfileError(null)
-    api.createProfile(name)
-      .then(() => setProfileState((prev) => (prev ? { ...prev, active: name } : prev)))
-      .catch((error: unknown) => setProfileError(error instanceof Error ? error.message : String(error)))
-      .finally(() => setProfileBusy(false))
-  }
-
-  return (
-    <div style={{ maxWidth: 520 }}>
-      <div style={{ marginBottom: 16 }}>
-        <p style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>Profile（启动时使用）</p>
-        <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>
-          当前启动 Profile：<strong style={{ color: 'var(--dsw-alias-label-primary)' }}>{profileState?.active ?? '…'}</strong>
-          （切换后桌面自动重启生效；失败会自动回退到上一个可用 Profile。）
-        </p>
-        {profileState && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-            {profileState.profiles.map((p) => (
-              <button
-                key={p.name}
-                type="button"
-                disabled={!p.webCapable || profileBusy}
-                onClick={() => switchProfile(p.name)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                  padding: '7px 10px',
-                  borderRadius: 8,
-                  border: `1px solid ${p.name === profileState.active ? 'var(--dsw-alias-state-business-primary)' : 'var(--dsw-alias-border-l2)'}`,
-                  background: p.name === profileState.active ? 'var(--dsw-alias-state-business-tertiary)' : 'var(--dsw-specific-input-major)',
-                  color: 'var(--dsw-alias-label-primary)',
-                  cursor: p.webCapable && !profileBusy ? 'pointer' : 'not-allowed',
-                  opacity: p.webCapable ? 1 : 0.5,
-                  textAlign: 'left',
-                  fontSize: 13,
-                }}
-              >
-                <span>
-                  {p.name}
-                  {p.name !== profileState.active && (
-                    <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 11 }}>{p.exists ? '（已存在）' : '（可创建）'}</span>
-                  )}
-                </span>
-                {p.name === profileState.active && (
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--dsw-alias-state-business-primary)' }}>使用中</span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input
-            type="text"
-            placeholder="新建 Profile 名称（如 my-web）"
-            value={newProfileName}
-            onChange={(e) => setNewProfileName(e.target.value)}
-            style={{
-              flex: 1,
-              height: 34,
-              padding: '0 10px',
-              border: '1px solid var(--dsw-alias-border-l2)',
-              borderRadius: 8,
-              background: 'var(--dsw-specific-input-major)',
-              color: 'var(--dsw-alias-label-primary)',
-              fontSize: 13,
-              outline: 'none',
-            }}
-          />
-          <button
-            type="button"
-            disabled={!newProfileName.trim() || profileBusy}
-            onClick={createProfile}
-            style={{
-              height: 34,
-              padding: '0 12px',
-              borderRadius: 8,
-              border: 0,
-              background: 'var(--dsw-alias-state-business-primary)',
-              color: 'var(--dsw-alias-label-primary-inverted)',
-              cursor: newProfileName.trim() && !profileBusy ? 'pointer' : 'not-allowed',
-              opacity: newProfileName.trim() && !profileBusy ? 1 : 0.6,
-              fontSize: 13,
-              fontWeight: 600,
-            }}
-          >
-            新建并切换
-          </button>
-        </div>
-        {profileError && <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }}>{profileError}</p>}
-        <p style={{ margin: '6px 0 0', fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)' }}>
-          桌面会为所选 Profile 自动挂载 AgentLex 套件；选择「web」时按官方模板创建。
-        </p>
-      </div>
-
-      <div style={{ paddingTop: 8, borderTop: '1px solid var(--dsw-alias-border-l2)' }}>
-        <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>桌面通知</p>
-        <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>
-          回合或后台任务完成 / 失败时发出系统通知。通知只包含固定文案，不包含会话内容。
-        </p>
-        {notifications !== undefined ? (
-          <>
-            <Toggle label="启用通知" checked={notifications.enabled} onChange={(v) => void notificationScope?.set('enabled', v)} />
-            <Toggle label="回合完成时通知" checked={notifications.notifyOnTurnCompletion} onChange={(v) => void notificationScope?.set('notifyOnTurnCompletion', v)} />
-            <Toggle label="回合失败时通知" checked={notifications.notifyOnTurnFailure} onChange={(v) => void notificationScope?.set('notifyOnTurnFailure', v)} />
-            <Toggle label="后台任务完成时通知" checked={notifications.notifyOnJobCompletion} onChange={(v) => void notificationScope?.set('notifyOnJobCompletion', v)} />
-            <Toggle label="后台任务失败时通知" checked={notifications.notifyOnJobFailure ?? true} onChange={(v) => void notificationScope?.set('notifyOnJobFailure', v)} />
-          </>
-        ) : (
-          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>
-            通知开关将在桌面首启后可用（默认启用，隐私安全、不含会话内容）。
-          </p>
-        )}
-      </div>
     </div>
   )
 }

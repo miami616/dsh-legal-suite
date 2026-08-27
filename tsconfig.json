@@ -1,0 +1,47 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "types": [
+      "node"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./vendor/panel-ui/renderer/*"
+      ],
+      "@tauri-apps/api/core": [
+        "./vendor/panel-ui/stubs/tauri-core.ts"
+      ],
+      "@tauri-apps/api/event": [
+        "./vendor/panel-ui/stubs/tauri-event.ts"
+      ],
+      "@tauri-apps/api/window": [
+        "./vendor/panel-ui/stubs/tauri-window.ts"
+      ],
+      "@tauri-apps/plugin-dialog": [
+        "./vendor/panel-ui/stubs/tauri-dialog.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ]
+}

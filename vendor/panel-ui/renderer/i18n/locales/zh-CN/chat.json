@@ -1,0 +1,1127 @@
+{
+  "input": {
+    "launcherPlaceholder": "今天，想干点啥？",
+    "placeholder": "输入消息，使用 @ 引用文件，/ 使用技能...",
+    "companionPlaceholder": "问问 Mino，或者派个活…",
+    "addScreenshot": "添加屏幕截图",
+    "send": "发送",
+    "stop": "停止",
+    "stopRetry": "停止重试",
+    "currentModel": "当前模型",
+    "workspaceRoot": "工作区根目录",
+    "modelDefault": "默认",
+    "selectModel": "选择模型",
+    "runtimeModelHeader": "{{runtime}} 模型",
+    "setupModelProvider": "请先设置模型服务 →",
+    "providerWarning": "验证未通过，部分模型可能不可用",
+    "reasoningEffort": "推理强度",
+    "reasoningDefault": "默认",
+    "reasoningRequirement": "需服务商支持该参数，以实际生效为准",
+    "customModelService": "管理自定义模型服务",
+    "systemBusy": "正在执行系统任务，请稍等",
+    "stopping": "正在停止...",
+    "providerUnavailableDefault": "请前往设置页面设置模型供应商",
+    "deleteImage": "删除图片",
+    "addContext": "添加上下文",
+    "referenceFile": "引用文件",
+    "useSkill": "使用技能",
+    "uploadFile": "上传文件",
+    "permissionModeTitle": "切换执行模式",
+    "permissionModeHeader": "会话模式",
+    "agentSettings": "Agent 设置",
+    "autonomyWarning": "自主行动已启用：Agent 可能做出不可挽回的操作，请谨慎使用",
+    "toolsTitle": "使用工具",
+    "toolsLabel": "工具",
+    "toolsHeader": "工具 (在此对话中启用)",
+    "settings": "设置",
+    "settingsPage": "设置页面",
+    "toolsEmptyPrefix": "在",
+    "toolsEmptyExternal": "在设置页面启用官方 CLI 工具后即可在此 runtime 使用。",
+    "toolsEmptyBuiltin": "安装开启 MCP 工具，即可使用浏览器等更多功能",
+    "pluginsHeader": "插件 Plugins",
+    "pluginLoadsMcpTitle": "启用此插件会自动加载这些 MCP server：{{names}}",
+    "pluginLoadsMcp": "{{count}} 个 MCP：{{names}}",
+    "managePlugins": "管理插件",
+    "noPluginsPrefix": "还没有插件。在",
+    "pluginsSettings": "设置 → 插件",
+    "noPluginsSuffix": "可以从 GitHub 或本地路径安装。",
+    "cronEnabled": "定时已启用",
+    "cron": "定时任务",
+    "switchModel": "切换模型",
+    "imageFilteredOnSend": "{{model}} 不支持图片，已自动过滤 {{count}} 张图片，仅文本已送达",
+    "undoFilesAdded": "已撤销 {{count}} 个文件的添加",
+    "undoFilesPartial": "已撤销 {{successCount}} 个文件，{{failCount}} 个文件删除失败",
+    "undoReferenceOnly": "已移除引用，但文件删除失败",
+    "mode": {
+      "chat": "对话",
+      "thought": "想法",
+      "switchToThought": "按 Tab 切换到「想法」",
+      "switchToChat": "按 Tab 切换到「对话」"
+    },
+    "mention": {
+      "workspaceFiles": "工作区文件",
+      "thoughts": "想法",
+      "switchHint": "⌘/Ctrl + ←/→ 切换",
+      "filePlaceholder": "输入文件名搜索...",
+      "searching": "搜索中...",
+      "noFiles": "未找到文件",
+      "emptyThoughts": "暂无想法，先在「任务中心」记录吧",
+      "noThoughtMatchesPrefix": "没有匹配",
+      "noThoughtMatchesSuffix": "的想法",
+      "recentThoughts": "最近 {{count}} 条想法",
+      "matchedThoughts": "匹配 \"{{query}}\" 的想法 · {{count}} 条",
+      "thoughtSoftCap": "已显示前 {{count}} 条匹配，请输入更精确的关键词"
+    },
+    "permissionModes": {
+      "auto": {
+        "label": "行动",
+        "description": "Agent 在工作区内行动，使用工具需确认"
+      },
+      "plan": {
+        "label": "规划",
+        "description": "规划模式，只读不执行"
+      },
+      "fullAgency": {
+        "label": "自主行动",
+        "description": "Agent 拥有完全自主权限，无需人工确认"
+      },
+      "custom": {
+        "label": "自定义",
+        "description": "用户自定义的权限规则"
+      },
+      "default": {
+        "label": "Default",
+        "description": "每次工具调用都需要确认"
+      },
+      "acceptEdits": {
+        "label": "Accept Edits",
+        "description": "自动接受文件编辑，其他需确认"
+      },
+      "bypassPermissions": {
+        "label": "Bypass Permissions",
+        "description": "跳过所有权限确认"
+      },
+      "autoEdit": {
+        "label": "Auto Edit",
+        "description": "自动接受文件编辑，其他需确认"
+      },
+      "yolo": {
+        "label": "YOLO",
+        "description": "跳过所有工具确认"
+      },
+      "suggest": {
+        "label": "Suggest",
+        "description": "仅信任的命令自动执行，其他需确认"
+      },
+      "auto-edit": {
+        "label": "Auto-Edit",
+        "description": "自动编辑文件，沙箱内执行命令"
+      },
+      "full-auto": {
+        "label": "Full Auto",
+        "description": "沙箱内自主执行，按需询问"
+      },
+      "no-restrictions": {
+        "label": "No Restrictions",
+        "description": "跳过所有审批和沙箱限制"
+      }
+    },
+    "slashCommands": {
+      "noResults": "未找到指令",
+      "compact": "压缩对话历史，释放上下文空间",
+      "context": "显示或管理当前上下文",
+      "cost": "查看 token 使用量和费用",
+      "init": "初始化项目配置 (.CLAUDE.md)",
+      "goal": "目标模式：持续执行直到目标全部达成",
+      "loop": "目标模式（/goal 的兼容别名）",
+      "pr-comments": "生成 Pull Request 评论",
+      "release-notes": "根据最近提交生成发布说明",
+      "review": "对代码进行审查",
+      "security-review": "进行安全相关的代码审查"
+    },
+    "attachments": {
+      "unsupportedImageType": "不支持的图片格式，请使用 PNG/JPG/GIF/WebP",
+      "imageTooLarge": "图片大小不能超过 10MB",
+      "maxImages": "最多只能上传 {{count}} 张图片",
+      "previewFailed": "图片 \"{{name}}\" 预览地址生成失败",
+      "oversizedImageAsFile": "图片超过 10MB，请使用“上传文件”或从文件夹拖入以作为 @文件 引用",
+      "oversizedImagesAsFile": "{{count}} 张图片超过 10MB，请使用“上传文件”或从文件夹拖入以作为 @文件 引用",
+      "imagesConvertedToFiles": "当前模型不支持图片输入，已转为文件存入工作区供模型读取",
+      "desktopRequiredForUpload": "无法上传文件：当前为浏览器开发模式，请使用桌面应用",
+      "selectWorkspaceForUpload": "无法上传文件：请先选择工作区",
+      "uploadFailed": "上传失败",
+      "filesAdded": "已添加 {{count}} 个文件到工作区",
+      "fileUploadFailed": "文件上传失败",
+      "desktopRequiredForProcess": "无法处理文件：当前为浏览器开发模式，请使用桌面应用",
+      "selectWorkspaceForProcess": "无法处理文件：请先选择工作区",
+      "sessionNotReadyForImage": "无法添加图片：当前会话尚未就绪",
+      "oversizedImageAddedAsReference": "图片超过 10MB，已作为文件引用添加",
+      "oversizedImagesAddedAsReference": "{{count}} 张图片超过 10MB，已作为文件引用添加",
+      "copyFailed": "复制失败",
+      "noFilesCopied": "没有文件被成功复制",
+      "filesAddedPartial": "已添加 {{successCount}}/{{totalCount}} 个文件到工作区",
+      "fileCopyFailed": "文件复制失败",
+      "pickFilesTitle": "选择文件",
+      "pickFilesFailed": "选择文件失败"
+    },
+    "repetition": {
+      "title": "检测到内容存在大量重复",
+      "message": "同一段文字重复了约 {{count}} 次（共 {{chars}} 字符）。常见于第三方输入法的语音识别异常。仍要发送吗？",
+      "confirm": "仍要发送",
+      "cancel": "取消"
+    }
+  },
+  "goalEdit": {
+    "title": "编辑目标",
+    "subtitle": "更新后会通知当前会话采用新目标",
+    "placeholder": "输入新的目标...",
+    "update": "更新",
+    "updating": "更新中...",
+    "updated": "目标已更新",
+    "updateFailed": "目标更新失败",
+    "empty": "目标不能为空"
+  },
+  "floatingBall": {
+    "ballState": {
+      "idle": "空闲",
+      "running": "正在处理",
+      "blocked": "等你确认",
+      "done": "有结果未读"
+    },
+    "activity": {
+      "thinkingRunning": "思考中…",
+      "thinkingRunningWithSeconds": "思考中… ({{seconds}}s)",
+      "thinkingFailed": "思考失败",
+      "thinkingFailedWithSeconds": "思考失败 ({{seconds}}s)",
+      "thinkingStopped": "思考中断",
+      "thinkingStoppedWithSeconds": "思考中断 ({{seconds}}s)",
+      "thinkingDone": "思考了 {{seconds}}s",
+      "background": "后台"
+    },
+    "watchingApp": "Mino · 正在看 {{appName}}",
+    "watchingAppWindow": "Mino · 正在看 {{appName}} — {{windowTitle}}",
+    "chrome": {
+      "openPetSettings": "打开桌面宠物设置",
+      "openInMyAgents": "在 MyAgents 中打开（新 Tab 接上这条会话）",
+      "closeEsc": "关闭（Esc）"
+    },
+    "connecting": "正在连接 {{workspace}}…",
+    "processing": "Mino 正在处理…",
+    "axPrompt": "授权「辅助功能」后，唤起时能自动带上你选中的文字（一次授权，长期有效）。",
+    "grantAccessibility": "去授权",
+    "removeQuote": "去掉引用",
+    "resizeHandle": "拖动调节高度",
+    "moveHandle": "拖动移动窗口",
+    "toasts": {
+      "maxImages": "最多只能上传 {{count}} 张图片",
+      "cannotUploadDevMode": "无法上传文件：当前为浏览器开发模式，请使用桌面应用",
+      "cannotUploadNoWorkspace": "无法上传文件：请先选择工作区",
+      "filesAdded": "已添加 {{count}} 个文件到工作区",
+      "fileUploadFailed": "文件上传失败",
+      "cannotProcessDevMode": "无法处理文件：当前为浏览器开发模式，请使用桌面应用",
+      "cannotProcessNoWorkspace": "无法处理文件：请先选择工作区",
+      "filesNotAdded": "{{count}} 个文件未能添加",
+      "fileProcessFailed": "文件处理失败",
+      "imageTooLargeAsFile": "图片超过 10MB，请从文件夹拖入以作为 @文件 引用",
+      "imagesTooLargeAsFile": "{{count}} 张图片超过 10MB，请从文件夹拖入以作为 @文件 引用",
+      "imageConvertedToFile": "当前模型不支持图片输入，已转为文件存入工作区供模型读取",
+      "unsupportedImageFormat": "不支持的图片格式：{{name}}",
+      "imageTooLargeAddedAsFile": "图片超过 10MB，已作为文件引用添加",
+      "imagesTooLargeAddedAsFile": "{{count}} 张图片超过 10MB，已作为文件引用添加",
+      "screenshotSaveFailed": "截图保存失败",
+      "screenshotFailed": "截图失败",
+      "screenshotFailedWithDetail": "截图失败：{{detail}}",
+      "openPetSettingsFailed": "打开桌面宠物设置失败"
+    }
+  },
+  "workspaceFiles": {
+    "common": {
+      "more": "更多",
+      "close": "关闭",
+      "preview": "预览",
+      "quote": "引用",
+      "copy": "复制",
+      "cut": "剪切",
+      "paste": "粘贴",
+      "delete": "删除",
+      "deleteAll": "全部删除",
+      "rename": "重命名",
+      "refresh": "刷新",
+      "open": "打开",
+      "selectAll": "全选",
+      "undoLast": "撤销上一步操作",
+      "newNote": "新建笔记",
+      "newFile": "新建文件",
+      "newFolder": "新建文件夹",
+      "importFile": "导入文件",
+      "revealInTree": "在文件目录中展示",
+      "openContainingFolder": "打开所在文件夹",
+      "copyFilePath": "复制文件路径",
+      "copyFolderPath": "复制文件夹路径",
+      "copyFailed": "复制失败",
+      "openFolderFailed": "打开所在文件夹失败",
+      "operationFailed": "操作失败",
+      "trashMoved": "已移至废纸篓"
+    },
+    "filePreview": {
+      "saving": "保存中",
+      "saved": "已保存",
+      "saveFailed": "保存失败",
+      "externalUpdate": "外部更新",
+      "updated": "已更新",
+      "externalUpdateTitle": "文件已在外部更新，本地编辑尚未覆盖",
+      "updatedTitle": "文件内容已自动更新",
+      "doubleClickRename": "双击重命名",
+      "previewMode": "预览",
+      "editMode": "编辑",
+      "copyFullText": "复制全文",
+      "copyFullTextAfterLoad": "文件加载后可复制",
+      "copyFullTextPreviewFailed": "文件预览失败，无法复制全文",
+      "emptyDocument": "文档内容为空",
+      "switchToEdit": "切换到编辑",
+      "browserPreview": "网页预览",
+      "fullscreenPreview": "全屏预览",
+      "toasts": {
+        "externalUpdateConflict": "文件已在外部更新，未自动覆盖",
+        "closeAutosaveFailed": "关闭时自动保存失败",
+        "renameFailed": "重命名失败",
+        "copiedFilePath": "已复制文件路径",
+        "copyWhileLoading": "文件加载中，暂时无法复制",
+        "copyAfterPreviewFailed": "文件预览失败，暂时无法复制",
+        "copiedFullText": "已复制全文",
+        "copiedPlainText": "已复制纯文本"
+      }
+    },
+    "directory": {
+      "title": "工作区",
+      "collapseWorkspace": "收起工作区",
+      "expandWorkspace": "展开工作区",
+      "foldWorkspace": "折叠工作区",
+      "fileSearch": "文件搜索",
+      "closeSearch": "关闭搜索",
+      "showTerminal": "显示终端",
+      "openTerminal": "打开终端",
+      "browser": "浏览器",
+      "openAgentSettings": "打开 Agent 设置",
+      "agentSettings": "Agent 设置",
+      "searchPlaceholder": "搜索文件及内容...",
+      "exitSearch": "退出搜索",
+      "loading": "加载中...",
+      "copyCount": "复制 ({{count}})",
+      "cutCount": "剪切 ({{count}})",
+      "openFoldersCount": "打开所在文件夹 ({{count}})",
+      "quoteCount": "引用 ({{count}})",
+      "deleteCount": "删除 ({{count}})",
+      "deleteDialog": {
+        "fileTitle": "删除文件",
+        "folderTitle": "删除文件夹",
+        "message": "确定要删除 \"{{name}}\" 吗？将移至系统废纸篓。",
+        "multiTitle": "删除 {{count}} 个项目",
+        "multiMessage": "确定要删除选中的 {{count}} 个文件/文件夹吗？将移至系统废纸篓。"
+      },
+      "errors": {
+        "loadDirectoryFailed": "加载目录信息失败",
+        "importFailed": "导入失败",
+        "copyFailed": "复制失败",
+        "moveFailed": "移动失败",
+        "createFailed": "创建失败",
+        "deleteFailed": "删除失败",
+        "pasteFailed": "粘贴失败",
+        "openFailed": "打开失败",
+        "batchUploadTooLarge": "批量上传不能超过 {{maxMb}} MB（当前 {{currentMb}} MB）。大文件请直接拖拽到目录。",
+        "tooManyNotes": "当前分钟内已有过多笔记，请稍后再试"
+      },
+      "toasts": {
+        "fileMissing": "文件不存在或已删除",
+        "previewFailed": "文件预览失败",
+        "imageLoadFailed": "图片加载失败",
+        "unsupportedPreview": "暂不支持预览此文件类型，可右键菜单打开",
+        "partialImportFailed": "部分文件未能导入：{{error}}",
+        "autoRenamedOne": "已自动重命名避免冲突：{{from}} → {{to}}",
+        "autoRenamedMany": "{{count}} 项因重名已自动重命名",
+        "movePartial": "已移动 {{moved}} 项；{{failed}} 项失败：{{error}}",
+        "clipboardNoFiles": "剪贴板中没有可粘贴的文件——先在文件树中选中文件按 {{shortcut}}",
+        "copiedFolderPath": "已复制文件夹路径",
+        "copiedFilePath": "已复制文件路径",
+        "copiedSelection": "{{action}} {{target}}，在目标文件夹按 {{shortcut}} 粘贴",
+        "copied": "已复制",
+        "cut": "已剪切",
+        "itemName": "\"{{name}}\"",
+        "itemCount": "{{count}} 项",
+        "clipboardStale": "系统剪贴板已有新内容，文件剪贴板已失效——请重新复制后粘贴",
+        "pastePartialFailed": "部分粘贴失败：{{error}}",
+        "movePartialFailed": "部分移动失败：{{error}}",
+        "undoEmpty": "没有可撤销的操作",
+        "undoPartialFailed": "撤销部分失败：{{error}}",
+        "undoWithRenameFailures": "已撤销（{{count}} 项未能恢复原文件名）",
+        "undone": "已撤销",
+        "undoFailed": "撤销失败：{{error}}",
+        "undoFailedGeneric": "撤销失败",
+        "multiTrashMoved": "已将 {{count}} 项移至废纸篓"
+      }
+    },
+    "search": {
+      "searching": "搜索中...",
+      "searchInWorkspace": "在当前工作区中搜索",
+      "fileNameAndContent": "文件夹、文件名和文件内容",
+      "zeroResults": "0 个结果",
+      "refreshingSuffix": " · 正在更新索引...",
+      "summary": "找到 {{folders}} 个文件夹、{{files}} 个文件",
+      "folderSection": "文件夹（{{count}}）",
+      "fileSection": "文件（{{count}}）",
+      "contentMatchCount": "{{count}} 条正文命中",
+      "collapseResults": "收起",
+      "expandResults": "展开",
+      "moreResults": "... 还有 {{count}} 个结果"
+    }
+  },
+  "runtime": {
+    "header": "运行环境",
+    "settings": "设置",
+    "notInstalled": "未安装",
+    "comingSoon": "即将支持"
+  },
+  "shell": {
+    "common": {
+      "cancel": "取消",
+      "close": "关闭"
+    },
+    "sessionMenu": {
+      "trigger": "对话操作",
+      "copySessionIdAria": "复制 SessionID",
+      "copied": "已复制",
+      "copy": "复制",
+      "rename": "重命名",
+      "renameDisabledTitle": "发送一条消息后再为对话命名",
+      "favorite": "收藏对话",
+      "unfavorite": "取消收藏",
+      "exportMarkdown": "导出为 md 文件",
+      "tokenStats": "会话 Token 消耗统计",
+      "contextUsage": "上下文 Token 使用详情",
+      "continueInBot": "在聊天机器人继续此对话",
+      "deleteBlockedByOwner": "该对话仍在使用中。请先完成、归档或删除关联任务/目标，等待后台回复结束，或解绑聊天机器人后再删除",
+      "deleteTransitionInProgress": "该对话正在打开或切换，请稍后再删除",
+      "deleteActivityUnavailable": "暂时无法确认该对话是否仍在运行，已保留对话，请稍后重试",
+      "delete": "删除对话",
+      "bound": "已绑定",
+      "switchToOther": "切换到其他",
+      "source": {
+        "private": "私聊",
+        "group": "群聊",
+        "unknownChat": "未知聊天"
+      },
+      "deleteDialog": {
+        "title": "删除对话",
+        "message": "确定要删除「{{title}}」吗？此操作不可撤销。",
+        "confirm": "删除"
+      },
+      "toasts": {
+        "copySessionIdSuccess": "已复制 SessionID",
+        "copyFailed": "复制失败",
+        "favoriteAdded": "已收藏",
+        "favoriteRemoved": "已取消收藏",
+        "favoriteFailed": "收藏失败，请重试",
+        "deleteFailed": "删除失败，请重试",
+        "deleted": "已删除",
+        "handoverSuccess": "已交接到 {{target}}",
+        "handoverNotifyFailed": "已交接到 {{target}}，但通知未送达 IM",
+        "handoverFailed": "交接失败",
+        "handoverFailedWithError": "交接失败：{{error}}"
+      }
+    },
+    "history": {
+      "title": "工作区历史记录",
+      "loading": "加载中...",
+      "empty": "暂无历史记录",
+      "current": "当前",
+      "turnCount": "{{count}} 轮",
+      "unreadNotifications": "{{count}} 条未读通知",
+      "automationVisible": "定时任务对话已显示",
+      "automationHidden": "定时任务对话已隐藏",
+      "openInNewTab": "在新 tab 打开",
+      "more": "更多",
+      "moreActions": "更多操作",
+      "favorite": "收藏对话",
+      "unfavorite": "取消收藏",
+      "exportMarkdown": "导出为 md 文件",
+      "viewStats": "查看统计",
+      "deleteBlockedByOwner": "该对话仍在使用中。请先完成、归档或删除关联任务/目标，等待后台回复结束，或解绑聊天机器人后再删除",
+      "deleteTransitionInProgress": "该对话正在打开或切换，请稍后再删除",
+      "deleteActivityUnavailable": "暂时无法确认该对话是否仍在运行，已保留对话，请稍后重试",
+      "delete": "删除对话",
+      "deleteDialog": {
+        "title": "删除对话",
+        "message": "确定要删除「{{title}}」吗？此操作不可撤销。",
+        "confirm": "删除"
+      },
+      "errors": {
+        "deleteFailed": "删除失败，请重试",
+        "favoriteFailed": "收藏失败，请重试"
+      },
+      "batchMode": "批量",
+      "batchDone": "完成",
+      "batchSelected": "已选 {{count}} 项",
+      "batchDeleted": "已删除 {{count}} 个会话",
+      "batchFavorited": "已收藏 {{count}} 个会话",
+      "batchUnfavorited": "已取消收藏 {{count}} 个会话",
+      "selectAll": "全选"
+    },
+    "stats": {
+      "title": "会话统计",
+      "loading": "加载中...",
+      "empty": "暂无统计数据",
+      "errors": {
+        "unavailable": "无法加载统计数据",
+        "loadFailed": "加载失败"
+      },
+      "common": {
+        "input": "输入",
+        "output": "输出",
+        "inputCache": "输入缓存"
+      },
+      "summary": {
+        "turns": "执行轮次",
+        "humanQueries": "真人输入",
+        "totalTokens": "总 Tokens",
+        "inputOutput": "输入 {{input}} / 输出 {{output}}",
+        "inputCache": "输入缓存",
+        "inputCacheTokens": "输入缓存 tokens"
+      },
+      "byModel": {
+        "title": "按模型统计",
+        "model": "模型",
+        "count": "次数"
+      },
+      "turnDetails": {
+        "title": "Turn 用量明细",
+        "trigger": "可见触发"
+      }
+    },
+    "queue": {
+      "title": "排队中 ({{count}})",
+      "sendNow": "立即发送",
+      "recallSend": "撤回发送",
+      "cancelQueued": "取消排队"
+    },
+    "permissionPrompt": {
+      "progress": "权限审批 {{index}} / {{total}}",
+      "title": "权限请求",
+      "subtitle": "AI 请求执行以下操作",
+      "badge": "需授权",
+      "deny": "拒绝",
+      "alwaysAllow": "始终允许",
+      "allow": "允许"
+    },
+    "askQuestion": {
+      "preview": "预览",
+      "customPlaceholder": "说说你的想法",
+      "progressAria": "问题进度",
+      "questionAria": "问题 {{index}}: {{header}}",
+      "previous": "上一题",
+      "submit": "提交",
+      "next": "下一题"
+    },
+    "planPrompt": {
+      "submitFeedback": "提交修改意见",
+      "rejectPlan": "拒绝方案",
+      "title": "方案审核",
+      "subtitle": "AI 完成了方案设计，请审核后决定是否执行",
+      "approved": "已批准",
+      "rejected": "已拒绝",
+      "permissions": "需要的权限：",
+      "approve": "批准执行",
+      "feedbackPlaceholder": "说说我的想法（留空则拒绝方案）"
+    },
+    "runtimeDiagnostics": {
+      "problems": {
+        "needsCodexLogin": "需要登录 Codex（点账户头像或运行 codex login）",
+        "extensionComponent": "扩展 {{component}}{{id}} 为 {{state}}：{{reason}}"
+      },
+      "headlines": {
+        "needsCodexLogin": "需要登录 Codex 才能继续使用",
+        "extensionsFailed": "Managed Codex 扩展应用失败"
+      },
+      "status": {
+        "unsupported": "不支持",
+        "failed": "失败：{{error}}",
+        "notReported": "未报告"
+      },
+      "sections": {
+        "problems": "问题",
+        "auth": "认证",
+        "featureFlags": "Feature flags",
+        "mcpServers": "MCP servers",
+        "apps": "Apps",
+        "effectiveEnv": "Effective env",
+        "extensions": "MyAgents 扩展"
+      },
+      "requiresLoginSuffix": " • 需登录",
+      "appAccessible": "可访问 ",
+      "appInaccessible": "不可访问 ",
+      "yes": "yes",
+      "no": "no",
+      "snapshot": "诊断快照：{{timestamp}}。命令行同步信息：",
+      "closeTitle": "关闭此提示"
+    },
+    "toolChrome": {
+      "common": {
+        "background": "后台",
+        "copy": "复制",
+        "copied": "已复制",
+        "exportMarkdown": "导出 markdown",
+        "expandAll": "展开全部",
+        "expandMore": "展开更多",
+        "collapse": "收起",
+        "result": "结果",
+        "output": "输出",
+        "executing": "执行中",
+        "running": "运行中",
+        "completedCount": "{{completed}}/{{total}} 已完成",
+        "generatedImageAlt": "生成的图片"
+      },
+      "thinking": {
+        "active": "思考中…",
+        "activeWithSeconds": "思考中… ({{seconds}}s)",
+        "failed": "思考失败",
+        "failedWithSeconds": "思考失败 ({{seconds}}s)",
+        "stopped": "思考中断",
+        "stoppedWithSeconds": "思考中断 ({{seconds}}s)",
+        "completedWithSeconds": "思考了 {{seconds}}s",
+        "copyAria": "复制思考过程",
+        "exportAria": "导出思考过程为 markdown",
+        "exportFilename": "思考过程"
+      },
+      "truncate": {
+        "result": "... [结果过长，已截断显示前 {{shown}} 字符，共 {{total}} 字符]"
+      },
+      "filePath": {
+        "file": "文件: {{path}}",
+        "folder": "文件夹: {{path}}"
+      },
+      "filePatch": {
+        "moreActions": "更多文件操作",
+        "unnamedFile": "未命名文件",
+        "operation": {
+          "add": "新建",
+          "update": "修改",
+          "delete": "删除",
+          "move": "移动",
+          "write": "写入",
+          "change": "变更"
+        },
+        "replaceAll": "替换全部",
+        "userModified": "结果已在审批时调整",
+        "boundedPreview": "变更过大，仅展示有界预览",
+        "noTextChanges": "没有文本变更",
+        "emptyWrittenContent": "写入后的文件内容为空",
+        "detailUnavailable": "变更详情不可用",
+        "previousVersionUnavailable": "结果未提供旧版本",
+        "showAll": "展示全部",
+        "showAllForFile": "展示 {{file}} 的全部变更，还有 {{count}} 行未显示",
+        "remainingLines_one": "还有 {{count}} 行未显示",
+        "remainingLines_other": "还有 {{count}} 行未显示",
+        "onlyFirstLines": "内容过长，仅展示前 {{count}} 行",
+        "rawResult": "原始工具结果",
+        "diffAria": "{{file}} 的变更",
+        "hunkLineCount_one": "{{count}} 行",
+        "hunkLineCount_other": "{{count}} 行",
+        "hunkSameStart": "第 {{line}} 行附近 · 原 {{oldSpan}} → 新 {{newSpan}}",
+        "hunkMovedStart": "原第 {{oldStart}} 行 → 新第 {{newStart}} 行 · 原 {{oldSpan}} → 新 {{newSpan}}",
+        "addedLine": "新增第 {{line}} 行",
+        "removedLine": "删除第 {{line}} 行",
+        "addedLineUnknown": "新增行",
+        "removedLineUnknown": "删除行",
+        "moveTo": "移动到 {{path}}",
+        "status": {
+          "declined": "已拒绝",
+          "failed": "失败",
+          "stopped": "已停止",
+          "interrupted": "已中断",
+          "running": "运行中",
+          "unknown": "{{status}}"
+        }
+      },
+      "image": {
+        "noLocalPath": "没有可复制的本地路径",
+        "copyPathSuccess": "已复制图片路径",
+        "copyPathFailed": "复制路径失败",
+        "copySuccess": "已复制图片",
+        "copyFallbackPath": "无法复制图片，已复制本地路径",
+        "copyFailed": "复制图片失败",
+        "notReady": "图片尚未加载完成",
+        "saveSuccess": "图片已另存",
+        "saveFailed": "另存图片失败",
+        "copyImage": "复制图片",
+        "saveAs": "另存为…",
+        "copyLocalPath": "复制本地路径",
+        "generating": "生成中…",
+        "loading": "加载中…",
+        "renderFailed": "图片渲染失败：{{reason}}"
+      },
+      "audio": {
+        "generating": "音频生成中…",
+        "renderFailed": "音频渲染失败：{{reason}}",
+        "more": "更多",
+        "rewindSeconds": "后退 {{seconds}} 秒",
+        "forwardSeconds": "前进 {{seconds}} 秒",
+        "reveal": "在文件管理器中显示",
+        "openDefault": "用默认应用打开",
+        "audio": "音频",
+        "pause": "暂停",
+        "play": "播放"
+      },
+      "labels": {
+        "subAgent": "子 Agent",
+        "spawnAgent": "派生子 Agent",
+        "waitAgent": "等待子 Agent",
+        "closeAgent": "关闭子 Agent",
+        "sendInput": "发送指令",
+        "resumeAgent": "恢复子 Agent",
+        "subAgentControl": "子 Agent 控制",
+        "agentMessage": "Agent 消息",
+        "thinking": "思考",
+        "searchWithQuery": "搜索 \"{{query}}\"",
+        "findWithPattern": "查找 {{pattern}}",
+        "fetchTarget": "获取 {{target}}",
+        "newTask": "新建任务",
+        "newTaskWithSubject": "新建：{{subject}}",
+        "taskDone": "任务已完成",
+        "taskDoneWithSubject": "完成：{{subject}}",
+        "taskStarted": "任务已开始",
+        "taskStartedWithSubject": "开始：{{subject}}",
+        "taskDropped": "任务已删除",
+        "taskDroppedWithSubject": "删除：{{subject}}",
+        "updateTask": "更新任务",
+        "updateTaskWithSubject": "更新：{{subject}}",
+        "getTask": "查询任务",
+        "taskList": "任务列表",
+        "tasksProgress": "任务 {{completed}}/{{total}}",
+        "todoList": "待办列表",
+        "todoProgress": "待办 {{completed}}/{{total}}",
+        "runCommand": "运行命令",
+        "bashOutput": "Bash 输出",
+        "find": "查找",
+        "search": "搜索",
+        "fetch": "获取",
+        "killShell": "终止 Shell",
+        "skill": "技能",
+        "skillWithName": "技能({{name}})",
+        "notebookCell": "{{mode}} notebook 单元格",
+        "matches": "{{count}} 条匹配",
+        "files": "{{count}} 个文件",
+        "filesPart": "在 {{count}} 个文件中",
+        "writeLines_one": "写入 {{count}} 行",
+        "writeLines_other": "写入 {{count}} 行",
+        "editImage": "编辑图片",
+        "generateImage": "生成图片",
+        "listVoices": "查询语音",
+        "textToSpeech": "语音合成"
+      },
+      "mcpServers": {
+        "imCron": "定时任务",
+        "cronTools": "定时任务",
+        "imMedia": "IM 媒体",
+        "imBridgeTools": "插件工具"
+      },
+      "taskOp": {
+        "loadingList": "加载任务列表...",
+        "emptyList": "暂无任务",
+        "create": "创建任务",
+        "createWithSubject": "创建任务：{{subject}}",
+        "delete": "删除任务",
+        "deleteWithSubject": "删除任务：{{subject}}",
+        "complete": "完成任务",
+        "completeWithSubject": "完成：{{subject}}",
+        "start": "开始任务",
+        "startWithSubject": "进行中：{{subject}}",
+        "update": "更新任务",
+        "updateWithSubject": "更新任务：{{subject}}",
+        "get": "查询任务",
+        "getWithId": "查询任务 #{{id}}",
+        "loadingTodos": "加载待办事项..."
+      },
+      "task": {
+        "initializing": "正在初始化任务...",
+        "collapse": "收起",
+        "expandMore": "展开更多",
+        "ranFor": "已运行 {{duration}}",
+        "toolCalls": "调用工具 {{count}} 次",
+        "toolCallsShort": "{{count}} 次工具调用",
+        "tokenUsage": "消耗 {{tokens}} token",
+        "resolvedModel": "模型 {{model}}",
+        "modelsUsed": "模型 {{models}}",
+        "statusCompleted": "完成",
+        "statusError": "错误",
+        "statusRunning": "运行中",
+        "statusStopped": "已停止",
+        "backgroundCompleted": "后台完成",
+        "backgroundFailed": "后台失败",
+        "backgroundRunning": "后台运行中",
+        "traceTitle": "调用记录 ({{count}})",
+        "output": "输出"
+      },
+      "grep": {
+        "partialLines": "显示第 {{start}}–{{end}} 行，共 {{total}} 行",
+        "partialFiles": "显示第 {{start}}–{{end}} 个文件，共 {{total}} 个文件"
+      },
+      "webSearch": {
+        "initializing": "正在初始化搜索...",
+        "expandRemaining": "展开剩余 {{count}} 条结果",
+        "toolOutput": "工具输出",
+        "searchingFor": "正在搜索“{{query}}”..."
+      },
+      "bash": {
+        "initializing": "正在初始化终端...",
+        "terminal": "终端",
+        "terminalAria": "终端执行，状态：{{status}}",
+        "transcriptAria": "终端执行记录",
+        "command": "命令",
+        "output": "输出",
+        "rawOutput": "原始输出",
+        "stdout": "标准输出",
+        "stderr": "错误输出",
+        "waitingForOutput": "等待输出...",
+        "noOutput": "无输出",
+        "showAll": "展示全部",
+        "moreOutput": "还有更多终端内容未显示",
+        "contentTruncated": "终端内容过长，仅展示安全范围内的内容",
+        "duration": "耗时 {{duration}}",
+        "backgroundedAfter": "等待 {{duration}} 后转入后台",
+        "backgroundCwdUnchanged": "会话工作目录未改变",
+        "status": {
+          "initializing": "初始化中",
+          "running": "运行中",
+          "completed": "已完成",
+          "failed": "失败",
+          "stopped": "已停止",
+          "interrupted": "已中断",
+          "timeout": "已超时",
+          "background": "后台运行"
+        },
+        "format": {
+          "json": "JSON",
+          "diff": "Diff",
+          "plain": "终端文本"
+        }
+      },
+      "tts": {
+        "querying": "查询中...",
+        "generating": "生成中...",
+        "voice": "语音",
+        "duration": "时长",
+        "format": "格式",
+        "size": "大小",
+        "rate": "语速",
+        "volume": "音量",
+        "pitch": "音调",
+        "file": "文件"
+      },
+      "geminiImage": {
+        "generating": "生成中...",
+        "loading": "加载中...",
+        "loadFailed": "图片加载失败",
+        "zoom": "点击放大",
+        "resolution": "分辨率",
+        "aspectRatio": "宽高比",
+        "model": "模型",
+        "file": "文件"
+      },
+      "widget": {
+        "scriptErrorPrefix": "这个组件的脚本没能运行（通常是模型生成的代码有语法错误）："
+      }
+    },
+    "sessionTitle": {
+      "renameTitle": "点击重命名"
+    },
+    "header": {
+      "backToProjects": "返回项目",
+      "newChat": "新建对话",
+      "newChatShort": "新对话",
+      "history": "历史",
+      "expandWorkspace": "展开工作区"
+    },
+    "currentChatFallback": "此对话",
+    "dropZone": {
+      "message": "松手将文件加入工作区",
+      "subtitle": "非图片文件将复制到 myagents_files 并自动引用"
+    },
+    "boot": {
+      "loading": "AI 启动中",
+      "restoreFailed": "对话加载失败，请重新打开或切换对话后重试",
+      "retry": "重试"
+    },
+    "agentError": {
+      "title": "AI 调用失败：",
+      "imageTooLargePrefix": "工具截图超过模型处理限制，",
+      "rewindAction": "点击时间回溯到之前",
+      "resend": "重新发送"
+    },
+    "diagnostics": {
+      "askHelper": "小助理诊断"
+    },
+    "selection": {
+      "quote": "引用",
+      "elaborate": "深入讲讲",
+      "quotePrompt": "针对引用的内容：",
+      "elaboratePrompt": "针对引用的内容：深入讲讲"
+    },
+    "search": {
+      "placeholder": "在当前页面中查找",
+      "previousTitle": "上一个 (Shift+Enter)",
+      "previousAria": "上一个匹配",
+      "nextTitle": "下一个 (Enter)",
+      "nextAria": "下一个匹配",
+      "closeTitle": "关闭 (Esc)",
+      "closeAria": "关闭搜索"
+    },
+    "split": {
+      "closeFile": "关闭文件",
+      "terminal": "终端",
+      "hideTerminal": "隐藏终端",
+      "newTab": "新标签页",
+      "browser": "浏览器",
+      "closeBrowser": "关闭浏览器"
+    },
+    "handover": {
+      "noActiveSessions": "暂无聊天记录"
+    },
+    "providerSwitch": {
+      "codexSubscription": "Codex（订阅）",
+      "currentProviderFallback": "当前 Provider",
+      "targetProviderFallback": "目标 Provider",
+      "targetModelFallback": "目标模型",
+      "newSessionTitle": "需要新开会话",
+      "createNewSession": "创建新会话",
+      "defaultMessage": "当前会话的历史上下文不能可靠复用到目标模型。将保留当前会话，并在新 Tab 创建新会话。",
+      "codexTarget": {
+        "title": "需要新开 Codex 会话",
+        "message": "Codex（订阅）必须由 Codex Runtime 创建会话，不能复用当前会话历史。将保留当前会话，并在新 Tab 创建 Codex 会话。",
+        "confirm": "创建 Codex 会话"
+      },
+      "codexCurrent": {
+        "message": "当前会话由 Codex Runtime 创建，不能直接切到内置模型供应商。将保留当前 Codex 会话，并在新 Tab 使用目标模型。"
+      },
+      "runtimeBacked": {
+        "message": "目标 Provider 使用不同 Runtime，不能复用当前会话历史。将保留当前会话，并在新 Tab 创建新会话。"
+      },
+      "sameProvider": {
+        "message": "「{{targetModel}}」需要独立会话，不能复用当前模型的历史。将保留当前会话，并在新 Tab 创建新会话。"
+      },
+      "crossProvider": {
+        "message": "当前会话是在「{{currentProviderName}}」下创建的，切到「{{targetProviderName}}」后历史上下文不能可靠复用。将保留当前会话，并在新 Tab 使用目标模型。"
+      }
+    },
+    "dialogs": {
+      "crossRuntime": {
+        "title": "需要新开会话发送",
+        "message": "这个历史会话由「{{sessionRuntime}}」创建，但当前外部 Runtime 功能已关闭，不能继续在原会话中发送。将保留当前会话，并用「{{currentRuntime}}」新开会话发送这条消息。",
+        "confirm": "新开会话并发送"
+      },
+      "runtimeSwitch": {
+        "title": "需要新开 Runtime 会话",
+        "message": "当前会话已绑定到「{{currentRuntime}}」，不能在同一条历史中切到「{{targetRuntime}}」。将保留当前会话，在新 Tab 打开「{{targetRuntime}}」会话，并把工作区默认 Runtime 更新为「{{targetRuntime}}」。",
+        "confirm": "确认切换"
+      },
+      "rewind": {
+        "title": "时间回溯",
+        "message": "您的「对话记录」与「文件修改状态」都将回溯到本次对话发生之前。",
+        "confirm": "确认回溯"
+      },
+      "codexRewind": {
+        "title": "时间回溯",
+        "message": "对话将回到本次提问之前。工作区文件不会自动恢复，当前文件修改会保留。",
+        "messageWithDraft": "对话将回到本次提问之前。工作区文件不会自动恢复，当前文件修改会保留。当前未发送的草稿和图片将被本次提问替换。",
+        "confirm": "仅回溯对话"
+      },
+      "fork": {
+        "title": "创建分支",
+        "message": "将从此处创建一个新的会话分支，在新标签页中打开。原会话不受影响。",
+        "confirm": "创建分支"
+      }
+    },
+    "toasts": {
+      "composerLockedByCron": "当前会话有定时任务运行中，停止任务后可修改此设置",
+      "composerLockedByGoal": "当前会话处于目标模式，目标停止后可修改此设置",
+      "providerUnavailable": "当前会话指定的 Provider「{{providerId}}」不可用（缺少 API Key 或已被禁用）。请在设置中补充密钥，或在模型选择器中切换 Provider 后再发送。",
+      "snapshotProviderIncomplete": "这个历史会话缺少 Provider 信息，请先在模型选择器里重新选择一次模型。",
+      "previewWorkspaceUnavailable": "无法打开预览：工作区文件服务不可用",
+      "previewUnsupportedType": "这个文件类型暂不支持 MyAgents 预览",
+      "previewOpenFailed": "打开文件预览失败",
+      "autoSendRestoredDraft": "发送失败，已恢复草稿，请重试",
+      "skillSyncedToGlobal": "已同步至全局技能",
+      "syncFailed": "同步失败",
+      "syncFailedRetry": "同步失败，请重试",
+      "configPartiallySaved": "配置未能完全保存，重启后可能恢复旧值",
+      "extensionsDeferred": "扩展变更将在当前回合结束后应用",
+      "extensionsUnsupported": "部分所选扩展能力暂不受 Managed Codex 支持",
+      "searchUnsupported": "当前环境不支持页内搜索（缺少 CSS Highlight API）",
+      "codexSubscriptionNeedsSession": "Codex 订阅需要新开 Codex 会话后使用，请先在模型选择器中切换并确认创建新会话。",
+      "queueLimit": "最多排队 5 条消息",
+      "cronTaskCreated": "定时任务已创建",
+      "createFailedWithError": "创建失败: {{error}}",
+      "channelNotificationFailed": "新会话已接管 Channel，但 IM 通知发送失败",
+      "runtimeSwitchCreateFailed": "切换 Runtime 失败：无法创建新会话",
+      "runtimeSwitchDefaultUpdateFailed": "切换 Runtime 失败：工作区默认 Runtime 未能更新",
+      "runtimeSwitchDefaultUpdateWarning": "新会话将继续打开，但工作区默认 Runtime 未能更新",
+      "runtimeSwitchTabOpenFailed": "切换 Runtime 失败：新 Tab 未能打开",
+      "runtimeSwitchChannelTransferFailed": "新会话已打开，但 Channel 绑定未迁移，工作区 Runtime 已恢复",
+      "providerSwitchTargetUnavailable": "创建新会话失败：目标 Provider 不可用",
+      "providerSwitchDefaultSaveFailed": "新会话已创建，但 Agent 默认模型未能保存",
+      "providerSwitchChannelTransferFailed": "新会话已打开，但 Channel 绑定未迁移",
+      "createNewSessionFailed": "创建新会话失败",
+      "imagesNotTransferred": "图片附件无法带入新会话，请重新添加",
+      "channelRebindFailedNewCancelled": "Channel 重绑失败，已取消新对话",
+      "channelRebindFailedDeleteCancelled": "Channel 重绑失败，已取消删除",
+      "reselectModelFirst": "请先在模型选择器里重新选择一次模型",
+      "submitFailedRetry": "提交失败，请重试",
+      "unknownError": "未知错误",
+      "rewindFailedWithError": "时间回溯失败：{{error}}",
+      "rewindFailedRetry": "时间回溯失败，请重试",
+      "codexRewindSuccess": "对话已回溯；工作区文件保持当前状态。",
+      "codexRestoreFailed": "对话已回溯，但 Codex 需要重启后才能继续。",
+      "codexRewindReconciled": "连接曾中断，已按本地历史重新同步对话；请确认当前记录后再继续。",
+      "conversationError": {
+        "session_busy": "当前会话仍有操作在执行，请稍后再试。",
+        "anchor_unavailable": "这个历史点缺少可用的 Codex 锚点，或原生历史已发生变化。",
+        "codex_update_required": "请将 Codex CLI 更新到 0.143.0 或更高版本。",
+        "native_fork_failed": "Codex 无法创建原生对话分支，请重试。",
+        "persistence_failed": "分支已创建，但 MyAgents 无法安全保存本地会话。",
+        "storage_consistency_error": "会话存储状态不一致，请重启 MyAgents 后再试。",
+        "restore_failed": "操作已生效，但 Codex 需要重启后才能继续。",
+        "unsupported_runtime": "当前 Runtime 不支持此操作。"
+      },
+      "rewindPartialLinks": "对话已回溯，但为保证安全，有 {{count}} 个链接文件未恢复。",
+      "rewindFilesFailed": "对话已回溯，但工作区文件恢复失败，文件保持当前状态。",
+      "rewindFilesNotAttempted": "对话已回溯，但没有可用的文件检查点，工作区文件保持当前状态。",
+      "retryFailedWithError": "重试失败：{{error}}",
+      "retryFailed": "重试失败",
+      "forkOpenFailed": "创建分支失败：无法打开新会话",
+      "forkFailedWithError": "创建分支失败：{{error}}",
+      "forkFailed": "创建分支失败",
+      "taskDeleted": "任务已删除",
+      "taskResumed": "任务已恢复",
+      "taskStopped": "任务已停止"
+    },
+    "terminalReason": {
+      "newSession": "新开会话",
+      "unknown": {
+        "label": "未知原因 ({{reason}})",
+        "detail": "SDK 返回了未知的 terminal_reason={{reason}}。可能是 SDK 版本升级带来的新枚举值。"
+      },
+      "reasons": {
+        "completed": {
+          "label": "已完成",
+          "detail": "本轮对话正常结束"
+        },
+        "max_turns": {
+          "label": "已达到最大对话轮次",
+          "detail": "本轮执行触达最大轮次上限。建议新开会话继续，或调整 Agent 的 maxTurns 配置。"
+        },
+        "prompt_too_long": {
+          "label": "上下文已满",
+          "detail": "当前对话的 token 总量已达到模型上下文窗口上限，必须精简历史、清理附件或新开会话才能继续。"
+        },
+        "blocking_limit": {
+          "label": "API 额度已用完",
+          "detail": "供应商返回 rate limit / quota 命中。请检查供应商后台配额或等待重置。"
+        },
+        "rapid_refill_breaker": {
+          "label": "上下文反复填满，本轮已停止",
+          "detail": "自动压缩后，上下文仍在短时间内多次达到上限。请缩小文件或工具输出后重试；若仍失败，可新开会话继续。"
+        },
+        "aborted_tools": {
+          "label": "工具执行被中断",
+          "detail": "工具调用被用户或系统中断。可重新发送消息让 AI 重试。"
+        },
+        "aborted_streaming": {
+          "label": "回复被中断",
+          "detail": "流式回复在完成前被中断。可重新发送消息让 AI 重新生成。"
+        },
+        "tool_deferred": {
+          "label": "工具被延迟执行",
+          "detail": "部分工具调用被延迟处理，本轮已返回。"
+        },
+        "background_requested": {
+          "label": "已转入后台执行",
+          "detail": "SDK 已把后续工作转为后台任务，本轮前台响应已结束。可在后台任务通知中查看进展。"
+        },
+        "stop_hook_prevented": {
+          "label": "被 Stop Hook 阻止结束",
+          "detail": "项目配置的 Stop Hook 主动阻止了会话结束。请检查 Hook 逻辑或 settings.json。"
+        },
+        "hook_stopped": {
+          "label": "被 Hook 主动终止",
+          "detail": "某个 Hook 主动请求终止当前轮次。请检查 Hook 配置或日志定位触发的 Hook。"
+        },
+        "image_error": {
+          "label": "图像处理失败",
+          "detail": "图像内容块无法被模型处理，可能是格式不支持或尺寸超限（>8000px）。"
+        },
+        "model_error": {
+          "label": "模型返回错误",
+          "detail": "模型侧返回错误，请查看日志定位具体原因。"
+        },
+        "api_error": {
+          "label": "API 请求失败",
+          "detail": "模型供应商 API 请求失败。请检查网络、凭据、供应商状态或日志中的响应信息。"
+        },
+        "malformed_tool_use_exhausted": {
+          "label": "工具调用格式多次失败",
+          "detail": "模型多次生成无效的工具调用格式，SDK 已停止本轮执行。可重新发送或调整模型。"
+        },
+        "budget_exhausted": {
+          "label": "已达到本轮执行预算",
+          "detail": "本轮已达到 SDK 执行预算，尚未正常完成。可继续对话或调整任务范围。"
+        },
+        "structured_output_retry_exhausted": {
+          "label": "结构化输出生成失败",
+          "detail": "模型多次重试后仍未生成符合要求的结构化输出。"
+        },
+        "tool_deferred_unavailable": {
+          "label": "延迟工具已不可用",
+          "detail": "先前延迟的工具在继续执行时已不可用，本轮未正常完成。"
+        },
+        "turn_setup_failed": {
+          "label": "本轮启动失败",
+          "detail": "SDK 无法完成本轮执行前的初始化。请检查配置、Provider 和运行日志。"
+        }
+      }
+    },
+    "messageList": {
+      "elapsed": {
+        "hms": "{{hours}}小时{{minutes}}分钟{{seconds}}秒",
+        "ms": "{{minutes}}分钟{{seconds}}秒",
+        "seconds": "{{seconds}}秒"
+      },
+      "systemStatus": {
+        "compacting": "会话内容过长，智能总结中…",
+        "rewinding": "正在时间回溯中，请稍等…",
+        "apiRetry": "API 请求重试中（第 {{attempt}}/{{max}} 次）…"
+      },
+      "starting": "AI 启动中…（首次启动可能较慢）",
+      "loadingHistory": "加载对话记录…",
+      "streaming": {
+        "0": "苦思冥想中…",
+        "1": "深思熟虑中…",
+        "2": "灵光一闪中…",
+        "3": "绞尽脑汁中…",
+        "4": "思绪飞速运转中…",
+        "5": "小脑袋瓜转啊转…",
+        "6": "神经元疯狂放电中…",
+        "7": "灵感小火花碰撞中…",
+        "8": "正在努力组织语言…",
+        "9": "在知识海洋里捞答案…",
+        "10": "正在翻阅宇宙图书馆…",
+        "11": "答案正在酝酿中…",
+        "12": "灵感咖啡冲泡中…",
+        "13": "递归思考中，请勿打扰…",
+        "14": "正在遍历可能性…",
+        "15": "加载智慧模块中…",
+        "16": "容我想想…",
+        "17": "稍等，马上就好…",
+        "18": "别急，好饭不怕晚…",
+        "19": "正在认真对待你的问题…"
+      }
+    }
+  }
+}

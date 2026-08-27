@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationDir": "lib/types",
+    "emitDeclarationOnly": false,
+    "rewriteRelativeImportExtensions": true,
+    "outDir": "lib",
+    "rootDir": "src",
+    "sourceMap": true,
+    "tsBuildInfoFile": "node_modules/.tmp/tsconfig.build.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/client/**/*", "src/domains/**/client/**/*"]
+}

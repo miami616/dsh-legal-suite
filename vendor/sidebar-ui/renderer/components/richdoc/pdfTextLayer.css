@@ -1,0 +1,84 @@
+/*
+ * pdf.js v5 text layer — transparent, selectable/copyable text overlaid on each
+ * page canvas (so users can select & copy PDF text). Adapted from pdfjs-dist's
+ * web/pdf_viewer.css `.textLayer` rules only, made standalone: the scale-factor
+ * CSS variables that the full viewer defines on `:root`/`.page` are defaulted
+ * here so the layer works without importing the entire viewer stylesheet.
+ *
+ * Sizing/positioning is fully driven by `--scale-factor` (set on the content
+ * container by PdfViewer = baseScale × zoom):
+ *   - container size: calc(--total-scale-factor * pageWidth/Height)  (setLayerDimensions)
+ *   - span left/top:  percentages of the container (scale-invariant)
+ *   - span font-size: calc(--text-scale-factor * --font-height)
+ * So zoom = just update --scale-factor; no transform, no re-render, text stays sharp.
+ * `--scale-factor` is intentionally NOT set here so it inherits from the container.
+ */
+.textLayer {
+  --user-unit: 1;
+  --total-scale-factor: calc(var(--scale-factor, 1) * var(--user-unit));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 1; /* above the page canvas */
+}
+
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.textLayer .markedContent {
+  display: contents;
+}
+
+.textLayer span[role='img'] {
+  user-select: none;
+  cursor: default;
+}
+
+.textLayer ::selection {
+  background: color-mix(in srgb, AccentColor, transparent 75%);
+}
+
+.textLayer br::selection {
+  background: transparent;
+}
+
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.textLayer.selecting .endOfContent {
+  top: 0;
+}

@@ -1,0 +1,913 @@
+@import 'tailwindcss';
+
+/* @tailwindcss/typography 已于 v2.4 移除：其 prose 字阶（h1=2em/700 等）与产品
+   Type Scale 冲突，5 个 markdown 预览面板已统一改用 .ai-message-content + 自家
+   <Markdown> 组件（PRD 0.2.34 Part 2 F4）。 */
+
+/* Class-based dark mode: `.dark` class on <html> activates dark: utilities.
+   ThemeProvider manages the class based on user preference (light/dark/system). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tailwind owns utility generation at build time while Theme packages own all
+   runtime visual values. Keep this bridge value-free: `inline` makes every
+   generated utility (including hover/dark variants) read the active Theme's
+   semantic runtime token instead of freezing Tailwind's defaults. The
+   separate `--theme-*` radius/shadow namespace avoids self-referential custom
+   properties such as `--shadow-sm: var(--shadow-sm)`. */
+@theme inline {
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-code);
+
+  --radius-*: initial;
+  --radius: var(--theme-radius-base);
+  --radius-sm: var(--theme-radius-sm);
+  --radius-md: var(--theme-radius-md);
+  --radius-lg: var(--theme-radius-lg);
+  --radius-xl: var(--theme-radius-xl);
+  --radius-2xl: var(--theme-radius-2xl);
+  --radius-full: var(--theme-radius-full);
+
+  --shadow-*: initial;
+  --shadow: var(--theme-shadow-base);
+  --shadow-xs: var(--theme-shadow-xs);
+  --shadow-sm: var(--theme-shadow-sm);
+  --shadow-md: var(--theme-shadow-md);
+  --shadow-lg: var(--theme-shadow-lg);
+  --shadow-xl: var(--theme-shadow-xl);
+  --shadow-2xl: var(--theme-shadow-2xl);
+
+  --default-transition-duration: var(--duration-fast);
+  --transition-duration-150: var(--duration-fast);
+  --transition-duration-200: var(--duration-normal);
+  --transition-duration-300: var(--duration-slow);
+}
+
+/* Product Type Scale; Theme-owned values stay in the registered Theme package. */
+@theme {
+  /* Type Scale — 单一真相源（PRD 0.2.34 Part 1-3，唯一档位表见 DESIGN.md §2.2）。
+     v2.5 终局七档（等距 2px 步进至 18）：12/14/16/18/20/22/28。
+     Part 3 双合并：11(micro)+12(caption)→12；13(ui)+14(dense)→14——
+     text-xs/text-sm 自此回归 Tailwind 官方值，同名异值仅剩两条：text-2xl=22(官方24)、text-3xl=28(官方30)。
+     已删除档位：--text-2xs(10)、--text-2sm(12)、--text-md(14)——类名已死，
+     写了等于没样式（eslint 封禁防静默腐坏）。
+     新场景先归档位，禁止 text-[Npx] 任意字面量（eslint 强制）。 */
+  --text-xs: 12px; /* micro/caption: 时间戳、badge、描述行、hint、分类头(uppercase) */
+  --text-xs--line-height: 1.45;
+  --text-sm: 14px; /* ui/dense: 按钮、菜单、树节点、tab、工具卡、控制台、Markdown 表格 */
+  --text-sm--line-height: 1.5;
+  --text-base: 16px; /* prose: AI 正文、用户气泡、输入框、widget body */
+  --text-base--line-height: 1.7;
+  --text-lg: 18px; /* Markdown H3、弹窗标题 */
+  --text-lg--line-height: 1.5;
+  --text-xl: 20px; /* Markdown H2 */
+  --text-xl--line-height: 1.4;
+  --text-2xl: 22px; /* Markdown H1 */
+  --text-2xl--line-height: 1.3;
+  --text-3xl: 28px; /* stat: 数据大数字（占用率百分比等）、页面大标题 */
+  --text-3xl--line-height: 1.2;
+  --text-brand: 56px; /* 品牌展示（Launcher） */
+  --text-brand--line-height: 1.1;
+}
+
+/* Custom titlebar styles for frameless window */
+/* NOTE: Do NOT use -webkit-app-region: drag - it conflicts with Tauri's data-tauri-drag-region on macOS */
+.custom-titlebar {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+/* All elements in titlebar have default cursor by default */
+.custom-titlebar * {
+  cursor: default;
+}
+
+/* Buttons have pointer cursor */
+.custom-titlebar button,
+.custom-titlebar button * {
+  cursor: pointer !important;
+}
+
+/* Overlay entry animations */
+@keyframes overlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes overlayPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Popover drop-down animation */
+@keyframes popoverIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Toast slide-down animation */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Scroll anchoring for smoother streaming experience */
+.scroll-anchor-auto {
+  overflow-anchor: auto;
+}
+
+.scroll-anchor {
+  overflow-anchor: auto;
+}
+
+/* Hide rewind buttons during AI streaming — controlled via data attribute on the
+   scroll container instead of per-message React prop, eliminating mass re-renders
+   of all N history messages when streaming state changes. */
+[data-streaming="true"] [data-rewind-btn] {
+  display: none;
+}
+
+/* ── Streaming leading-edge fade ──
+   While streaming, a rehype plugin (Markdown.tsx::rehypeStreamTail) wraps the LAST few
+   characters of the last text node in <span class="md-stream-tail">. The horizontal mask
+   fades them left→opaque to right→faint, so freshly-typed text emerges softly instead of
+   hard-popping (replaces the old caret). As the data-layer typewriter reveals more, the
+   tail window slides, so each character fades in over a few reveal steps. The class only
+   exists mid-stream → the final render is crisp. mask-image alpha values are taste params. */
+.md-stream-tail {
+  -webkit-mask-image: linear-gradient(to right, #000 0%, #000 35%, rgba(0, 0, 0, 0.2) 100%);
+  mask-image: linear-gradient(to right, #000 0%, #000 35%, rgba(0, 0, 0, 0.2) 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .md-stream-tail { -webkit-mask-image: none; mask-image: none; }
+}
+
+:root {
+  /* Layout and spacing are product structure, not Theme identity. */
+  --breakpoint-mobile: 640px;
+  --sidebar-min-width: 320px;
+  /* Width of the docked file/folder panel beside the chat. Restored after a
+     merge regression dropped the definition, which made the panel fall back to
+     `width: auto` and get stretched by long case-folder paths. */
+  --chat-workspace-panel-width: max(25%, var(--sidebar-min-width));
+  --header-height: 48px;
+  --space-0: 0;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+}
+
+/* Viewport-locked app: prevent document-level scrolling entirely.
+   All scrolling is handled by inner containers (MessageList, panels, etc.). */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--theme-body-background);
+  min-height: 100vh;
+  /* Cross-platform font rendering */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--theme-body-texture);
+  background-size: 3px 3px;
+  opacity: var(--theme-body-texture-opacity);
+  mix-blend-mode: var(--theme-body-texture-blend);
+  z-index: 0;
+}
+
+
+#root {
+  min-height: 100vh;
+  position: relative;
+  z-index: 1;
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.glass-panel {
+  border: 1px solid var(--line);
+  background: var(--paper-elevated);
+  box-shadow: var(--shadow-xl);
+  border-radius: var(--radius-2xl);
+}
+
+.ink-muted {
+  color: var(--ink-muted);
+}
+
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper-elevated);
+  color: var(--ink);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+  box-shadow: var(--action-shadow);
+}
+
+.action-button:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+
+.action-button:active {
+  transform: translateY(1px) scale(0.98);
+  box-shadow: var(--action-shadow-active);
+}
+
+.action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Global button cursor and interaction feedback */
+button {
+  cursor: pointer;
+  /* Always include transform in transition for smooth active feedback */
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Subtle press feedback — unified scale(0.98) for all interactive elements.
+   `:not(:has(...))` ensures only the innermost active element scales — when a
+   nested button is pressed inside a card/row, the outer ancestor (which also
+   matches :active per CSS rules) opts out, so only the actual button animates. */
+button:active:not(:disabled):not(:has(:is(button, [role="button"], [data-tree-row]):active)),
+[role="button"]:active:not(:has(:is(button, [role="button"], [data-tree-row]):active)) {
+  transform: scale(0.98);
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* Clickable row press feedback (file tree, list items, etc.) */
+[data-tree-row] {
+  transition-property: color, background-color, transform;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 100ms;
+}
+
+[data-tree-row]:active:not(:has(:is(button, [role="button"], [data-tree-row]):active)) {
+  transform: scale(0.98);
+  background-color: var(--paper-inset) !important;
+}
+
+/* Pulse animation for tab status dot (AI streaming on non-active tab) */
+@keyframes tab-dot-pulse {
+  0% {
+    opacity: 0.75;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 0;
+    transform: scale(2.5);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes tab-dot-pulse {
+    0%, 100% { opacity: 0; transform: scale(1); }
+  }
+}
+
+/* Shimmer animation for thinking state */
+@keyframes shimmer {
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+.shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer-slide {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Indeterminate progress bar animation (browser loading indicator) */
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.animate-indeterminate {
+  animation: indeterminate 1.5s ease-in-out infinite;
+}
+
+/* PRD 0.2.17 — Agent Status Panel 点击 SubAgent 行后短暂高亮目标 TaskTool 卡片 */
+@keyframes agent-status-flash {
+  0%   { background-color: var(--accent-warm-subtle); }
+  100% { background-color: transparent; }
+}
+.agent-status-flash {
+  animation: agent-status-flash 1.5s ease-out;
+  border-radius: 0.5rem;
+}
+
+
+/* Terminal-like monospace typography for tool calls */
+.tool-input {
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+  font-feature-settings:
+    'liga' 1,
+    'calt' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Clean code block styling */
+pre code {
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+}
+
+/* Tool container styling to mirror drawer cards */
+.tool-container {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--paper-elevated);
+  padding: 0.75rem 1rem;
+  box-shadow: var(--tool-shadow);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.tool-container:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--tool-shadow-hover);
+}
+
+/* Create border with gaps for icons in expanded sections */
+.expanded-block-section {
+  position: relative;
+  background-image: linear-gradient(to bottom, var(--expanded-block-line) 0%, var(--expanded-block-line) 100%);
+  background-size: 1px 100%;
+  background-position: 0 0;
+  background-repeat: repeat-y;
+}
+
+/* Align tool call icons with border center and create gap */
+.expanded-block-section .flex.h-4.w-4.items-center.justify-center {
+  position: relative;
+  margin-left: -18.5px;
+  background-color: var(--paper-elevated);
+  z-index: 1;
+  padding: 3px 2px;
+  border-radius: 2px;
+}
+
+/* Align thinking badge icon with border center and create gap */
+.expanded-block-section .flex.items-center.gap-1\.5 {
+  position: relative;
+}
+
+.expanded-block-section .flex.items-center.gap-1\.5>svg.size-3:first-child {
+  position: relative;
+  margin-left: -16.5px;
+  z-index: 1;
+}
+
+/* Create background gap for thinking icon using pseudo-element on parent */
+.expanded-block-section .flex.items-center.gap-1\.5::before {
+  content: '';
+  position: absolute;
+  left: -18.5px;
+  width: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 18px;
+  background-color: var(--paper-elevated);
+  border-radius: 2px;
+  z-index: 0;
+}
+
+/* Remove extra indent and border from expanded tool calls and thinking blocks */
+.expanded-block-section .collapsible-tool-expanded {
+  margin-left: 0 !important;
+  border-left: none !important;
+  padding-left: 0 !important;
+}
+
+.expanded-block-section .thinking-expanded-content {
+  margin-left: 0 !important;
+  border-left: none !important;
+  padding-left: 0 !important;
+}
+
+/* ============================================
+   Launcher Page Styles
+   ============================================ */
+
+
+/* Launcher two-column layout */
+.launcher-layout {
+  display: grid;
+  /* Left 60%, Right 40% (with min-width constraint) */
+  grid-template-columns: 60fr minmax(var(--sidebar-min-width), 40fr);
+  grid-template-areas: 'brand workspaces';
+}
+
+.launcher-brand {
+  grid-area: brand;
+  min-width: 0; /* Allow shrinking */
+}
+
+.launcher-workspaces {
+  grid-area: workspaces;
+  position: relative;
+}
+
+.workspace-card-channel-tags-fade {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+}
+
+.workspace-card-action-overlay {
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    color-mix(in srgb, var(--paper-elevated) 78%, transparent) 40%,
+    var(--paper-elevated) 78%
+  );
+}
+
+.launcher-history-row-title-fade {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+}
+
+.launcher-history-row-action-overlay {
+  --launcher-history-row-overlay-bg: color-mix(in srgb, var(--paper) 92%, var(--accent-warm));
+
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    color-mix(in srgb, var(--launcher-history-row-overlay-bg) 76%, transparent) 38%,
+    var(--launcher-history-row-overlay-bg) 78%
+  );
+}
+
+/* Floating divider between brand and workspaces */
+.launcher-workspaces::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 24px;
+  bottom: 24px;
+  z-index: 30;
+  width: 1px;
+  background: var(--line);
+  pointer-events: none;
+}
+
+/* Responsive: stack vertically below 640px (use --breakpoint-mobile) */
+@media (max-width: 639px) {
+  .launcher-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      'brand'
+      'workspaces';
+  }
+
+  .launcher-brand {
+    min-height: 200px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .launcher-workspaces::before {
+    display: none;
+  }
+}
+
+/* Settings sidebar floating divider */
+.settings-sidebar {
+  position: relative;
+}
+
+.settings-sidebar::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 24px;
+  bottom: 24px;
+  width: 1px;
+  background: var(--line);
+}
+
+/* Settings sidebar active indicator — left accent bar */
+.settings-nav-active {
+  position: relative;
+}
+
+.settings-nav-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--accent) 80%, transparent);
+}
+
+@media (max-width: 640px) {
+  .settings-root {
+    flex-direction: column;
+  }
+
+  .settings-sidebar {
+    width: 100%;
+    flex-shrink: 0;
+    padding: 16px;
+  }
+
+  .settings-sidebar::after {
+    left: 16px;
+    right: 16px;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 1px;
+  }
+
+  .settings-nav {
+    display: flex;
+    gap: 8px;
+    margin: 0 -4px;
+    overflow-x: auto;
+    padding: 0 4px 4px;
+    scrollbar-width: none;
+  }
+
+  .settings-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .settings-nav > button {
+    width: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .settings-nav > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0;
+  }
+
+  .settings-nav-active::before {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 2px;
+  }
+}
+
+/* ============================================
+   AI Content Styles
+   ============================================ */
+
+/* AI message content - optimized for reading */
+/* 产品级 prose 上下文（语义已宽于其名）：凡渲染 markdown 长文的容器都用它——
+   聊天 AI 正文（Message.tsx 三个 assistant 分支）+ Skill/Command/Agent 详情、
+   系统提示词、文件预览等 5 个预览面板。不要因名生义为预览面板另起新类
+   （v2.4 之前本类是死代码、typography plugin 的 .prose 在各面板各自为政，
+   字阶分叉正是那段历史的产物）。 */
+.ai-message-content {
+  font-size: var(--text-base);
+  line-height: 1.625;
+  letter-spacing: 0;
+}
+
+/* 具体段落、标题、列表与 compact 节奏的唯一 owner = Markdown.css 中的
+   `.markdown-content`。本类只给 host prose 容器提供默认正文 fallback，不能再
+   添加 descendant 间距规则，否则会重新形成跨文件双 owner。 */
+
+/* User message bubble */
+.user-message {
+  background: var(--paper-inset);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+/* User bubbles still render Markdown, but document paragraph margins should not
+   add extra outer spacing inside the compact chat bubble. */
+.user-message-content p {
+  margin: 0;
+}
+
+.user-message-content p + p {
+  margin-top: var(--space-3);
+}
+
+/* Tool call card */
+.tool-call-card {
+  background: var(--paper-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  transition: border-color var(--duration-fast);
+}
+
+.tool-call-card:hover {
+  border-color: var(--line-strong);
+}
+
+/* Thinking block */
+.thinking-block {
+  border-left: 2px solid var(--line);
+  padding: var(--space-3) 0 var(--space-3) var(--space-4);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+/* Inline code */
+.inline-code {
+  background: var(--paper-inset);
+  color: var(--ink);
+  font-family: var(--font-code);
+  font-size: 0.9em;
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+
+/* Permission prompt card */
+.permission-card {
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+/* Button/Card/Badge CSS classes removed in Design Polish v2.0 — all styling is inline via Tailwind */
+
+/* ============================================
+   Text Selection Isolation
+   ============================================ */
+
+/*
+ * Problem: Double-clicking text in chat messages causes selection to bleed
+ * into surrounding UI elements (buttons, labels, etc.)
+ *
+ * Solution: Use CSS user-select to create selection boundaries:
+ * - Containers/buttons: user-select: none (prevents selection spread)
+ * - Text content: user-select: text (allows normal selection)
+ *
+ * CSS inheritance: Children inherit user-select from parents, so we only
+ * need to set boundaries at the right levels.
+ */
+
+/* Pre-formatted text blocks are always selectable */
+pre {
+  user-select: text;
+}
+
+/* Code elements (inline and block) are selectable */
+code {
+  user-select: text;
+}
+
+/* Markdown rendered content is selectable.
+   (.ai-message-content 取代了 typography plugin 的 .prose——v2.4 预览面板迁移后
+   .prose 不复存在，可选中规则随容器类同步，否则详情/预览面板文本无法复制) */
+.ai-message-content,
+.ai-message-content * {
+  user-select: text;
+}
+
+/* Code-block gutter (line numbers) — not part of the user-visible text.
+ * react-syntax-highlighter renders these as <span class="linenumber
+ * react-syntax-highlighter-line-number">. The component already sets
+ * userSelect: 'none' inline, which excludes them from the copy buffer.
+ * But WebKit still paints the selection background when a selection range
+ * passes over them (dragging from line 2 to line 5 highlights all four
+ * gutter cells visually, as seen in user reports). Force ::selection
+ * background transparent and disable pointer events so the gutter behaves
+ * like a passive ruler. Classes only ever appear inside CodeBlock — safe
+ * to target globally. */
+.linenumber,
+.react-syntax-highlighter-line-number {
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
+}
+.linenumber::selection,
+.react-syntax-highlighter-line-number::selection {
+  background: transparent;
+  color: var(--code-line-number);
+}
+
+
+/* ── Toolbar responsive: hide text labels when container is narrow ── */
+@container (max-width: 480px) {
+  .toolbar-menus .toolbar-label {
+    display: none;
+  }
+}
+
+/* ── Introduction overlay — immersive welcome content for empty sessions ── */
+/* Guide-layer palette: two steps back from conversation content (--ink).   */
+/* Everything here should feel lighter than real AI messages — backdrop,    */
+/* not content. Real messages use --ink; this layer stays at --ink-muted    */
+/* and below so the hierarchy is unambiguous once the user starts chatting. */
+/* De-emphasis is carried by the muted PALETTE, not by font-size: body uses */
+/* the same prose tier (16px) as real AI replies — a second prose base      */
+/* (formerly 14px) read as "字号大小不一" across the welcome→chat transition  */
+/* (PRD 0.2.34 P0-2). */
+.introduction-content {
+  font-size: var(--text-base);
+  line-height: 1.625;
+  color: var(--ink-muted);
+}
+
+/* H1 acts as a "nameplate", not a document title — lighter weight on purpose */
+.introduction-content h1 {
+  font-size: var(--text-2xl);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink-muted);
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+/* H2/H3 match H1 color — all guide-layer titles stay at --ink-muted.        */
+/* Sizes follow the Markdown heading ladder (18/16) so the guide layer and   */
+/* real replies share one scale; h3 sits at body size, weight carries it.    */
+.introduction-content h2 {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--ink-muted);
+  margin-top: 28px;
+  margin-bottom: 8px;
+}
+
+.introduction-content h3 {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--ink-muted);
+  margin-top: 16px;
+  margin-bottom: 6px;
+}
+
+/* List items explicitly inherit body color to stay consistent */
+.introduction-content ul,
+.introduction-content ol,
+.introduction-content li {
+  color: var(--ink-muted);
+}
+
+/* Bold text capped at --ink-muted so it doesn't jump back to dark */
+.introduction-content strong {
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+/* HR nearly invisible — structural hint, not visual break */
+.introduction-content hr {
+  border: none;
+  border-top: 1px solid var(--line-subtle);
+  margin: 24px 0;
+}
+
+/* Blockquotes styled as warm-accent prompt examples */
+.introduction-content blockquote {
+  border-left: 3px solid var(--accent-warm-subtle);
+  background: var(--accent-warm-subtle);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 10px 14px;
+  color: var(--ink-muted);
+  font-style: normal;
+}
+
+/*
+ * The CSS Highlight API styles for the in-page text finder (Cmd/Ctrl+F)
+ * live in useChatSearch.ts and are injected at runtime via a <style> tag.
+ * LightningCSS (Tailwind v4's CSS optimizer, ≤1.30.2 as of 2026-04)
+ * does not yet recognize `::highlight(name)` as a valid pseudo-element
+ * and emits build-time warnings when it sees the literal in a static
+ * stylesheet. Runtime injection keeps the build clean.
+ */
+
+/*
+ * Monaco editor — horizontal breathing room.
+ *
+ * Monaco's `padding` config only supports top/bottom. We pad the wrapper element
+ * instead; Monaco's `automaticLayout: true` watches the wrapper's size via a
+ * ResizeObserver and re-lays out within the reduced content box. Result: the
+ * editor surface (including its overlay scrollbar) sits inset from the modal
+ * edge, leaving a clean gutter on the right.
+ *
+ * Scoped to `.monaco-editor-host` so other Monaco mounts (if any) are unaffected.
+ * Note: this can't fully prevent text from sliding under the overlay vertical
+ * scrollbar within Monaco's own viewport — that's a Monaco limitation. The padding
+ * here addresses the dominant complaint (text touching the modal/panel boundary).
+ */
+.monaco-editor-host {
+  padding-right: 16px;
+}
+
+.monaco-editor-host .myagents-monaco-search-focus-line {
+  background-color: var(--accent-warm-subtle) !important;
+}
+
+/* Monaco's find widget creates its own hover popovers for the Aa/ab/.* controls.
+ * Those popovers can sit directly over the button and intercept clicks. The editor
+ * wrapper renders a scoped MyAgents tooltip instead, so the built-in one is hidden
+ * only for Monaco instances mounted through this host.
+ */
+.monaco-editor-host .monaco-hover {
+  display: none !important;
+}
+
+.myagents-monaco-find-tooltip {
+  pointer-events: none;
+  position: fixed;
+  z-index: 330;
+  max-width: min(260px, calc(100vw - 16px));
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--button-dark-bg) 72%, var(--line-strong));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--button-dark-bg) 94%, transparent);
+  color: var(--button-dark-text);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  white-space: normal;
+}

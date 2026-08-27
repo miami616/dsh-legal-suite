@@ -1,0 +1,7 @@
+# dsh-legal-suite — 法律事务 DSH 套件（单插件合包版）。
+# 只插入一个 entry：聚合插件在 apply 内用 ctx.plugin() 嵌套挂载
+# 诉讼 / 非诉 / 任务 / 皮肤 / 工作区右边栏五个业务域 + 套件自身
+# （/api/agentlex-suite/config、/api/agentlex/read 跨域聚合与欢迎页配置）。
+- insert:
+    - id: agentlex
+      name: 'dsh-legal-suite'

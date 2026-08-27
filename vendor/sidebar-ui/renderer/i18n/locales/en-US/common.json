@@ -1,0 +1,13 @@
+{
+  "actions": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "confirm": "Confirm",
+    "save": "Save"
+  },
+  "language": {
+    "system": "System",
+    "zhCN": "Simplified Chinese",
+    "enUS": "English"
+  }
+}

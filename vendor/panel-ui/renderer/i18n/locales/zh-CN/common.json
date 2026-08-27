@@ -1,0 +1,13 @@
+{
+  "actions": {
+    "cancel": "取消",
+    "close": "关闭",
+    "confirm": "确认",
+    "save": "保存"
+  },
+  "language": {
+    "system": "跟随系统",
+    "zhCN": "简体中文",
+    "enUS": "English"
+  }
+}

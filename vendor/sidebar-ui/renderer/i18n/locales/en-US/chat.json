@@ -1,0 +1,1127 @@
+{
+  "input": {
+    "launcherPlaceholder": "What do you want to do today?",
+    "placeholder": "Message MyAgents, use @ for files and / for skills...",
+    "companionPlaceholder": "Ask Mino or delegate a task...",
+    "addScreenshot": "Add screenshot",
+    "send": "Send",
+    "stop": "Stop",
+    "stopRetry": "Stop retry",
+    "currentModel": "Current model",
+    "workspaceRoot": "Workspace root",
+    "modelDefault": "Default",
+    "selectModel": "Select model",
+    "runtimeModelHeader": "{{runtime}} Models",
+    "setupModelProvider": "Set up a model provider →",
+    "providerWarning": "Verification failed. Some models may be unavailable.",
+    "reasoningEffort": "Reasoning effort",
+    "reasoningDefault": "Default",
+    "reasoningRequirement": "Requires provider support; actual behavior depends on the provider.",
+    "customModelService": "Manage custom model services",
+    "systemBusy": "A system task is running. Please wait.",
+    "stopping": "Stopping...",
+    "providerUnavailableDefault": "Set up a model provider in Settings first.",
+    "deleteImage": "Remove image",
+    "addContext": "Add context",
+    "referenceFile": "Reference file",
+    "useSkill": "Use skill",
+    "uploadFile": "Upload file",
+    "permissionModeTitle": "Switch execution mode",
+    "permissionModeHeader": "Session mode",
+    "agentSettings": "Agent settings",
+    "autonomyWarning": "Autonomous mode is enabled. The Agent may perform irreversible actions.",
+    "toolsTitle": "Use tools",
+    "toolsLabel": "Tools",
+    "toolsHeader": "Tools enabled in this chat",
+    "settings": "Settings",
+    "settingsPage": "Settings",
+    "toolsEmptyPrefix": "Enable tools in",
+    "toolsEmptyExternal": "Enable official CLI tools in Settings to use them with this runtime.",
+    "toolsEmptyBuiltin": "Install and enable MCP tools to use browser automation and more.",
+    "pluginsHeader": "Plugins",
+    "pluginLoadsMcpTitle": "Enabling this plugin automatically loads these MCP servers: {{names}}",
+    "pluginLoadsMcp": "{{count}} MCP: {{names}}",
+    "managePlugins": "Manage plugins",
+    "noPluginsPrefix": "No plugins yet. Install them in",
+    "pluginsSettings": "Settings → Plugins",
+    "noPluginsSuffix": "from GitHub or a local path.",
+    "cronEnabled": "Schedule enabled",
+    "cron": "Schedule",
+    "switchModel": "Switch model",
+    "imageFilteredOnSend": "{{model}} does not support images. {{count}} image(s) were filtered; only text was sent.",
+    "undoFilesAdded": "Undid adding {{count}} file(s).",
+    "undoFilesPartial": "Undid {{successCount}} file(s); {{failCount}} file(s) could not be deleted.",
+    "undoReferenceOnly": "Reference removed, but file deletion failed.",
+    "mode": {
+      "chat": "Chat",
+      "thought": "Thought",
+      "switchToThought": "Press Tab to switch to Thought",
+      "switchToChat": "Press Tab to switch to Chat"
+    },
+    "mention": {
+      "workspaceFiles": "Workspace files",
+      "thoughts": "Thoughts",
+      "switchHint": "⌘/Ctrl + ←/→ to switch",
+      "filePlaceholder": "Type a filename to search...",
+      "searching": "Searching...",
+      "noFiles": "No files found",
+      "emptyThoughts": "No thoughts yet. Capture one in Task Center first.",
+      "noThoughtMatchesPrefix": "No thoughts match",
+      "noThoughtMatchesSuffix": "",
+      "recentThoughts": "Recent {{count}} thoughts",
+      "matchedThoughts": "Thoughts matching \"{{query}}\" · {{count}}",
+      "thoughtSoftCap": "Showing the first {{count}} matches. Type a more specific keyword."
+    },
+    "permissionModes": {
+      "auto": {
+        "label": "Act",
+        "description": "Agent works in the workspace and asks before using tools"
+      },
+      "plan": {
+        "label": "Plan",
+        "description": "Read-only planning mode"
+      },
+      "fullAgency": {
+        "label": "Autonomous",
+        "description": "Agent has full autonomy without manual confirmation"
+      },
+      "custom": {
+        "label": "Custom",
+        "description": "User-defined permission rules"
+      },
+      "default": {
+        "label": "Default",
+        "description": "Ask before each tool call"
+      },
+      "acceptEdits": {
+        "label": "Accept Edits",
+        "description": "Automatically accept file edits; ask for other actions"
+      },
+      "bypassPermissions": {
+        "label": "Bypass Permissions",
+        "description": "Skip all permission prompts"
+      },
+      "autoEdit": {
+        "label": "Auto Edit",
+        "description": "Automatically accept file edits; ask for other actions"
+      },
+      "yolo": {
+        "label": "YOLO",
+        "description": "Automatically approve all tools"
+      },
+      "suggest": {
+        "label": "Suggest",
+        "description": "Auto-run trusted commands; ask for everything else"
+      },
+      "auto-edit": {
+        "label": "Auto-Edit",
+        "description": "Edit files automatically and run commands in the sandbox"
+      },
+      "full-auto": {
+        "label": "Full Auto",
+        "description": "Run autonomously in the sandbox and ask when needed"
+      },
+      "no-restrictions": {
+        "label": "No Restrictions",
+        "description": "Skip all approvals and sandbox restrictions"
+      }
+    },
+    "slashCommands": {
+      "noResults": "No commands found",
+      "compact": "Compress chat history to free context space",
+      "context": "Show or manage the current context",
+      "cost": "View token usage and cost",
+      "init": "Initialize project config (.CLAUDE.md)",
+      "goal": "Goal Mode: keep working until complete",
+      "loop": "Goal Mode alias for /goal",
+      "pr-comments": "Generate Pull Request comments",
+      "release-notes": "Generate release notes from recent commits",
+      "review": "Review code",
+      "security-review": "Run a security-focused code review"
+    },
+    "attachments": {
+      "unsupportedImageType": "Unsupported image format. Use PNG, JPG, GIF, or WebP.",
+      "imageTooLarge": "Images must be 10 MB or smaller.",
+      "maxImages": "You can upload at most {{count}} images.",
+      "previewFailed": "Failed to generate a preview URL for image \"{{name}}\".",
+      "oversizedImageAsFile": "Image is over 10 MB. Use Upload file or drag it from a folder to reference it as an @file.",
+      "oversizedImagesAsFile": "{{count}} images are over 10 MB. Use Upload file or drag them from a folder to reference them as @files.",
+      "imagesConvertedToFiles": "The current model does not support image input, so images were saved as workspace files for the model to read.",
+      "desktopRequiredForUpload": "Cannot upload files in browser dev mode. Use the desktop app.",
+      "selectWorkspaceForUpload": "Select a workspace before uploading files.",
+      "uploadFailed": "Upload failed",
+      "filesAdded": "Added {{count}} file(s) to the workspace.",
+      "fileUploadFailed": "File upload failed",
+      "desktopRequiredForProcess": "Cannot process files in browser dev mode. Use the desktop app.",
+      "selectWorkspaceForProcess": "Select a workspace before processing files.",
+      "sessionNotReadyForImage": "Cannot add image because this session is not ready.",
+      "oversizedImageAddedAsReference": "Image is over 10 MB and was added as a file reference.",
+      "oversizedImagesAddedAsReference": "{{count}} images are over 10 MB and were added as file references.",
+      "copyFailed": "Copy failed",
+      "noFilesCopied": "No files were copied successfully",
+      "filesAddedPartial": "Added {{successCount}}/{{totalCount}} file(s) to the workspace.",
+      "fileCopyFailed": "File copy failed",
+      "pickFilesTitle": "Choose files",
+      "pickFilesFailed": "Failed to choose files"
+    },
+    "repetition": {
+      "title": "Repeated content detected",
+      "message": "The same text repeats about {{count}} times ({{chars}} characters total). This often happens after speech recognition glitches in third-party input methods. Send anyway?",
+      "confirm": "Send anyway",
+      "cancel": "Cancel"
+    }
+  },
+  "goalEdit": {
+    "title": "Edit Goal",
+    "subtitle": "Updating notifies the current chat to use the new objective",
+    "placeholder": "Enter the new goal...",
+    "update": "Update",
+    "updating": "Updating...",
+    "updated": "Goal updated",
+    "updateFailed": "Failed to update goal",
+    "empty": "Goal cannot be empty"
+  },
+  "floatingBall": {
+    "ballState": {
+      "idle": "Idle",
+      "running": "Working",
+      "blocked": "Waiting for you",
+      "done": "Unread result"
+    },
+    "activity": {
+      "thinkingRunning": "Thinking...",
+      "thinkingRunningWithSeconds": "Thinking... ({{seconds}}s)",
+      "thinkingFailed": "Thinking failed",
+      "thinkingFailedWithSeconds": "Thinking failed ({{seconds}}s)",
+      "thinkingStopped": "Thinking stopped",
+      "thinkingStoppedWithSeconds": "Thinking stopped ({{seconds}}s)",
+      "thinkingDone": "Thought for {{seconds}}s",
+      "background": "Background"
+    },
+    "watchingApp": "Mino · Watching {{appName}}",
+    "watchingAppWindow": "Mino · Watching {{appName}} — {{windowTitle}}",
+    "chrome": {
+      "openPetSettings": "Open Desktop Pet settings",
+      "openInMyAgents": "Open in MyAgents (continue in a new tab)",
+      "closeEsc": "Close (Esc)"
+    },
+    "connecting": "Connecting to {{workspace}}...",
+    "processing": "Mino is working...",
+    "axPrompt": "Allow Accessibility access so Mino can include selected text when summoned. You only need to grant this once.",
+    "grantAccessibility": "Grant access",
+    "removeQuote": "Remove quote",
+    "resizeHandle": "Drag to resize",
+    "moveHandle": "Drag to move window",
+    "toasts": {
+      "maxImages": "You can upload at most {{count}} images.",
+      "cannotUploadDevMode": "Cannot upload files in browser dev mode. Use the desktop app.",
+      "cannotUploadNoWorkspace": "Select a workspace before uploading files.",
+      "filesAdded": "Added {{count}} file(s) to the workspace.",
+      "fileUploadFailed": "File upload failed",
+      "cannotProcessDevMode": "Cannot process files in browser dev mode. Use the desktop app.",
+      "cannotProcessNoWorkspace": "Select a workspace before processing files.",
+      "filesNotAdded": "{{count}} file(s) could not be added.",
+      "fileProcessFailed": "File processing failed",
+      "imageTooLargeAsFile": "Image is over 10 MB. Drag it from a folder to reference it as an @file.",
+      "imagesTooLargeAsFile": "{{count}} images are over 10 MB. Drag them from a folder to reference them as @files.",
+      "imageConvertedToFile": "The current model does not support image input, so images were saved as workspace files for the model to read.",
+      "unsupportedImageFormat": "Unsupported image format: {{name}}",
+      "imageTooLargeAddedAsFile": "Image is over 10 MB and was added as a file reference.",
+      "imagesTooLargeAddedAsFile": "{{count}} images are over 10 MB and were added as file references.",
+      "screenshotSaveFailed": "Failed to save screenshot",
+      "screenshotFailed": "Screenshot failed",
+      "screenshotFailedWithDetail": "Screenshot failed: {{detail}}",
+      "openPetSettingsFailed": "Failed to open Desktop Pet settings"
+    }
+  },
+  "workspaceFiles": {
+    "common": {
+      "more": "More",
+      "close": "Close",
+      "preview": "Preview",
+      "quote": "Quote",
+      "copy": "Copy",
+      "cut": "Cut",
+      "paste": "Paste",
+      "delete": "Delete",
+      "deleteAll": "Delete all",
+      "rename": "Rename",
+      "refresh": "Refresh",
+      "open": "Open",
+      "selectAll": "Select all",
+      "undoLast": "Undo last action",
+      "newNote": "New note",
+      "newFile": "New file",
+      "newFolder": "New folder",
+      "importFile": "Import files",
+      "revealInTree": "Reveal in file tree",
+      "openContainingFolder": "Open containing folder",
+      "copyFilePath": "Copy file path",
+      "copyFolderPath": "Copy folder path",
+      "copyFailed": "Copy failed",
+      "openFolderFailed": "Could not open folder",
+      "operationFailed": "Operation failed",
+      "trashMoved": "Moved to Trash"
+    },
+    "filePreview": {
+      "saving": "Saving",
+      "saved": "Saved",
+      "saveFailed": "Save failed",
+      "externalUpdate": "External update",
+      "updated": "Updated",
+      "externalUpdateTitle": "The file changed externally. Local edits have not overwritten it.",
+      "updatedTitle": "File content was updated automatically",
+      "doubleClickRename": "Double-click to rename",
+      "previewMode": "Preview",
+      "editMode": "Edit",
+      "copyFullText": "Copy full text",
+      "copyFullTextAfterLoad": "Copy after the file loads",
+      "copyFullTextPreviewFailed": "Preview failed, so full text cannot be copied",
+      "emptyDocument": "Document is empty",
+      "switchToEdit": "Switch to edit",
+      "browserPreview": "Browser preview",
+      "fullscreenPreview": "Fullscreen preview",
+      "toasts": {
+        "externalUpdateConflict": "The file changed externally. Local edits were not overwritten.",
+        "closeAutosaveFailed": "Auto-save failed while closing",
+        "renameFailed": "Rename failed",
+        "copiedFilePath": "File path copied",
+        "copyWhileLoading": "The file is still loading. Try copying again shortly.",
+        "copyAfterPreviewFailed": "Preview failed, so copying is unavailable.",
+        "copiedFullText": "Full text copied",
+        "copiedPlainText": "Plain text copied"
+      }
+    },
+    "directory": {
+      "title": "Workspace",
+      "collapseWorkspace": "Collapse workspace",
+      "expandWorkspace": "Expand workspace",
+      "foldWorkspace": "Fold workspace",
+      "fileSearch": "Search files",
+      "closeSearch": "Close search",
+      "showTerminal": "Show terminal",
+      "openTerminal": "Open terminal",
+      "browser": "Browser",
+      "openAgentSettings": "Open Agent settings",
+      "agentSettings": "Agent settings",
+      "searchPlaceholder": "Search files and contents...",
+      "exitSearch": "Exit search",
+      "loading": "Loading...",
+      "copyCount": "Copy ({{count}})",
+      "cutCount": "Cut ({{count}})",
+      "openFoldersCount": "Open containing folders ({{count}})",
+      "quoteCount": "Quote ({{count}})",
+      "deleteCount": "Delete ({{count}})",
+      "deleteDialog": {
+        "fileTitle": "Delete file",
+        "folderTitle": "Delete folder",
+        "message": "Delete \"{{name}}\"? It will be moved to the system Trash.",
+        "multiTitle": "Delete {{count}} items",
+        "multiMessage": "Delete the selected {{count}} files/folders? They will be moved to the system Trash."
+      },
+      "errors": {
+        "loadDirectoryFailed": "Failed to load directory info",
+        "importFailed": "Import failed",
+        "copyFailed": "Copy failed",
+        "moveFailed": "Move failed",
+        "createFailed": "Create failed",
+        "deleteFailed": "Delete failed",
+        "pasteFailed": "Paste failed",
+        "openFailed": "Failed to open",
+        "batchUploadTooLarge": "Batch upload cannot exceed {{maxMb}} MB (current {{currentMb}} MB). Drag large files directly into the folder.",
+        "tooManyNotes": "Too many notes were created in the current minute. Try again later."
+      },
+      "toasts": {
+        "fileMissing": "File does not exist or was deleted",
+        "previewFailed": "File preview failed",
+        "imageLoadFailed": "Image failed to load",
+        "unsupportedPreview": "This file type cannot be previewed yet. Use the context menu to open it.",
+        "partialImportFailed": "Some files could not be imported: {{error}}",
+        "autoRenamedOne": "Automatically renamed to avoid a conflict: {{from}} → {{to}}",
+        "autoRenamedMany": "{{count}} items were automatically renamed because of naming conflicts",
+        "movePartial": "Moved {{moved}} item(s); {{failed}} failed: {{error}}",
+        "clipboardNoFiles": "No pasteable files in the clipboard. Select a file in the tree and press {{shortcut}} first.",
+        "copiedFolderPath": "Folder path copied",
+        "copiedFilePath": "File path copied",
+        "copiedSelection": "{{action}} {{target}}. Press {{shortcut}} in the target folder to paste.",
+        "copied": "Copied",
+        "cut": "Cut",
+        "itemName": "\"{{name}}\"",
+        "itemCount": "{{count}} items",
+        "clipboardStale": "The system clipboard has new content, so the file clipboard expired. Copy again before pasting.",
+        "pastePartialFailed": "Some items could not be pasted: {{error}}",
+        "movePartialFailed": "Some items could not be moved: {{error}}",
+        "undoEmpty": "No operation to undo",
+        "undoPartialFailed": "Undo partially failed: {{error}}",
+        "undoWithRenameFailures": "Undone ({{count}} item(s) could not restore the original filename)",
+        "undone": "Undone",
+        "undoFailed": "Undo failed: {{error}}",
+        "undoFailedGeneric": "Undo failed",
+        "multiTrashMoved": "Moved {{count}} item(s) to Trash"
+      }
+    },
+    "search": {
+      "searching": "Searching...",
+      "searchInWorkspace": "Search in the current workspace",
+      "fileNameAndContent": "Folders, file names, and file contents",
+      "zeroResults": "0 results",
+      "refreshingSuffix": " · updating index...",
+      "summary": "Found {{folders}} folder(s) and {{files}} file(s)",
+      "folderSection": "Folders ({{count}})",
+      "fileSection": "Files ({{count}})",
+      "contentMatchCount": "{{count}} content match(es)",
+      "collapseResults": "Collapse",
+      "expandResults": "Expand",
+      "moreResults": "... {{count}} more result(s)"
+    }
+  },
+  "runtime": {
+    "header": "Runtime",
+    "settings": "Settings",
+    "notInstalled": "Not installed",
+    "comingSoon": "Coming soon"
+  },
+  "shell": {
+    "common": {
+      "cancel": "Cancel",
+      "close": "Close"
+    },
+    "sessionMenu": {
+      "trigger": "Chat actions",
+      "copySessionIdAria": "Copy SessionID",
+      "copied": "Copied",
+      "copy": "Copy",
+      "rename": "Rename",
+      "renameDisabledTitle": "Send one message before naming this chat",
+      "favorite": "Favorite chat",
+      "unfavorite": "Unfavorite",
+      "exportMarkdown": "Export as Markdown",
+      "tokenStats": "Session token usage",
+      "contextUsage": "Context token details",
+      "continueInBot": "Continue in chat bot",
+      "deleteBlockedByOwner": "This chat is still in use. Complete, archive, or delete its task or Goal; wait for background completion; or unbind the chat bot before deleting.",
+      "deleteTransitionInProgress": "This chat is opening or switching. Try deleting it again in a moment.",
+      "deleteActivityUnavailable": "Unable to confirm whether this chat is still running. It was kept; try again in a moment.",
+      "delete": "Delete chat",
+      "bound": "Bound",
+      "switchToOther": "Switch to another",
+      "source": {
+        "private": "Private",
+        "group": "Group",
+        "unknownChat": "Unknown chat"
+      },
+      "deleteDialog": {
+        "title": "Delete chat",
+        "message": "Delete \"{{title}}\"? This cannot be undone.",
+        "confirm": "Delete"
+      },
+      "toasts": {
+        "copySessionIdSuccess": "SessionID copied",
+        "copyFailed": "Copy failed",
+        "favoriteAdded": "Added to favorites",
+        "favoriteRemoved": "Removed from favorites",
+        "favoriteFailed": "Failed to update favorite. Please try again.",
+        "deleteFailed": "Delete failed. Please try again.",
+        "deleted": "Deleted",
+        "handoverSuccess": "Handed over to {{target}}",
+        "handoverNotifyFailed": "Handed over to {{target}}, but the IM notification was not delivered.",
+        "handoverFailed": "Handover failed",
+        "handoverFailedWithError": "Handover failed: {{error}}"
+      }
+    },
+    "history": {
+      "title": "Workspace history",
+      "loading": "Loading...",
+      "empty": "No history yet",
+      "current": "Current",
+      "turnCount": "{{count}} turn(s)",
+      "unreadNotifications": "{{count}} unread notification(s)",
+      "automationVisible": "Scheduled task chats visible",
+      "automationHidden": "Scheduled task chats hidden",
+      "openInNewTab": "Open in new tab",
+      "more": "More",
+      "moreActions": "More actions",
+      "favorite": "Favorite chat",
+      "unfavorite": "Unfavorite",
+      "exportMarkdown": "Export as Markdown",
+      "viewStats": "View stats",
+      "deleteBlockedByOwner": "This chat is still in use. Complete, archive, or delete its task or Goal; wait for background completion; or unbind the chat bot before deleting.",
+      "deleteTransitionInProgress": "This chat is opening or switching. Try deleting it again in a moment.",
+      "deleteActivityUnavailable": "Unable to confirm whether this chat is still running. It was kept; try again in a moment.",
+      "delete": "Delete chat",
+      "deleteDialog": {
+        "title": "Delete chat",
+        "message": "Delete \"{{title}}\"? This cannot be undone.",
+        "confirm": "Delete"
+      },
+      "errors": {
+        "deleteFailed": "Delete failed. Please try again.",
+        "favoriteFailed": "Failed to update favorite. Please try again."
+      },
+      "batchMode": "Batch",
+      "batchDone": "Done",
+      "batchSelected": "{{count}} selected",
+      "batchDeleted": "Deleted {{count}} sessions",
+      "batchFavorited": "Favorited {{count}} sessions",
+      "batchUnfavorited": "Unfavorited {{count}} sessions",
+      "selectAll": "Select all"
+    },
+    "stats": {
+      "title": "Session stats",
+      "loading": "Loading...",
+      "empty": "No stats yet",
+      "errors": {
+        "unavailable": "Unable to load stats",
+        "loadFailed": "Load failed"
+      },
+      "common": {
+        "input": "Input",
+        "output": "Output",
+        "inputCache": "Input cache"
+      },
+      "summary": {
+        "turns": "Turns",
+        "humanQueries": "Human inputs",
+        "totalTokens": "Total tokens",
+        "inputOutput": "Input {{input}} / output {{output}}",
+        "inputCache": "Input cache",
+        "inputCacheTokens": "input cache tokens"
+      },
+      "byModel": {
+        "title": "By model",
+        "model": "Model",
+        "count": "Count"
+      },
+      "turnDetails": {
+        "title": "Turn usage",
+        "trigger": "Visible trigger"
+      }
+    },
+    "queue": {
+      "title": "Queued ({{count}})",
+      "sendNow": "Send now",
+      "recallSend": "Recall send",
+      "cancelQueued": "Cancel queued"
+    },
+    "permissionPrompt": {
+      "progress": "Permission approval {{index}} / {{total}}",
+      "title": "Permission request",
+      "subtitle": "AI wants to run the following action",
+      "badge": "Authorization required",
+      "deny": "Deny",
+      "alwaysAllow": "Always allow",
+      "allow": "Allow"
+    },
+    "askQuestion": {
+      "preview": "Preview",
+      "customPlaceholder": "Share your thoughts",
+      "progressAria": "Question progress",
+      "questionAria": "Question {{index}}: {{header}}",
+      "previous": "Previous",
+      "submit": "Submit",
+      "next": "Next"
+    },
+    "planPrompt": {
+      "submitFeedback": "Submit feedback",
+      "rejectPlan": "Reject plan",
+      "title": "Plan review",
+      "subtitle": "AI has finished drafting a plan. Review it before deciding whether to execute.",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "permissions": "Required permissions:",
+      "approve": "Approve and execute",
+      "feedbackPlaceholder": "Share feedback (leave blank to reject the plan)"
+    },
+    "runtimeDiagnostics": {
+      "problems": {
+        "needsCodexLogin": "Codex login required (click the account avatar or run codex login)",
+        "extensionComponent": "Extension {{component}}{{id}} is {{state}}: {{reason}}"
+      },
+      "headlines": {
+        "needsCodexLogin": "Sign in to Codex to continue",
+        "extensionsFailed": "Managed Codex extension application failed"
+      },
+      "status": {
+        "unsupported": "Unsupported",
+        "failed": "Failed: {{error}}",
+        "notReported": "Not reported"
+      },
+      "sections": {
+        "problems": "Problems",
+        "auth": "Auth",
+        "featureFlags": "Feature flags",
+        "mcpServers": "MCP servers",
+        "apps": "Apps",
+        "effectiveEnv": "Effective env",
+        "extensions": "MyAgents extensions"
+      },
+      "requiresLoginSuffix": " • login required",
+      "appAccessible": "accessible ",
+      "appInaccessible": "inaccessible ",
+      "yes": "yes",
+      "no": "no",
+      "snapshot": "Diagnostic snapshot: {{timestamp}}. CLI sync info:",
+      "closeTitle": "Close this notice"
+    },
+    "toolChrome": {
+      "common": {
+        "background": "Background",
+        "copy": "Copy",
+        "copied": "Copied",
+        "exportMarkdown": "Export Markdown",
+        "expandAll": "Expand all",
+        "expandMore": "Expand more",
+        "collapse": "Collapse",
+        "result": "Result",
+        "output": "Output",
+        "executing": "Running",
+        "running": "Running",
+        "completedCount": "{{completed}}/{{total}} completed",
+        "generatedImageAlt": "Generated image"
+      },
+      "thinking": {
+        "active": "Thinking…",
+        "activeWithSeconds": "Thinking… ({{seconds}}s)",
+        "failed": "Thinking failed",
+        "failedWithSeconds": "Thinking failed ({{seconds}}s)",
+        "stopped": "Thinking stopped",
+        "stoppedWithSeconds": "Thinking stopped ({{seconds}}s)",
+        "completedWithSeconds": "Thought for {{seconds}}s",
+        "copyAria": "Copy thinking process",
+        "exportAria": "Export thinking process as Markdown",
+        "exportFilename": "thinking-process"
+      },
+      "truncate": {
+        "result": "... [Result too long; showing the first {{shown}} of {{total}} characters]"
+      },
+      "filePath": {
+        "file": "File: {{path}}",
+        "folder": "Folder: {{path}}"
+      },
+      "filePatch": {
+        "moreActions": "More file actions",
+        "unnamedFile": "Unnamed file",
+        "operation": {
+          "add": "Created",
+          "update": "Modified",
+          "delete": "Deleted",
+          "move": "Moved",
+          "write": "Write",
+          "change": "Changed"
+        },
+        "replaceAll": "Replace all",
+        "userModified": "Result adjusted during approval",
+        "boundedPreview": "Large change; showing a bounded preview",
+        "noTextChanges": "No text changes",
+        "emptyWrittenContent": "The written file content is empty",
+        "detailUnavailable": "Change details unavailable",
+        "previousVersionUnavailable": "The result did not provide the previous version",
+        "showAll": "Show all",
+        "showAllForFile": "Show all changes for {{file}}; {{count}} more lines are hidden",
+        "remainingLines_one": "{{count}} more line is hidden",
+        "remainingLines_other": "{{count}} more lines are hidden",
+        "onlyFirstLines": "Content is too long; showing the first {{count}} lines",
+        "rawResult": "Raw tool result",
+        "diffAria": "Changes for {{file}}",
+        "hunkLineCount_one": "{{count}} line",
+        "hunkLineCount_other": "{{count}} lines",
+        "hunkSameStart": "Around line {{line}} · before: {{oldSpan}} · after: {{newSpan}}",
+        "hunkMovedStart": "Old line {{oldStart}} → new line {{newStart}} · before: {{oldSpan}} · after: {{newSpan}}",
+        "addedLine": "Added line {{line}}",
+        "removedLine": "Removed line {{line}}",
+        "addedLineUnknown": "Added line",
+        "removedLineUnknown": "Removed line",
+        "moveTo": "Move to {{path}}",
+        "status": {
+          "declined": "Declined",
+          "failed": "Failed",
+          "stopped": "Stopped",
+          "interrupted": "Interrupted",
+          "running": "Running",
+          "unknown": "{{status}}"
+        }
+      },
+      "image": {
+        "noLocalPath": "No local path to copy",
+        "copyPathSuccess": "Image path copied",
+        "copyPathFailed": "Failed to copy path",
+        "copySuccess": "Image copied",
+        "copyFallbackPath": "Could not copy the image; copied the local path instead",
+        "copyFailed": "Failed to copy image",
+        "notReady": "Image is still loading",
+        "saveSuccess": "Image saved",
+        "saveFailed": "Failed to save image",
+        "copyImage": "Copy image",
+        "saveAs": "Save as…",
+        "copyLocalPath": "Copy local path",
+        "generating": "Generating…",
+        "loading": "Loading…",
+        "renderFailed": "Image failed to render: {{reason}}"
+      },
+      "audio": {
+        "generating": "Generating audio…",
+        "renderFailed": "Audio failed to render: {{reason}}",
+        "more": "More",
+        "rewindSeconds": "Back {{seconds}} seconds",
+        "forwardSeconds": "Forward {{seconds}} seconds",
+        "reveal": "Show in file manager",
+        "openDefault": "Open with default app",
+        "audio": "Audio",
+        "pause": "Pause",
+        "play": "Play"
+      },
+      "labels": {
+        "subAgent": "Sub-agent",
+        "spawnAgent": "Spawn sub-agent",
+        "waitAgent": "Wait for sub-agent",
+        "closeAgent": "Close sub-agent",
+        "sendInput": "Send instruction",
+        "resumeAgent": "Resume sub-agent",
+        "subAgentControl": "Sub-agent control",
+        "agentMessage": "Agent message",
+        "thinking": "Thinking",
+        "searchWithQuery": "Search \"{{query}}\"",
+        "findWithPattern": "Find {{pattern}}",
+        "fetchTarget": "Fetch {{target}}",
+        "newTask": "New task",
+        "newTaskWithSubject": "New: {{subject}}",
+        "taskDone": "Task done",
+        "taskDoneWithSubject": "Done: {{subject}}",
+        "taskStarted": "Task started",
+        "taskStartedWithSubject": "Start: {{subject}}",
+        "taskDropped": "Task dropped",
+        "taskDroppedWithSubject": "Drop: {{subject}}",
+        "updateTask": "Update task",
+        "updateTaskWithSubject": "Update: {{subject}}",
+        "getTask": "Get task",
+        "taskList": "Task List",
+        "tasksProgress": "Tasks {{completed}}/{{total}}",
+        "todoList": "Todo List",
+        "todoProgress": "Todo {{completed}}/{{total}}",
+        "runCommand": "Run command",
+        "bashOutput": "Bash Output",
+        "find": "Find",
+        "search": "Search",
+        "fetch": "Fetch",
+        "killShell": "Kill Shell",
+        "skill": "Skill",
+        "skillWithName": "Skill({{name}})",
+        "notebookCell": "{{mode}} notebook cell",
+        "matches": "{{count}} match(es)",
+        "files": "{{count}} file(s)",
+        "filesPart": "in {{count}} file(s)",
+        "writeLines_one": "Write {{count}} line",
+        "writeLines_other": "Write {{count}} lines",
+        "editImage": "Edit image",
+        "generateImage": "Generate image",
+        "listVoices": "List voices",
+        "textToSpeech": "Text to speech"
+      },
+      "mcpServers": {
+        "imCron": "Scheduled tasks",
+        "cronTools": "Scheduled tasks",
+        "imMedia": "IM media",
+        "imBridgeTools": "Plugin tools"
+      },
+      "taskOp": {
+        "loadingList": "Loading task list...",
+        "emptyList": "No tasks yet",
+        "create": "Create task",
+        "createWithSubject": "Create task: {{subject}}",
+        "delete": "Delete task",
+        "deleteWithSubject": "Delete task: {{subject}}",
+        "complete": "Complete task",
+        "completeWithSubject": "Completed: {{subject}}",
+        "start": "Start task",
+        "startWithSubject": "In progress: {{subject}}",
+        "update": "Update task",
+        "updateWithSubject": "Update task: {{subject}}",
+        "get": "Get task",
+        "getWithId": "Get task #{{id}}",
+        "loadingTodos": "Loading todos..."
+      },
+      "task": {
+        "initializing": "Initializing task...",
+        "collapse": "Collapse",
+        "expandMore": "Expand more",
+        "ranFor": "Ran for {{duration}}",
+        "toolCalls": "Called {{count}} tool(s)",
+        "toolCallsShort": "{{count}} tool call(s)",
+        "tokenUsage": "Used {{tokens}} tokens",
+        "resolvedModel": "Model {{model}}",
+        "modelsUsed": "Models {{models}}",
+        "statusCompleted": "Completed",
+        "statusError": "Error",
+        "statusRunning": "Running",
+        "statusStopped": "Stopped",
+        "backgroundCompleted": "Background completed",
+        "backgroundFailed": "Background failed",
+        "backgroundRunning": "Background running",
+        "traceTitle": "Call trace ({{count}})",
+        "output": "Output"
+      },
+      "grep": {
+        "partialLines": "Showing lines {{start}}–{{end}} of {{total}}",
+        "partialFiles": "Showing files {{start}}–{{end}} of {{total}}"
+      },
+      "webSearch": {
+        "initializing": "Initializing search...",
+        "expandRemaining": "Show {{count}} more results",
+        "toolOutput": "Tool Output",
+        "searchingFor": "Searching for “{{query}}”..."
+      },
+      "bash": {
+        "initializing": "Initializing terminal...",
+        "terminal": "Terminal",
+        "terminalAria": "Terminal execution, status: {{status}}",
+        "transcriptAria": "Terminal execution transcript",
+        "command": "Command",
+        "output": "Output",
+        "rawOutput": "Raw output",
+        "stdout": "Standard output",
+        "stderr": "Error output",
+        "waitingForOutput": "Waiting for output...",
+        "noOutput": "No output",
+        "showAll": "Show all",
+        "moreOutput": "More terminal content is hidden",
+        "contentTruncated": "Terminal content is too long; showing the safe inline range",
+        "duration": "Duration {{duration}}",
+        "backgroundedAfter": "Backgrounded after {{duration}}",
+        "backgroundCwdUnchanged": "Session working directory unchanged",
+        "status": {
+          "initializing": "Initializing",
+          "running": "Running",
+          "completed": "Completed",
+          "failed": "Failed",
+          "stopped": "Stopped",
+          "interrupted": "Interrupted",
+          "timeout": "Timed out",
+          "background": "Running in background"
+        },
+        "format": {
+          "json": "JSON",
+          "diff": "Diff",
+          "plain": "Terminal text"
+        }
+      },
+      "tts": {
+        "querying": "Querying...",
+        "generating": "Generating...",
+        "voice": "Voice",
+        "duration": "Duration",
+        "format": "Format",
+        "size": "Size",
+        "rate": "Rate",
+        "volume": "Volume",
+        "pitch": "Pitch",
+        "file": "File"
+      },
+      "geminiImage": {
+        "generating": "Generating...",
+        "loading": "Loading...",
+        "loadFailed": "Image failed to load",
+        "zoom": "Click to enlarge",
+        "resolution": "Resolution",
+        "aspectRatio": "Aspect ratio",
+        "model": "Model",
+        "file": "File"
+      },
+      "widget": {
+        "scriptErrorPrefix": "This component's script could not run, usually because the generated code has a syntax error: "
+      }
+    },
+    "sessionTitle": {
+      "renameTitle": "Click to rename"
+    },
+    "header": {
+      "backToProjects": "Back to projects",
+      "newChat": "New chat",
+      "newChatShort": "New chat",
+      "history": "History",
+      "expandWorkspace": "Expand workspace"
+    },
+    "currentChatFallback": "This chat",
+    "dropZone": {
+      "message": "Release to add files to the workspace",
+      "subtitle": "Non-image files will be copied to myagents_files and referenced automatically."
+    },
+    "boot": {
+      "loading": "Starting AI",
+      "restoreFailed": "Couldn't load this chat. Reopen it or switch chats to try again.",
+      "retry": "Try again"
+    },
+    "agentError": {
+      "title": "AI call failed: ",
+      "imageTooLargePrefix": "The tool screenshot exceeds the model limit. ",
+      "rewindAction": "Rewind to before this turn",
+      "resend": "Resend"
+    },
+    "diagnostics": {
+      "askHelper": "Ask helper to diagnose"
+    },
+    "selection": {
+      "quote": "Quote",
+      "elaborate": "Elaborate",
+      "quotePrompt": "About the quoted content: ",
+      "elaboratePrompt": "About the quoted content: explain in more depth"
+    },
+    "search": {
+      "placeholder": "Find in this page",
+      "previousTitle": "Previous (Shift+Enter)",
+      "previousAria": "Previous match",
+      "nextTitle": "Next (Enter)",
+      "nextAria": "Next match",
+      "closeTitle": "Close (Esc)",
+      "closeAria": "Close search"
+    },
+    "split": {
+      "closeFile": "Close file",
+      "terminal": "Terminal",
+      "hideTerminal": "Hide terminal",
+      "newTab": "New tab",
+      "browser": "Browser",
+      "closeBrowser": "Close browser"
+    },
+    "handover": {
+      "noActiveSessions": "No chat history"
+    },
+    "providerSwitch": {
+      "codexSubscription": "Codex subscription",
+      "currentProviderFallback": "current provider",
+      "targetProviderFallback": "target provider",
+      "targetModelFallback": "target model",
+      "newSessionTitle": "New session required",
+      "createNewSession": "Create new session",
+      "defaultMessage": "This chat history cannot be reliably reused with the target model. The current chat will stay open and a new chat will be created in a new tab.",
+      "codexTarget": {
+        "title": "New Codex session required",
+        "message": "Codex subscription chats must be created by the Codex Runtime and cannot reuse the current chat history. The current chat will stay open and a Codex chat will be created in a new tab.",
+        "confirm": "Create Codex session"
+      },
+      "codexCurrent": {
+        "message": "This chat was created by the Codex Runtime and cannot switch directly to a built-in model provider. The current Codex chat will stay open and the target model will open in a new tab."
+      },
+      "runtimeBacked": {
+        "message": "The target provider uses a different Runtime, so the current chat history cannot be reused. The current chat will stay open and a new chat will be created in a new tab."
+      },
+      "sameProvider": {
+        "message": "\"{{targetModel}}\" requires an independent session and cannot reuse this model history. The current chat will stay open and a new chat will be created in a new tab."
+      },
+      "crossProvider": {
+        "message": "This chat was created under \"{{currentProviderName}}\". After switching to \"{{targetProviderName}}\", the history context cannot be reliably reused. The current chat will stay open and the target model will open in a new tab."
+      }
+    },
+    "dialogs": {
+      "crossRuntime": {
+        "title": "New session required to send",
+        "message": "This historical chat was created by \"{{sessionRuntime}}\", but external Runtime support is currently disabled, so it cannot continue in the original session. The current chat will stay open and this message will be sent in a new \"{{currentRuntime}}\" chat.",
+        "confirm": "Open new chat and send"
+      },
+      "runtimeSwitch": {
+        "title": "New Runtime session required",
+        "message": "This chat is already bound to \"{{currentRuntime}}\" and cannot switch to \"{{targetRuntime}}\" in the same history. The current chat will stay open, a \"{{targetRuntime}}\" chat will open in a new tab, and the workspace default Runtime will be updated to \"{{targetRuntime}}\".",
+        "confirm": "Switch"
+      },
+      "rewind": {
+        "title": "Time rewind",
+        "message": "Your chat history and file modification state will both rewind to before this turn.",
+        "confirm": "Rewind"
+      },
+      "codexRewind": {
+        "title": "Time rewind",
+        "message": "The conversation will return to before this message. Workspace files will not be restored; current file changes will remain.",
+        "messageWithDraft": "The conversation will return to before this message. Workspace files will not be restored; current file changes will remain. Your current unsent draft and images will be replaced by this message.",
+        "confirm": "Rewind conversation only"
+      },
+      "fork": {
+        "title": "Create branch",
+        "message": "A new chat branch will be created from this point and opened in a new tab. The original chat will not be changed.",
+        "confirm": "Create branch"
+      }
+    },
+    "toasts": {
+      "composerLockedByCron": "A scheduled task is running in this chat. Stop the task before changing this setting.",
+      "composerLockedByGoal": "Goal Mode is active in this chat. Stop the goal before changing this setting.",
+      "providerUnavailable": "The Provider pinned to this chat, \"{{providerId}}\", is unavailable because its API key is missing or it has been disabled. Add the key in Settings, or switch Provider in the model picker before sending.",
+      "snapshotProviderIncomplete": "This historical chat is missing Provider information. Select the model again in the model picker first.",
+      "previewWorkspaceUnavailable": "Cannot open preview because the workspace file service is unavailable.",
+      "previewUnsupportedType": "This file type is not supported by MyAgents preview yet.",
+      "previewOpenFailed": "Failed to open file preview.",
+      "autoSendRestoredDraft": "Send failed. Your draft was restored; please try again.",
+      "skillSyncedToGlobal": "Synced to global Skills.",
+      "syncFailed": "Sync failed",
+      "syncFailedRetry": "Sync failed. Please try again.",
+      "configPartiallySaved": "Configuration was not fully saved and may revert after restart.",
+      "extensionsDeferred": "This extension change will apply after the active turn.",
+      "extensionsUnsupported": "Some selected extension capabilities are not supported by Managed Codex.",
+      "searchUnsupported": "In-page search is not supported in this environment because the CSS Highlight API is missing.",
+      "codexSubscriptionNeedsSession": "Codex subscription requires a new Codex session. Switch in the model picker and confirm the new session first.",
+      "queueLimit": "You can queue at most 5 messages.",
+      "cronTaskCreated": "Scheduled task created.",
+      "createFailedWithError": "Create failed: {{error}}",
+      "channelNotificationFailed": "The new chat took over the Channel, but the IM notification failed.",
+      "runtimeSwitchCreateFailed": "Runtime switch failed: cannot create a new chat.",
+      "runtimeSwitchDefaultUpdateFailed": "Runtime switch failed: the workspace default Runtime could not be updated.",
+      "runtimeSwitchDefaultUpdateWarning": "The new chat will still open, but the workspace default Runtime could not be updated.",
+      "runtimeSwitchTabOpenFailed": "Runtime switch failed: the new tab could not be opened.",
+      "runtimeSwitchChannelTransferFailed": "The new chat opened, but the Channel binding was not migrated. The workspace Runtime was restored.",
+      "providerSwitchTargetUnavailable": "Failed to create new chat: the target Provider is unavailable.",
+      "providerSwitchDefaultSaveFailed": "New chat created, but the Agent default model could not be saved.",
+      "providerSwitchChannelTransferFailed": "The new chat opened, but the Channel binding was not migrated.",
+      "createNewSessionFailed": "Failed to create new chat.",
+      "imagesNotTransferred": "Image attachments cannot be carried into the new chat. Add them again.",
+      "channelRebindFailedNewCancelled": "Channel rebind failed. The new conversation was cancelled.",
+      "channelRebindFailedDeleteCancelled": "Channel rebind failed. Delete was cancelled.",
+      "reselectModelFirst": "Select the model again in the model picker first.",
+      "submitFailedRetry": "Submit failed. Please try again.",
+      "unknownError": "Unknown error",
+      "rewindFailedWithError": "Time rewind failed: {{error}}",
+      "rewindFailedRetry": "Time rewind failed. Please try again.",
+      "codexRewindSuccess": "Conversation rewound. Workspace files remain unchanged.",
+      "codexRestoreFailed": "Conversation rewound, but Codex must restart before you continue.",
+      "codexRewindReconciled": "The connection was interrupted. The conversation was resynced from local history; review it before continuing.",
+      "conversationError": {
+        "session_busy": "This chat still has an operation in progress. Try again shortly.",
+        "anchor_unavailable": "This history point has no usable Codex anchor, or the native history has changed.",
+        "codex_update_required": "Update Codex CLI to version 0.143.0 or later.",
+        "native_fork_failed": "Codex could not create the native conversation branch. Try again.",
+        "persistence_failed": "The native branch was created, but MyAgents could not safely save the local chat.",
+        "storage_consistency_error": "The chat storage is inconsistent. Restart MyAgents before trying again.",
+        "restore_failed": "The operation took effect, but Codex must restart before you continue.",
+        "unsupported_runtime": "The current Runtime does not support this operation."
+      },
+      "rewindPartialLinks": "Conversation rewound, but {{count}} linked file(s) were left unchanged for safety.",
+      "rewindFilesFailed": "Conversation rewound, but workspace files could not be restored and remain unchanged.",
+      "rewindFilesNotAttempted": "Conversation rewound without a usable file checkpoint; workspace files remain unchanged.",
+      "retryFailedWithError": "Retry failed: {{error}}",
+      "retryFailed": "Retry failed",
+      "forkOpenFailed": "Failed to create branch: cannot open a new chat.",
+      "forkFailedWithError": "Failed to create branch: {{error}}",
+      "forkFailed": "Failed to create branch.",
+      "taskDeleted": "Task deleted.",
+      "taskResumed": "Task resumed.",
+      "taskStopped": "Task stopped."
+    },
+    "terminalReason": {
+      "newSession": "New chat",
+      "unknown": {
+        "label": "Unknown reason ({{reason}})",
+        "detail": "The SDK returned an unknown terminal_reason={{reason}}. This may be a new enum value from an SDK upgrade."
+      },
+      "reasons": {
+        "completed": {
+          "label": "Completed",
+          "detail": "This turn ended normally."
+        },
+        "max_turns": {
+          "label": "Maximum turns reached",
+          "detail": "This turn reached the maximum turn limit. Start a new chat to continue, or adjust the Agent maxTurns setting."
+        },
+        "prompt_too_long": {
+          "label": "Context is full",
+          "detail": "This chat has reached the model context window limit. Shorten history, remove attachments, or start a new chat to continue."
+        },
+        "blocking_limit": {
+          "label": "API quota exhausted",
+          "detail": "The provider returned a rate-limit or quota error. Check the provider quota or wait for it to reset."
+        },
+        "rapid_refill_breaker": {
+          "label": "Context repeatedly refilled; this turn stopped",
+          "detail": "The context reached its limit several times shortly after automatic compaction. Reduce file or tool output and try again; if it still fails, start a new chat."
+        },
+        "aborted_tools": {
+          "label": "Tool execution was interrupted",
+          "detail": "A tool call was interrupted by the user or system. Resend the message to let the AI retry."
+        },
+        "aborted_streaming": {
+          "label": "Response was interrupted",
+          "detail": "The streaming response stopped before completion. Resend the message to generate it again."
+        },
+        "tool_deferred": {
+          "label": "Tool execution deferred",
+          "detail": "Some tool calls were deferred and this turn has returned."
+        },
+        "background_requested": {
+          "label": "Moved to background execution",
+          "detail": "The SDK moved the remaining work to a background task and ended the foreground response. Check background task notifications for progress."
+        },
+        "stop_hook_prevented": {
+          "label": "Stop Hook prevented completion",
+          "detail": "A project Stop Hook prevented the session from ending. Check the Hook logic or settings.json."
+        },
+        "hook_stopped": {
+          "label": "Stopped by Hook",
+          "detail": "A Hook requested that this turn stop. Check Hook configuration or logs to find the trigger."
+        },
+        "image_error": {
+          "label": "Image processing failed",
+          "detail": "An image content block could not be processed by the model, likely because the format is unsupported or the image is too large (>8000px)."
+        },
+        "model_error": {
+          "label": "Model returned an error",
+          "detail": "The model returned an error. Check logs for the specific cause."
+        },
+        "api_error": {
+          "label": "API request failed",
+          "detail": "The model provider API request failed. Check the network, credentials, provider status, or response details in logs."
+        },
+        "malformed_tool_use_exhausted": {
+          "label": "Tool-call formatting repeatedly failed",
+          "detail": "The model repeatedly produced invalid tool-call formatting, so the SDK stopped this turn. Retry or choose another model."
+        },
+        "budget_exhausted": {
+          "label": "Turn budget reached",
+          "detail": "This turn reached the SDK execution budget before completing. Continue the chat or narrow the task."
+        },
+        "structured_output_retry_exhausted": {
+          "label": "Structured output generation failed",
+          "detail": "The model still could not produce valid structured output after retries."
+        },
+        "tool_deferred_unavailable": {
+          "label": "Deferred tool unavailable",
+          "detail": "A previously deferred tool was unavailable when execution resumed, so the turn did not complete normally."
+        },
+        "turn_setup_failed": {
+          "label": "Turn setup failed",
+          "detail": "The SDK could not initialize this turn. Check configuration, the provider, and runtime logs."
+        }
+      }
+    },
+    "messageList": {
+      "elapsed": {
+        "hms": "{{hours}}h {{minutes}}m {{seconds}}s",
+        "ms": "{{minutes}}m {{seconds}}s",
+        "seconds": "{{seconds}}s"
+      },
+      "systemStatus": {
+        "compacting": "Chat is long. Creating an intelligent summary...",
+        "rewinding": "Rewinding time. Please wait...",
+        "apiRetry": "Retrying API request ({{attempt}}/{{max}})..."
+      },
+      "starting": "Starting AI... first launch may take a while.",
+      "loadingHistory": "Loading chat history...",
+      "streaming": {
+        "0": "Thinking hard...",
+        "1": "Thinking it through...",
+        "2": "Catching a spark...",
+        "3": "Working through it...",
+        "4": "Thoughts are moving fast...",
+        "5": "Turning the gears...",
+        "6": "Firing neurons...",
+        "7": "Connecting ideas...",
+        "8": "Organizing a response...",
+        "9": "Searching the knowledge sea...",
+        "10": "Flipping through the universe library...",
+        "11": "Letting the answer take shape...",
+        "12": "Brewing some insight...",
+        "13": "Thinking recursively...",
+        "14": "Exploring the possibilities...",
+        "15": "Loading the wisdom module...",
+        "16": "Let me think...",
+        "17": "One moment...",
+        "18": "Worth taking a little time...",
+        "19": "Taking your question seriously..."
+      }
+    }
+  }
+}

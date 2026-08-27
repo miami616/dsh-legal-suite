@@ -1,0 +1,45 @@
+# 诉讼管家 agent preset — a dedicated litigation-manager agent.
+#
+# This is an AGENT-PLANE composition: it mounts ONCE under a standing scope,
+# and every session that selects 诉讼管家 joins it by scope parentage. The
+# litigation tool is registered into THIS agent's scoped catalog only — no
+# other preset/agent ever sees it (no global pollution).
+#
+# The persona shadows the deployment default for this agent; the plugin row
+# (agentPreset: true) registers only the scoped tool over the host HTTP API,
+# never re-registering routes or stores.
+
+# ── identity ────────────────────────────────────────────────────────────────
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      你是「诉讼管家」，AgentLex 诉讼案件插件的专属案件管理助手。
+      职责：帮助用户管理诉讼案件——查询/登记/更新案件、维护当事人与案由、
+      安排任务树（阶段→任务→子任务→检查项；检查项用 upsert_check 创建、toggle_check 勾选）、
+      需要期限盯防的任务用 set_task_keydate enabled=true 一键生成关键日期提醒（enabled=false 解除，双向联动）、
+      记录时间轴节点（立案/开庭/举证/答辩/上诉等，用 upsert_event 并传 date=YYYY-MM-DD）与期限提醒、
+      汇总近期到期事项（deadlines 默认只列未到期事项，需查历史过期可传 includeOverdue=true）。
+      三套体系分工：任务树=执行清单、关键日期=提醒清单、时间轴=程序节点；同一事项只登记必要的体系，避免重复。
+      工作方式：优先使用 litigation 工具完成数据读写（工具变更会实时刷新界面），
+      需产出报告/文档时用文件工具读写到用户工作目录或桌面（遵循沙箱白名单）；
+      回答要简洁、面向行动，涉及法定期限时给出日期与提醒。
+      数据存储在 $DSH_HOME/agentlex/litigation/，与 AgentLex 桌面应用数据分离。
+
+# ── file tools (office capability, scoped to this preset) ───────────────────
+# 办公/事务场景需要把报告、部署说明等直接落盘，仅 litigation 数据工具无法产出文档。
+# dsh-tool-fs / dsh-tool-fs-search 挂载文件读写 + 目录访问工具；其 fs 服务与沙箱策略
+# 由宿主层提供（白名单为用户工作目录、桌面、可配置路径），本行只登记模型可见的工具。
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── litigation tool (scoped to this preset) ─────────────────────────────────
+- id: litigation-manager
+  name: 'dsh-legal-suite'
+  config:
+    agentPreset: litigation

@@ -131,22 +131,23 @@ body [data-slot="conversation.session"] [class*="dsh-recall-bubble"] {
   color: var(--dsw-alias-label-secondary, #5c6370);
 }
 
-/* —— 段距：p 20px（比原生 16px 更透气）、li 6px、ul/ol 16px（固定 px） —— */
+/* —— 段距：大段之间 p 24px、段内连续子段 p+p 28px（更透气，避免拥挤）；
+ * li+li 10px、ul/ol 20px（固定 px，不随字号缩水） —— */
 [data-slot="conversation"] [class$="_body"] p {
-  margin: 20px 0;
+  margin: 24px 0;
 }
 [data-slot="conversation"] [class$="_body"] p + p {
-  margin-top: 20px;
+  margin-top: 28px;
 }
 [data-slot="conversation"] [class$="_body"] li {
   margin: 0;
 }
 [data-slot="conversation"] [class$="_body"] li + li {
-  margin-top: 6px;
+  margin-top: 10px;
 }
 [data-slot="conversation"] [class$="_body"] ul,
 [data-slot="conversation"] [class$="_body"] ol {
-  margin: 16px 0;
+  margin: 20px 0;
   padding-left: 1.5em;
 }
 
@@ -196,12 +197,16 @@ html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] h6 {
   color: var(--lit-accent, #d4803f);
 }
 
-/* —— 行内代码：原版灰色底（markdown-inline-code 中性底 + 正文色文字），
- * 不再用主题色浅底（避免文件名/代码看起来是"蓝色块"）。
+/* —— 行内代码：原版中性灰底（markdown-inline-code + 正文色文字），不再用主题色浅底。
  * 选择器 :not(pre) > code 只命中行内代码，不碰 pre>code 块。
- * 允许跨行：行内代码默认 nowrap 会把长代码撑成一行、拉散整段文字，
- * 这里强制 normal + break-word，让长行内代码能自然换行。 —— */
+ * 关键修复：DSH 核心把 code 设成 display:inline-flex，行内代码会被当成「不可拆分的
+ * 原子盒」——超出行宽时整块跳到下一行（而非在行内断词），上一行变短后被 justify
+ * 把字间空隙撑散，很难看。这里用 display:inline 覆盖，让行内代码像普通文字参与换行；
+ * overflow-wrap:break-word 作为兜底（无分隔符的超长串仅在溢出时断行），「自然边界断行」
+ * 由 conversation-inline-code.ts 在 / . _ - 后注入的 <wbr> 负责，避免把目录名从中间劈开；
+ * box-decoration-break:clone 保证跨多行时每段都带圆角+背景，而非只有外框圆角。 —— */
 [data-slot="conversation"] [class$="_body"] :not(pre) > code {
+  display: inline;
   background: var(--dsw-alias-markdown-inline-code, rgba(0, 0, 0, 0.06));
   color: var(--dsw-alias-label-primary, inherit);
   border-radius: 6px;
@@ -210,6 +215,8 @@ html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] h6 {
   white-space: normal;
   overflow-wrap: break-word;
   word-break: break-word;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] :not(pre) > code {
   background: var(--dsw-alias-markdown-inline-code, rgba(255, 255, 255, 0.08));

@@ -19,6 +19,7 @@ import { AgentLexBrandMark, AgentLexBrandName, AgentLexHeroMark } from './brand.
 import { AGENTLEX_THEME_TOKENS } from './theme.ts'
 import { AGENTLEX_SIDEBAR_CSS } from './sidebar.css.ts'
 import { CONVERSATION_TYPOGRAPHY_CSS, CONVERSATION_ENHANCE_CSS, CONVERSATION_TITLE_CSS } from './conversation-typography.ts'
+import { injectInlineCodeWbr } from './conversation-inline-code.ts'
 import { BUSINESS_MODULES_CSS } from './business-modules.ts'
 import { mountAgentLexSidebarGroup } from './sidebar-group.ts'
 import { buildThemesCss, findTheme, DEFAULT_THEME_KEY } from './themes.ts'
@@ -89,6 +90,8 @@ export function apply(ctx: ClientContext): void {
   let darkObserver: MutationObserver | undefined
   /** 会话排版样式注入（两端对齐），独立于皮肤开关、跟随 conversationJustify。 */
   let typographyDisposer: (() => void) | undefined
+  /** 行内代码 <wbr> 注入（自然边界断行），跟随 conversationJustify。 */
+  let wbrDisposer: (() => void) | undefined
   /** 会话排版增强样式注入（密集行距/背景块/彩色表头），跟随 conversationEnhance。 */
   let enhanceDisposer: (() => void) | undefined
   /** 会话页标题字号样式注入（随皮肤启停，无独立开关）。 */
@@ -103,6 +106,13 @@ export function apply(ctx: ClientContext): void {
     } else if (!justify && typographyDisposer !== undefined) {
       typographyDisposer()
       typographyDisposer = undefined
+    }
+    // 行内代码自然边界断行（<wbr>）：与两端对齐同开同关
+    if (justify && wbrDisposer === undefined) {
+      wbrDisposer = injectInlineCodeWbr()
+    } else if (!justify && wbrDisposer !== undefined) {
+      wbrDisposer()
+      wbrDisposer = undefined
     }
     const enhance = skinOn && getSkinConfig().conversationEnhance
     if (enhance && enhanceDisposer === undefined) {
@@ -232,6 +242,8 @@ export function apply(ctx: ClientContext): void {
     removeSkin()
     typographyDisposer?.()
     typographyDisposer = undefined
+    wbrDisposer?.()
+    wbrDisposer = undefined
     enhanceDisposer?.()
     enhanceDisposer = undefined
     titleStyleDisposer?.()

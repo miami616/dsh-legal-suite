@@ -26,6 +26,7 @@ export interface Config {
   litigationEnabled?: boolean
   nonlitigationEnabled?: boolean
   taskEnabled?: boolean
+  ideasEnabled?: boolean
   skillsToolsEnabled?: boolean
   workspaceSidebarEnabled?: boolean
   openReferencesInSidebar?: boolean
@@ -46,6 +47,7 @@ export const Config: z<Config> = z.object({
   litigationEnabled: z.boolean().default(true),
   nonlitigationEnabled: z.boolean().default(true),
   taskEnabled: z.boolean().default(true),
+  ideasEnabled: z.boolean().default(true),
   skillsToolsEnabled: z.boolean().default(true),
   workspaceSidebarEnabled: z.boolean().default(true),
   openReferencesInSidebar: z.boolean().default(true),
@@ -98,6 +100,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     litigationEnabled: config.litigationEnabled ?? true,
     nonlitigationEnabled: config.nonlitigationEnabled ?? true,
     taskEnabled: config.taskEnabled ?? true,
+    ideasEnabled: config.ideasEnabled ?? true,
     skillsToolsEnabled: config.skillsToolsEnabled ?? true,
     workspaceSidebarEnabled: config.workspaceSidebarEnabled ?? true,
     openReferencesInSidebar: config.openReferencesInSidebar ?? true,
@@ -117,6 +120,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       litigationEnabled: value.litigationEnabled ?? true,
       nonlitigationEnabled: value.nonlitigationEnabled ?? true,
       taskEnabled: value.taskEnabled ?? true,
+      ideasEnabled: value.ideasEnabled ?? true,
       skillsToolsEnabled: value.skillsToolsEnabled ?? true,
       workspaceSidebarEnabled: value.workspaceSidebarEnabled ?? true,
       openReferencesInSidebar: value.openReferencesInSidebar ?? true,

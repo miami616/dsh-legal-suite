@@ -19,6 +19,8 @@ export interface AgentLexSkinConfig {
   litigationEnabled: boolean
   nonlitigationEnabled: boolean
   taskEnabled: boolean
+  /** 想法/备忘（弹窗面板 + 输入框 # 引用）开关。 */
+  ideasEnabled: boolean
   /** 技能与工具（面板 + 输入框选择项 + / @ 触发器）开关。 */
   skillsToolsEnabled: boolean
   /** 工作区右边栏（workspace-sidebar）开关。 */
@@ -42,6 +44,7 @@ const DEFAULT_CONFIG: AgentLexSkinConfig = {
   litigationEnabled: true,
   nonlitigationEnabled: true,
   taskEnabled: true,
+  ideasEnabled: true,
   skillsToolsEnabled: true,
   workspaceSidebarEnabled: true,
   openReferencesInSidebar: true,
@@ -126,6 +129,7 @@ export function setSkinConfig(next: Partial<AgentLexSkinConfig>): void {
     litigationEnabled: effective(config.litigationEnabled),
     nonlitigationEnabled: effective(config.nonlitigationEnabled),
     taskEnabled: effective(config.taskEnabled),
+    ideasEnabled: effective(config.ideasEnabled),
     skillsToolsEnabled: effective(config.skillsToolsEnabled),
     workspaceSidebarEnabled: effective(config.workspaceSidebarEnabled),
     openReferencesInSidebar: effective(config.openReferencesInSidebar),
@@ -138,6 +142,7 @@ export function setSkinConfig(next: Partial<AgentLexSkinConfig>): void {
         litigationEnabled: effective(config.litigationEnabled),
         nonlitigationEnabled: effective(config.nonlitigationEnabled),
         taskEnabled: effective(config.taskEnabled),
+        ideasEnabled: effective(config.ideasEnabled),
         skillsToolsEnabled: effective(config.skillsToolsEnabled),
         workspaceSidebarEnabled: effective(config.workspaceSidebarEnabled),
         openReferencesInSidebar: effective(config.openReferencesInSidebar),

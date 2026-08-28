@@ -343,6 +343,7 @@ export function AgentLexSettingsSection(props: {
       {/* ④ 功能模块 */}
       <div style={{ marginBottom: 18 }}>
         <p style={{ margin: '0 0 10px', paddingTop: 8, borderTop: '1px solid var(--dsw-alias-border-l2)', fontSize: 15, fontWeight: 650, color: 'var(--dsw-alias-label-primary)' }}>功能模块</p>
+        <Toggle label="想法 / 备忘" description="随手记 · 可关联案件 · 会话输入框 # 引用" checked={config.ideasEnabled} disabled={!config.agentlexEnabled} onChange={(v) => void scope?.set('ideasEnabled', v)} />
         <Toggle label="诉讼案件" description="案件看板 / 详情 / 任务树 / 时间轴 / 期限提醒" checked={config.litigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => void scope?.set('litigationEnabled', v)} />
         <Toggle label="非诉项目" description="项目管理 / 合同审查 / 法律研究 / 常法服务" checked={config.nonlitigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => void scope?.set('nonlitigationEnabled', v)} />
         <Toggle label="任务管理" description="独立任务 + 跨插件统一任务视图" checked={config.taskEnabled} disabled={!config.agentlexEnabled} onChange={(v) => void scope?.set('taskEnabled', v)} />

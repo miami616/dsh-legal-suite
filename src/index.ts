@@ -20,7 +20,6 @@ import * as suite from './suite.ts'
 import * as litigation from './domains/litigation/index.ts'
 import * as nonlitigation from './domains/nonlitigation/index.ts'
 import * as task from './domains/task/index.ts'
-import * as ideas from './domains/ideas/index.ts'
 import * as skin from './domains/skin/index.ts'
 import * as workspaceSidebar from './domains/workspace-sidebar/index.ts'
 import * as skillsTools from './domains/skills-tools/index.ts'
@@ -76,8 +75,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.plugin(nonlitigation, {})
   // 任务域（独立任务 + 跨插件统一任务视图）。
   ctx.plugin(task, {})
-  // 想法域（想法/备忘：弹窗面板 + 输入框 # 引用 + ideas 工具）。
-  ctx.plugin(ideas, {})
   // 皮肤域（AgentLex 主题/品牌/工作台设置页；与套件共用设置分区，各自 fiber 隔离）。
   ctx.plugin(skin, {})
   // 工作区右边栏域（会话工作区右侧面板：文件树/搜索/预览/终端/引用联动；

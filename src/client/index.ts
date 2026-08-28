@@ -18,7 +18,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as applyLitigation } from '../domains/litigation/client/index.ts'
 import { apply as applyNonlitigation } from '../domains/nonlitigation/client/index.ts'
 import { apply as applyTask } from '../domains/task/client/index.ts'
-import { apply as applyIdeas } from '../domains/ideas/client/index.ts'
 import { apply as applySkin } from '../domains/skin/client/index.ts'
 import { apply as applyWorkspaceSidebar } from '../domains/workspace-sidebar/client/index.tsx'
 import { apply as applySkillsTools } from '../domains/skills-tools/client/index.tsx'
@@ -37,7 +36,6 @@ export function apply(ctx: ClientContext): void {
   applyLitigation(ctx)
   applyNonlitigation(ctx)
   applyTask(ctx)
-  applyIdeas(ctx)
   applySkin(ctx)
   applyWorkspaceSidebar(ctx)
   applySkillsTools(ctx)

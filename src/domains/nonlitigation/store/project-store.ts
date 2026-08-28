@@ -21,6 +21,10 @@ export interface ProjectStore {
   toggleChecklist(projectId: string, groupId: string, taskId: string, checklistId: string): Promise<ProjectRecord>
   addChecklistItem(projectId: string, groupId: string, taskId: string, text: string): Promise<ProjectRecord>
   deleteChecklistItem(projectId: string, groupId: string, taskId: string, checklistId: string): Promise<ProjectRecord>
+  /** Key dates (常法续约/年审等提醒). */
+  upsertKeyDate(projectId: string, keyDate: Record<string, unknown>): Promise<ProjectRecord>
+  toggleKeyDate(projectId: string, keyDateId: string): Promise<ProjectRecord>
+  deleteKeyDate(projectId: string, keyDateId: string): Promise<ProjectRecord>
 }
 
 export function createProjectStore(dataDir: string, ctx: Context): ProjectStore {
@@ -374,6 +378,65 @@ export function createProjectStore(dataDir: string, ctx: Context): ProjectStore 
         updated = result
         return reg
       }, 'delete-checklist')
+      return updated!
+    },
+    async upsertKeyDate(projectId, keyDate) {
+      const now = nowIso()
+      let updated: ProjectRecord | undefined
+      await save((reg) => {
+        const proj = reg.projects[projectId]
+        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
+        const keyDates = [...(proj.keyDates ?? [])]
+        const kid = s(keyDate.id) ?? childId('pkd')
+        const idx = keyDates.findIndex((k) => k.id === kid)
+        const existing = idx >= 0 ? keyDates[idx] : { id: kid, label: s(keyDate.label) ?? '关键日期', date: s(keyDate.date) ?? '', done: false, createdAt: now }
+        const next = {
+          ...existing,
+          label: s(keyDate.label) ?? existing.label,
+          date: s(keyDate.date) ?? existing.date,
+          done: keyDate.done !== undefined ? Boolean(keyDate.done) : existing.done,
+          updatedAt: now,
+        }
+        if (idx >= 0) keyDates[idx] = next
+        else keyDates.push(next)
+        const result: ProjectRecord = { ...proj, keyDates, updatedAt: now }
+        reg.projects[projectId] = result
+        reg.lastUpdated = now
+        updated = result
+        return reg
+      }, 'upsert-keydate')
+      return updated!
+    },
+    async toggleKeyDate(projectId, keyDateId) {
+      const now = nowIso()
+      let updated: ProjectRecord | undefined
+      await save((reg) => {
+        const proj = reg.projects[projectId]
+        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
+        const keyDates = [...(proj.keyDates ?? [])]
+        const idx = keyDates.findIndex((k) => k.id === keyDateId)
+        if (idx >= 0) keyDates[idx] = { ...keyDates[idx], done: !keyDates[idx].done, updatedAt: now }
+        const result: ProjectRecord = { ...proj, keyDates, updatedAt: now }
+        reg.projects[projectId] = result
+        reg.lastUpdated = now
+        updated = result
+        return reg
+      }, 'toggle-keydate')
+      return updated!
+    },
+    async deleteKeyDate(projectId, keyDateId) {
+      const now = nowIso()
+      let updated: ProjectRecord | undefined
+      await save((reg) => {
+        const proj = reg.projects[projectId]
+        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
+        const keyDates = (proj.keyDates ?? []).filter((k) => k.id !== keyDateId)
+        const result: ProjectRecord = { ...proj, keyDates, updatedAt: now }
+        reg.projects[projectId] = result
+        reg.lastUpdated = now
+        updated = result
+        return reg
+      }, 'delete-keydate')
       return updated!
     },
   }

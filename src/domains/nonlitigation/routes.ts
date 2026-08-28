@@ -210,6 +210,28 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     ok(res, await d.projectStore.deleteChecklistItem(id, gid, taskId, checklistId))
   })
 
+  // key dates (常法续约/年审等提醒)
+  route('/api/agentlex-nonlitigation/keydate', async (d, b, res) => {
+    const id = String(b.projectId ?? '')
+    if (id === '') return fail(res, 'projectId required')
+    // Transport spells the upsert id as `keyDateId`; store uses `id`.
+    const { projectId: _omit, keyDateId, ...keyDate } = b
+    if (keyDateId !== undefined) keyDate.id = String(keyDateId)
+    ok(res, await d.projectStore.upsertKeyDate(id, keyDate))
+  })
+  route('/api/agentlex-nonlitigation/toggle-keydate', async (d, b, res) => {
+    const id = String(b.projectId ?? '')
+    const keyDateId = String(b.keyDateId ?? '')
+    if (id === '' || keyDateId === '') return fail(res, 'projectId/keyDateId required')
+    ok(res, await d.projectStore.toggleKeyDate(id, keyDateId))
+  })
+  route('/api/agentlex-nonlitigation/delete-keydate', async (d, b, res) => {
+    const id = String(b.projectId ?? '')
+    const keyDateId = String(b.keyDateId ?? '')
+    if (id === '' || keyDateId === '') return fail(res, 'projectId/keyDateId required')
+    ok(res, await d.projectStore.deleteKeyDate(id, keyDateId))
+  })
+
   // import
   route('/api/agentlex-nonlitigation/import', async (d, b, res) => {
     ok(res, await importFromAgentLex(d.projectStore, d.serviceStore, String(b.sourceDir ?? '')))

@@ -34,7 +34,7 @@ export interface ProjectRecord {
   serviceScope?: string[]
   folder?: string
   summary?: string
-  keyDates?: Array<{ id: string; label: string; date: string; done?: boolean }>
+  keyDates?: Array<{ id: string; label: string; date: string; done?: boolean; createdAt?: string; updatedAt?: string }>
   taskGroups?: ProjectTaskGroup[]
   linkedContracts?: string[]
   linkedResearch?: string[]

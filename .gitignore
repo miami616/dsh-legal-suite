@@ -13,3 +13,7 @@ lib/
 
 # local isolated test instance (new-port regression tests)
 .dsh-test/
+
+# 内部文档（不上公开仓库）
+docs/
+issue-*.md

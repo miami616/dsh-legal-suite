@@ -21,10 +21,10 @@ export interface CaseStatusDef {
 }
 
 export const CASE_STATUSES: CaseStatusDef[] = [
-  { id: 'intake', label: '收案', color: 'bg-[var(--paper-inset)] text-[var(--ink-muted)]', dot: 'bg-[var(--ink-subtle)]', barColor: 'bg-[var(--ink-subtle)]', order: 1 },
-  { id: 'pretrial', label: '庭前准备', color: 'bg-[var(--info-bg)] text-[var(--info)]', dot: 'bg-[var(--info)]', barColor: 'bg-[var(--info)]', order: 2 },
+  { id: 'intake', label: '收案', color: 'bg-[var(--info-bg)] text-[var(--info)]', dot: 'bg-[var(--info)]', barColor: 'bg-[var(--info)]', order: 1 },
+  { id: 'pretrial', label: '庭前准备', color: 'bg-[var(--success-bg)] text-[var(--success)]', dot: 'bg-[var(--success)]', barColor: 'bg-[var(--success)]', order: 2 },
   { id: 'awaiting_trial', label: '待开庭', color: 'bg-[var(--accent-warm-subtle)] text-[var(--accent-warm)]', dot: 'bg-[var(--accent-warm)]', barColor: 'bg-[var(--accent-warm)]', order: 3 },
-  { id: 'post_trial', label: '庭后管理', color: 'bg-transparent text-[var(--ink-muted)] border border-[var(--line-strong)]', dot: 'bg-[var(--line-strong)]', barColor: 'bg-[var(--line-strong)]', order: 4 },
+  { id: 'post_trial', label: '庭后管理', color: 'bg-[var(--warning-bg)] text-[var(--warning)]', dot: 'bg-[var(--warning)]', barColor: 'bg-[var(--warning)]', order: 4 },
   { id: 'closed', label: '已结案', color: 'bg-[var(--success-bg)] text-[var(--success)]', dot: 'bg-[var(--success)]', barColor: 'bg-[var(--success)]', order: 99 },
 ];
 
@@ -41,13 +41,13 @@ export function getStatusDef(statusId: string): CaseStatusDef | undefined {
  * 见 PROCEDURE_LEVEL_DOTS），不再按审级彩虹配色。
  */
 export const PROCEDURE_TAGS: Record<string, string> = {
-  '一审': 'bg-[var(--paper-inset)] text-[var(--ink-muted)]',
-  '二审': 'bg-[var(--paper-inset)] text-[var(--ink-muted)]',
-  '再审': 'bg-[var(--paper-inset)] text-[var(--ink-muted)]',
-  '劳动仲裁': 'bg-[var(--paper-inset)] text-[var(--ink-muted)]',
-  '商事仲裁': 'bg-[var(--paper-inset)] text-[var(--ink-muted)]',
-  '首次执行': 'bg-[var(--paper-inset)] text-[var(--ink-muted)]',
-  '恢复执行': 'bg-[var(--paper-inset)] text-[var(--ink-muted)]',
+  '一审': 'bg-[color-mix(in_srgb,#4a7ab5_13%,transparent)] text-[color-mix(in_srgb,#4a7ab5_62%,var(--ink))]',
+  '二审': 'bg-[color-mix(in_srgb,#7d6ab0_13%,transparent)] text-[color-mix(in_srgb,#7d6ab0_62%,var(--ink))]',
+  '再审': 'bg-[color-mix(in_srgb,#b0648a_13%,transparent)] text-[color-mix(in_srgb,#b0648a_62%,var(--ink))]',
+  '劳动仲裁': 'bg-[color-mix(in_srgb,#3a7d6b_13%,transparent)] text-[color-mix(in_srgb,#3a7d6b_62%,var(--ink))]',
+  '商事仲裁': 'bg-[color-mix(in_srgb,#2f7d77_13%,transparent)] text-[color-mix(in_srgb,#2f7d77_62%,var(--ink))]',
+  '首次执行': 'bg-[color-mix(in_srgb,#4d7a4f_13%,transparent)] text-[color-mix(in_srgb,#4d7a4f_62%,var(--ink))]',
+  '恢复执行': 'bg-[color-mix(in_srgb,#2f7d77_13%,transparent)] text-[color-mix(in_srgb,#2f7d77_62%,var(--ink))]',
 };
 
 /** 审级轴的规范顺序（筛选行 / 选项列表用）。 */

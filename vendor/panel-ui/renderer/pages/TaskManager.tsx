@@ -485,10 +485,10 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
       style={{ background: 'var(--theme-body-background)' }}
     >
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1200px] px-8 pb-16 pt-10">
+        <div className="mx-auto w-full max-w-[1200px] 2xl:max-w-[1400px] px-8 pb-16 pt-10">
 
           {/* ── 页头 ── */}
-          <header className="mb-7 flex items-center justify-between gap-6">
+          <header className="mb-8 flex items-center justify-between gap-6">
             <div>
               <h1 className="text-3xl font-extrabold tracking-tight leading-tight text-[var(--ink)]" style={{ background: 'linear-gradient(135deg, var(--ink) 0%, #555 50%, var(--ink) 100%)', backgroundSize: '200% 100%', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>任务管理</h1>
               <p className="mt-1 text-xs text-[var(--ink-muted)]">
@@ -511,11 +511,11 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
               <Plus size={15} strokeWidth={2.4} />新建任务
             </button>
           </header>
-          <div className="mt-1 mb-6 h-[2px] w-48 rounded-full" style={{ background: 'linear-gradient(90deg, #b8943a 0%, rgba(184,148,58,0.15) 100%)' }} />
+          <div className="mt-1 mb-7 h-[2px] w-48 rounded-full" style={{ background: 'linear-gradient(90deg, #b8943a 0%, rgba(184,148,58,0.15) 100%)' }} />
 
           {/* ── 今日指挥卡（hero） ── */}
           <section
-            className="mb-5 grid grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] overflow-hidden rounded-xl border shadow-sm"
+            className="mb-6 grid grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] overflow-hidden rounded-xl border shadow-sm"
             style={{
               borderColor: 'var(--accent-warm-muted)',
               background: 'linear-gradient(120deg, var(--accent-warm-subtle) 0%, var(--accent-warm-subtle-a0) 46%), var(--paper-elevated)',
@@ -608,7 +608,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
           </section>
 
           {/* ── 主体两栏 ── */}
-          <div className="grid grid-cols-[minmax(0,1fr)_300px] items-start gap-5">
+          <div className="grid grid-cols-[minmax(0,1fr)_300px] items-start gap-6">
             {/* 左：台账 */}
             <section className="overflow-hidden rounded-xl border border-[var(--line-subtle)] bg-[var(--paper-elevated)] shadow-sm">
               {/* 工具栏 */}

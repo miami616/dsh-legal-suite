@@ -198,13 +198,18 @@ html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] h6 {
 
 /* —— 行内代码：原版灰色底（markdown-inline-code 中性底 + 正文色文字），
  * 不再用主题色浅底（避免文件名/代码看起来是"蓝色块"）。
- * 选择器 :not(pre) > code 只命中行内代码，不碰 pre>code 块。 —— */
+ * 选择器 :not(pre) > code 只命中行内代码，不碰 pre>code 块。
+ * 允许跨行：行内代码默认 nowrap 会把长代码撑成一行、拉散整段文字，
+ * 这里强制 normal + break-word，让长行内代码能自然换行。 —— */
 [data-slot="conversation"] [class$="_body"] :not(pre) > code {
   background: var(--dsw-alias-markdown-inline-code, rgba(0, 0, 0, 0.06));
   color: var(--dsw-alias-label-primary, inherit);
   border-radius: 6px;
   padding: 1px 6px;
   font-size: 0.88em;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] :not(pre) > code {
   background: var(--dsw-alias-markdown-inline-code, rgba(255, 255, 255, 0.08));
@@ -305,8 +310,8 @@ export const CONVERSATION_TITLE_CSS = `
 html[data-agentlex-theme] [data-slot="conversation.session"] :is([class*="_titleRow"], [class*="titleCluster"]) [class$="_title"],
 html[data-agentlex-theme] [data-slot="conversation.session"] [class*="_titleRow"][class$="_title"],
 html[data-agentlex-theme] [data-slot="conversation.session"] [class*="titleCluster"][class$="_title"] {
-  font-size: 25px !important;
-  line-height: 34px !important;
+  font-size: 30px !important;
+  line-height: 40px !important;
   font-weight: 700 !important;
   letter-spacing: 0.01em !important;
 }

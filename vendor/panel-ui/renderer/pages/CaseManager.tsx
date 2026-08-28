@@ -295,7 +295,7 @@ export default memo(function CaseManager({ isActive: _isActive, onOpenCaseSessio
       <div className="h-11 shrink-0" data-tauri-drag-region />
       <div className="flex-1 overflow-y-auto -mt-11 pt-11">
         {/* Module title — search + new case in title row */}
-        <div className="max-w-6xl mx-auto px-8 pt-10 pb-2 w-full">
+        <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto px-8 pt-10 pb-2 w-full">
           <div className={`flex items-end justify-between gap-6 ${mobile ? 'flex-col items-start gap-3' : ''}`}>
             <div>
               <h1 className="text-3xl font-extrabold text-[var(--ink)] tracking-tight leading-tight" style={{ background: 'linear-gradient(135deg, var(--ink) 0%, #555 50%, var(--ink) 100%)', backgroundSize: '200% 100%', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>诉讼案件</h1>

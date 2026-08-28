@@ -98,7 +98,7 @@ function AgentSessionButton({
                 className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-[var(--paper-inset)] text-left">
                 <MessageSquare size={13} className="text-[var(--ink-muted)] shrink-0" />
                 <span className="flex-1 text-xs text-[var(--ink)] truncate">{s.label}</span>
-                <span className="text-xs text-[var(--ink-subtle)] shrink-0">{s.createdAt.slice(0, 10)}</span>
+                <span className="text-xs text-[var(--ink-muted)] shrink-0">{s.createdAt.slice(0, 10)}</span>
               </button>
             ))}
           </div>
@@ -370,7 +370,7 @@ export default memo(function NonLitigationDetailPage({
       <div className="h-full bg-[var(--paper)] flex flex-col items-center justify-center text-center">
         <Briefcase size={36} className="mb-3 text-[var(--ink-subtle)]" />
         <p className="text-sm text-[var(--ink-muted)]">项目不存在或已被删除</p>
-        <p className="text-xs text-[var(--ink-subtle)] mt-1">项目编号：{projectId}</p>
+        <p className="text-xs text-[var(--ink-muted)] mt-1">项目编号：{projectId}</p>
       </div>
     );
   }
@@ -434,8 +434,8 @@ export default memo(function NonLitigationDetailPage({
           {/* Left column */}
           <div className="space-y-5 min-w-0">
             {/* ── 1. 项目基本信息 ── */}
-            <section className="rounded-2xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-5 space-y-3">
-              <h2 className="text-xs font-semibold tracking-widest uppercase text-[var(--ink-muted)] opacity-60">项目基本信息</h2>
+            <section style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-2xl border border-[var(--ink-subtle)] p-5 space-y-3">
+              <h2 className="text-sm font-bold tracking-widest uppercase text-[var(--ink)]">项目基本信息</h2>
               <div className="grid grid-cols-3 gap-x-6 gap-y-3 text-sm">
                 <div>
                   <span className="text-xs text-[var(--ink-muted)]">服务周期</span>
@@ -537,9 +537,9 @@ export default memo(function NonLitigationDetailPage({
 
             {/* ── 2. 关键日程（常法项目隐藏） ── */}
             {entry.projectType !== 'retainer' && (
-            <section className="rounded-2xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-5 space-y-3">
+            <section style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-2xl border border-[var(--ink-subtle)] p-5 space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-xs font-semibold tracking-widest uppercase text-[var(--ink-muted)] opacity-60">关键日程</h2>
+                <h2 className="text-sm font-bold tracking-widest uppercase text-[var(--ink)]">关键日程</h2>
                 <button onClick={() => setAddingEvent(v => !v)}
                   className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--ink-muted)] hover:bg-[var(--paper-inset)] hover:text-[var(--ink)] transition-colors">
                   <Plus size={13} />添加日程
@@ -584,9 +584,9 @@ export default memo(function NonLitigationDetailPage({
             )}
 
             {/* ── 3. 任务拆解 ── */}
-            <section className="rounded-2xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-5">
+            <section style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-2xl border border-[var(--ink-subtle)] p-5">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-xs font-semibold tracking-widest uppercase text-[var(--ink-muted)] opacity-60">项目任务</h2>
+                <h2 className="text-sm font-bold tracking-widest uppercase text-[var(--ink)]">项目任务</h2>
               </div>
               <CaseTaskTree caseId={entry.projectId} taskGroups={entry.taskGroups} isProject />
             </section>
@@ -599,8 +599,8 @@ export default memo(function NonLitigationDetailPage({
             <div className="sticky top-8 space-y-4">
 
               {/* ── 项目概况 ── */}
-              <div className="rounded-xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-4 space-y-3">
-                <h3 className="text-xs font-semibold tracking-widest uppercase text-[var(--ink-muted)] opacity-60">项目概况</h3>
+              <div style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-xl border border-[var(--ink-subtle)] p-4 space-y-3">
+                <h3 className="text-sm font-bold tracking-widest uppercase text-[var(--ink)]">项目概况</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="text-center p-2 rounded-lg bg-[var(--paper)]">
                     <p className="text-xl font-extrabold text-[var(--ink)] tabular-nums">{entry.taskGroups.reduce((n, g) => n + g.tasks.filter(t => t.status !== 'done').length, 0)}</p>
@@ -622,14 +622,14 @@ export default memo(function NonLitigationDetailPage({
               </div>
 
               {/* ── 服务日志 ── */}
-              <div className="rounded-xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-3 max-h-[calc(100vh-280px)] overflow-y-auto">
+              <div style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-xl border border-[var(--ink-subtle)] p-3 max-h-[calc(100vh-280px)] overflow-y-auto">
                 <ServiceLog entries={serviceLogEntries} />
               </div>
 
               {/* ── 服务周期 ── */}
               {entry.servicePeriod.end && (
-                <div className="rounded-xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-4 space-y-2">
-                  <h3 className="text-xs font-semibold tracking-widest uppercase text-[var(--ink-muted)] opacity-60">服务周期</h3>
+                <div style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-xl border border-[var(--ink-subtle)] p-4 space-y-2">
+                  <h3 className="text-sm font-bold tracking-widest uppercase text-[var(--ink)]">服务周期</h3>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-[var(--ink-muted)]">{entry.servicePeriod.start}</span>
                     <span className="text-[var(--ink-muted)]">→</span>
@@ -646,8 +646,8 @@ export default memo(function NonLitigationDetailPage({
 
               {/* ── 团队成员 ── */}
               {entry.team.length > 0 && (
-                <div className="rounded-xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-4 space-y-2">
-                  <h3 className="text-xs font-semibold tracking-widest uppercase text-[var(--ink-muted)] opacity-60">团队成员</h3>
+                <div style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-xl border border-[var(--ink-subtle)] p-4 space-y-2">
+                  <h3 className="text-sm font-bold tracking-widest uppercase text-[var(--ink)]">团队成员</h3>
                   <div className="flex flex-wrap gap-1.5">
                     {entry.team.map((m, i) => (
                       <span key={i} className="px-2.5 py-1 rounded-full text-xs font-medium bg-[var(--paper)] text-[var(--ink)] border border-[var(--paper-inset)]">

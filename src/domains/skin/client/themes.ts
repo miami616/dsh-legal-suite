@@ -484,45 +484,6 @@ const WARM: AgentLexTheme = makeTheme({
   litDark: WARM_LIT_DARK,
 })
 
-/** 靛青政务：蓝灰石板，专业严谨。 */
-const INK: AgentLexTheme = makeTheme({
-  key: 'ink',
-  label: '靛青政务',
-  desc: '青石板灰 + 靛蓝正装色，稳重专业的商务气场',
-  swatch: ['#eef1f5', '#f8f9fb', '#41618d'],
-  paper: '#edf1f8',
-  elevated: '#f6f8fc',
-  inset: '#dfe6f0',
-  sidebar: '#eef1f5',
-  activeBg: '#e2e8f0',
-  ink: '#1a2230',
-  text: '#2a3242',
-  muted: '#566274',
-  subtle: '#8b96a6',
-  faint: '#aab2bf',
-  accent: '#41618d',
-  accentHover: '#37527a',
-  accentStrong: '#2e4568',
-  accentCool: '#2f7d6f',
-  accentCoolHover: '#3a9484',
-  dPaper: '#15181d',
-  dElevated: '#1e232b',
-  dInset: '#101318',
-  dSidebar: '#191d23',
-  dActiveBg: '#252c38',
-  dInk: '#dce3ec',
-  dLabel: '#dce3ec',
-  dMuted: '#8f9aab',
-  dSubtle: '#7d8a9b',
-  dFaint: '#4d5866',
-  dAccent: '#6b93c4',
-  dAccentHover: '#84a9d6',
-  dAccentStrong: '#41618d',
-}, {
-  light: { lit: '#41618d', nl: '#2f7d6f', task: '#a07830' },
-  dark: { lit: '#6b93c4', nl: '#4ab3a1', task: '#d0a04a' },
-})
-
 /** 紫藤烟雨：淡紫罗兰，书卷温柔。 */
 const WISTERIA: AgentLexTheme = makeTheme({
   key: 'wisteria',
@@ -815,7 +776,7 @@ const NATIVE: AgentLexTheme = makeTheme({
   },
 })
 
-export const AGENTLEX_THEMES: AgentLexTheme[] = [WARM, PURE, INK, WISTERIA, ORANGE, CODEX, CINNABAR, ONYX, NATIVE]
+export const AGENTLEX_THEMES: AgentLexTheme[] = [WARM, PURE, WISTERIA, ORANGE, CODEX, CINNABAR, ONYX, NATIVE]
 export const DEFAULT_THEME_KEY = 'pure'
 
 export function findTheme(key: string | undefined): AgentLexTheme {

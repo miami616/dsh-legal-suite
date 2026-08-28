@@ -32,6 +32,19 @@ const TAG_CHIP = '[class$="_tagChip"]'
 const MASTHEAD = '[class$="_masthead"]'
 
 export const BUSINESS_MODULES_CSS = `
+/* --- 业务模块/详情页卡片背景：浅色纯白、深色模式自动变暗（适配系统深色模式） --- */
+:root {
+  --biz-card-bg: #ffffff;
+}
+html[data-ds-dark-theme] {
+  --biz-card-bg: #242018;
+}
+/* Tailwind 未给 bg-[var(--biz-card-bg)] 生成 utility（vendor 渲染层扫描范围外），
+   这里手动补上等价规则，引用上述深浅色变量。 */
+.bg-\[var\(--biz-card-bg\)\] {
+  background-color: var(--biz-card-bg);
+}
+
 /* ============ 三业务模块：卡片 / 详情页风格适配 ============ */
 
 /* --- 边框整体加深一档（仅三模块作用域内提升 line 变量强度） --- */

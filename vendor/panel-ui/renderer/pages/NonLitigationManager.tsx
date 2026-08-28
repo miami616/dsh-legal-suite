@@ -274,7 +274,7 @@ export default memo(function NonLitigationManager({
     <div className="h-full bg-[var(--paper)] flex flex-col overflow-hidden">
       <div className="h-11 shrink-0" data-tauri-drag-region />
       <div className="flex-1 overflow-y-auto -mt-11 pt-11">
-        <div className="max-w-5xl mx-auto px-8 pt-10 pb-2 w-full">
+        <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto px-8 pt-6 pb-2 w-full">
           {/* Header */}
           <div className={`flex items-end justify-between gap-6 ${mobile ? 'flex-col items-start gap-3' : ''}`}>
             <div>
@@ -304,7 +304,7 @@ export default memo(function NonLitigationManager({
           <div className="mt-4 h-[2px] w-48 rounded-full" style={{ background: 'linear-gradient(90deg, #b8943a 0%, rgba(184,148,58,0.15) 100%)' }} />
         </div>
 
-        <div className="max-w-5xl mx-auto px-8 pt-6 pb-12 space-y-5">
+        <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto px-8 pt-6 pb-12 space-y-6">
           {/* Stats */}
           {visibleProjects.length > 0 && (
             <div className="flex items-stretch gap-4">
@@ -326,12 +326,14 @@ export default memo(function NonLitigationManager({
                   </>
                 )}
               </div>
-              {overdueTaskCount > 0 && (
-                <button onClick={onOpenCalendar} className="flex items-center gap-2 hover:opacity-70 transition-opacity">
-                  <span className="text-xl font-extrabold text-red-500 tabular-nums">{overdueTaskCount}</span>
-                  <span className="text-xs text-[var(--ink-muted)] font-medium">项逾期</span>
-                </button>
-              )}
+              <div className="flex items-center gap-5 ml-auto">
+                {overdueTaskCount > 0 && (
+                  <button onClick={onOpenCalendar} className="flex items-center gap-2 hover:opacity-70 transition-opacity">
+                    <span className="text-xl font-extrabold text-red-500 tabular-nums">{overdueTaskCount}</span>
+                    <span className="text-xs text-[var(--ink-muted)] font-medium">项逾期</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -397,7 +399,7 @@ export default memo(function NonLitigationManager({
                 className="text-sm text-[var(--ink)] font-medium hover:underline">新建第一个项目 →</button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {displayProjects.map(p => {
                 const typeConfig = PROJECT_TYPES.find(t => t.key === p.projectType);
                 const hasOverdue = p.taskGroups.some(g => g.tasks.some(t => t.status !== 'done' && t.deadline && isOverdue(t.deadline)));
@@ -412,9 +414,9 @@ export default memo(function NonLitigationManager({
                   <div key={p.projectId} role="button" tabIndex={0}
                     onClick={() => onSelectProject(p.projectId)}
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onSelectProject(p.projectId); } }}
-                    className={`group rounded-xl bg-[var(--paper-elevated)] border border-[var(--ink-subtle)]/35 text-left transition-shadow hover:shadow-sm hover:border-[var(--ink-subtle)]/55 cursor-pointer grid grid-cols-[68px_minmax(0,1fr)] overflow-hidden h-[182px] ${p.archived ? 'opacity-55 hover:shadow-none' : ''}`}>
+                    className={`group rounded-xl bg-[var(--paper-elevated)] text-left transition-shadow hover:shadow-sm cursor-pointer grid grid-cols-[68px_minmax(0,1fr)] overflow-hidden h-[182px] ${p.archived ? 'opacity-55 hover:shadow-none' : ''}`}>
                     {/* 左轨：项目编号（类型前缀小号 + 序号大字）+ 底部类型签 */}
-                    <div className="flex flex-col py-2.5 border-r border-[var(--paper-inset)]" style={{ background: 'color-mix(in srgb, var(--paper-inset) 32%, transparent)' }}>
+                    <div className="flex flex-col py-2.5 border-r border-[var(--paper-inset)]" style={{ background: 'color-mix(in srgb, var(--paper-inset) 80%, transparent)' }}>
                       <div className="px-1.5 leading-tight break-words">
                         {idHead && <div className="font-mono text-xs text-[var(--ink-subtle)] tracking-[0.02em]">{idHead}</div>}
                         <div className="font-mono text-lg font-bold text-[var(--ink)] tracking-[0.02em]">{idTail}</div>
@@ -424,7 +426,7 @@ export default memo(function NonLitigationManager({
                       </div>
                     </div>
                     {/* 主体 */}
-                    <div className="flex flex-col p-3.5 min-w-0">
+                    <div className="flex flex-col p-3.5 min-w-0" style={{ background: 'var(--biz-card-bg, #ffffff)' }}>
                       <div className="flex items-center gap-2">
                         <h3 className="flex-1 min-w-0 text-sm font-semibold text-[var(--ink)] truncate leading-snug" style={{ letterSpacing: '-0.005em' }} title={p.name}>{p.name}</h3>
                         <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${

@@ -223,7 +223,7 @@ function AgentSessionButton({
                 className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-[var(--paper-inset)] text-left">
                 <MessageSquare size={13} className="text-[var(--ink-muted)] shrink-0" />
                 <span className="flex-1 text-xs text-[var(--ink)] truncate">{s.label}</span>
-                <span className="text-xs text-[var(--ink-subtle)] shrink-0">{s.createdAt.slice(0, 10)}</span>
+                <span className="text-xs text-[var(--ink-muted)] shrink-0">{s.createdAt.slice(0, 10)}</span>
               </button>
             ))}
           </div>
@@ -626,12 +626,12 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
       <div className="h-full bg-[var(--paper)] flex flex-col items-center justify-center text-center">
         <Briefcase size={36} className="mb-3 text-[var(--ink-subtle)]" />
         <p className="text-sm text-[var(--ink-muted)]">案件不存在或已被删除</p>
-        <p className="text-xs text-[var(--ink-subtle)] mt-1">案件编号：{caseId}</p>
+        <p className="text-xs text-[var(--ink-muted)] mt-1">案件编号：{caseId}</p>
       </div>
     );
   }
 
-  const sectionTitle = 'text-xs font-semibold tracking-widest uppercase text-[var(--ink-muted)] opacity-60';
+  const sectionTitle = 'text-sm font-bold tracking-widest uppercase text-[var(--ink)]';
 
   // ── Masthead 计算 ──
   const caseIdDash = entry.caseId.indexOf('-');
@@ -671,7 +671,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
                 : <ChevronRight size={12} className="text-[var(--ink-subtle)] shrink-0" />}
               <FolderOpen size={12} className="text-[var(--ink-muted)] shrink-0" />
               <span className="truncate font-medium text-[var(--ink)]">{n.name}</span>
-              {isTruncated && !hasFetched && <span className="shrink-0 text-xs text-[var(--ink-subtle)]">…</span>}
+              {isTruncated && !hasFetched && <span className="shrink-0 text-xs text-[var(--ink-muted)]">…</span>}
             </button>
             {expanded && children.length > 0 && renderDirNodes(children, depth + 1)}
           </div>
@@ -729,7 +729,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
                   <span className="font-semibold text-[var(--ink)]">{ourSideName || '—'}</span>
                 </>
               )}
-              {(ourRole && oppositeRole) && <span className="text-xs text-[var(--ink-subtle)]">VS</span>}
+              {(ourRole && oppositeRole) && <span className="text-xs text-[var(--ink-muted)]">VS</span>}
               {oppositeRole && (
                 <>
                   <span className={`px-2 py-0.5 rounded text-xs font-semibold ${ROLE_BADGE[oppositeRole] ?? 'bg-[var(--paper-inset)] text-[var(--ink-muted)]'}`}>{oppositeRole}</span>
@@ -746,18 +746,18 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
           <div className="space-y-5 min-w-0">
 
             {/* ── 1. 案件基本信息 ── */}
-            <section className="rounded-2xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-5 space-y-3">
+            <section style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-2xl border border-[var(--ink-subtle)] p-5 space-y-3">
               <h2 className={sectionTitle}>案件基本信息</h2>
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                <div><span className="text-xs text-[var(--ink-subtle)]">案由</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'cause', value: entry.cause })}</p></div>
-                <div><span className="text-xs text-[var(--ink-subtle)]">案件类型</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'type', value: entry.type, options: CASE_TYPES.filter(t => t.key !== '__all').map(t => t.label) })}</p></div>
-                <div><span className="text-xs text-[var(--ink-subtle)]">审理法院</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'court', value: entry.court })}</p></div>
-                <div><span className="text-xs text-[var(--ink-subtle)]">承办法官</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'judge', value: entry.judge })}</p></div>
-                <div><span className="text-xs text-[var(--ink-subtle)]">立案日期</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'filingDate', value: entry.filingDate, placeholder: '未设置' })}</p></div>
-                <div><span className="text-xs text-[var(--ink-subtle)]">诉讼标的</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'claimAmount', value: entry.claimAmount ? formatAmount(entry.claimAmount) : undefined })}</p></div>
-                <div><span className="text-xs text-[var(--ink-subtle)]">收费金额</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'fee', value: entry.fee ? formatAmount(entry.fee) : undefined, placeholder: '未填写' })}</p></div>
+                <div><span className="text-xs text-[var(--ink-muted)]">案由</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'cause', value: entry.cause })}</p></div>
+                <div><span className="text-xs text-[var(--ink-muted)]">案件类型</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'type', value: entry.type, options: CASE_TYPES.filter(t => t.key !== '__all').map(t => t.label) })}</p></div>
+                <div><span className="text-xs text-[var(--ink-muted)]">审理法院</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'court', value: entry.court })}</p></div>
+                <div><span className="text-xs text-[var(--ink-muted)]">承办法官</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'judge', value: entry.judge })}</p></div>
+                <div><span className="text-xs text-[var(--ink-muted)]">立案日期</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'filingDate', value: entry.filingDate, placeholder: '未设置' })}</p></div>
+                <div><span className="text-xs text-[var(--ink-muted)]">诉讼标的</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'claimAmount', value: entry.claimAmount ? formatAmount(entry.claimAmount) : undefined })}</p></div>
+                <div><span className="text-xs text-[var(--ink-muted)]">收费金额</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'fee', value: entry.fee ? formatAmount(entry.fee) : undefined, placeholder: '未填写' })}</p></div>
                 <div>
-                  <span className="text-xs text-[var(--ink-subtle)]">顾问单位</span>
+                  <span className="text-xs text-[var(--ink-muted)]">顾问单位</span>
                   <p className="text-[var(--ink)] mt-0.5 font-medium">
                     {editingField === 'retainerUnit' ? (
                       retainerManual ? (
@@ -773,7 +773,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
                         <span className="relative block" ref={retainerEditorRef}>
                           <span className="absolute top-full left-0 mt-1 z-40 w-64 bg-[var(--paper-elevated)] border border-[var(--paper-inset)] rounded-lg shadow-lg py-1 overflow-hidden">
                             {retainerUnitCandidates.length === 0 ? (
-                              <div className="px-2.5 py-1.5 text-xs text-[var(--ink-subtle)]">无常法项目，可直接手填</div>
+                              <div className="px-2.5 py-1.5 text-xs text-[var(--ink-muted)]">无常法项目，可直接手填</div>
                             ) : (
                               <div className="max-h-52 overflow-y-auto">
                                 {retainerUnitCandidates.map(c => (
@@ -812,7 +812,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
             </section>
 
             {/* ── 2. 当事人信息 ── */}
-            <section className="rounded-2xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-5 space-y-3">
+            <section style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-2xl border border-[var(--ink-subtle)] p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className={sectionTitle}>当事人信息</h2>
                 <span className="text-xs text-[var(--ink-muted)]">我方：
@@ -848,7 +848,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
             </section>
 
             {/* ── 3. 关键日程（未来节点） ── */}
-            <section className="rounded-2xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-5 space-y-3">
+            <section style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-2xl border border-[var(--ink-subtle)] p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className={sectionTitle}>关键日程</h2>
                 <button onClick={() => { setEditingEvent(null); setAddingEvent(v => !v); }}
@@ -894,7 +894,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
             </section>
 
             {/* ── 4. 任务拆解 ── */}
-            <section className="rounded-2xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-5">
+            <section style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-2xl border border-[var(--ink-subtle)] p-5">
               <CaseTaskTree caseId={entry.caseId} taskGroups={entry.taskGroups} />
             </section>
           </div>
@@ -904,7 +904,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
             <div className="sticky top-8 space-y-4">
 
               {/* 案件概述 */}
-              <div className="rounded-xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-4">
+              <div style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-xl border border-[var(--ink-subtle)] p-4">
                 <h3 className={sectionTitle} style={{ marginBottom: 8 }}>案件概述</h3>
                 {editingSummary ? (
                   <div className="space-y-2">
@@ -913,7 +913,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
                       className="w-full px-3 py-2 rounded-lg bg-[var(--paper-inset)] text-xs text-[var(--ink)] placeholder:text-[var(--ink-subtle)] outline-none resize-none" autoFocus />
                     <div className="flex justify-end gap-1.5">
                       <button onClick={() => { setEditingSummary(false); }} className="px-2 py-1 rounded text-xs text-[var(--ink-muted)] hover:bg-[var(--paper-inset)]">取消</button>
-                      <span className="text-xs text-[var(--ink-subtle)]">{summaryDraft.length}/100</span>
+                      <span className="text-xs text-[var(--ink-muted)]">{summaryDraft.length}/100</span>
                       <button onClick={() => { if (summaryDraft.trim()) { updateCase(entry.caseId, c => ({ ...c, summary: summaryDraft.trim(), updatedAt: new Date().toISOString() })); } setEditingSummary(false); }}
                         className="px-2 py-1 rounded text-xs font-medium bg-[var(--ink)] text-[var(--paper)] hover:opacity-90">保存</button>
                     </div>
@@ -931,7 +931,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
               </div>
 
               {/* 审级历程 */}
-              <div className="rounded-xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-4 space-y-2">
+              <div style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-xl border border-[var(--ink-subtle)] p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className={sectionTitle}>审级历程</h3>
                   <button onClick={() => { setEditingInstance(null); setAddingInstance(true); }}
@@ -972,7 +972,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
               </div>
 
               {/* 案件文件夹 + 卷宗内容（独立于当事人，置于时间轴上方） */}
-              <div className="rounded-xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-4 space-y-2">
+              <div style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-xl border border-[var(--ink-subtle)] p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className={sectionTitle}>案件文件夹</h3>
                   <div className="flex items-center gap-3">
@@ -1013,9 +1013,9 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
                     {folderTreeError ? (
                       <p className="text-xs text-[var(--error)]">无法读取文件夹，请确认路径仍存在</p>
                     ) : folderTree === null ? (
-                      <p className="text-xs text-[var(--ink-subtle)]">读取文件夹…</p>
+                      <p className="text-xs text-[var(--ink-muted)]">读取文件夹…</p>
                     ) : folderChildren.length === 0 ? (
-                      <p className="text-xs text-[var(--ink-subtle)]">（空文件夹）</p>
+                      <p className="text-xs text-[var(--ink-muted)]">（空文件夹）</p>
                     ) : (
                       <div className="rounded-lg bg-[var(--paper-inset)]/40 border border-[var(--paper-inset)] p-1.5 max-h-64 overflow-y-auto text-xs">
                         {renderDirNodes(folderChildren, 0)}
@@ -1030,7 +1030,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
               </div>
 
               {/* 办案时间轴（历史纪年） */}
-              <div className="rounded-xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] p-4">
+              <div style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-xl border border-[var(--ink-subtle)] p-4">
                 <CaseTimeline
                   events={occurredEvents}
                   onEdit={(e) => setEditingEvent(e)}

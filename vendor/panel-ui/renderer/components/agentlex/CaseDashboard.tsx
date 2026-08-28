@@ -329,7 +329,7 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-8 pt-6 pb-12 space-y-4">
+    <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto px-8 pt-6 pb-12 space-y-6">
       {/* Overview — stats + urgent（全部含归档，归档单独一类） */}
       {cases.length > 0 && (
         <div className="flex items-stretch gap-4">
@@ -499,7 +499,7 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
           <p className="text-sm text-[var(--ink-muted)]">没有符合条件的案件</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {displayCases.map(c => {
             const { role: counterpartRole, name: counterpart, firm: counterpartFirm } = counterpartyOf(c);
             const ourRole = ourSideRole(c);
@@ -517,7 +517,7 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onOpenCase(c); } }}
                 className={`group rounded-xl bg-[var(--paper-elevated)] text-left transition-shadow hover:shadow-sm cursor-pointer grid grid-cols-[64px_minmax(0,1fr)] overflow-hidden min-h-[192px] ${c.archived ? 'opacity-55 hover:shadow-none' : ''}`}>
                 {/* 左轨：编号（年份小号 + 序号大字）+ 审级历程 */}
-                <div className="py-3 border-r border-[var(--paper-inset)]" style={{ background: 'color-mix(in srgb, var(--paper-inset) 32%, transparent)' }}>
+                <div className="py-3 border-r border-[var(--paper-inset)]" style={{ background: 'color-mix(in srgb, var(--paper-inset) 80%, transparent)' }}>
                   <div className="px-2 leading-tight break-words">
                     {head && <div className="font-mono text-xs text-[var(--ink-subtle)] tracking-[0.02em]">{head}</div>}
                     <div className="font-mono text-lg font-bold text-[var(--ink)] tracking-[0.02em]">{tail}</div>
@@ -543,7 +543,7 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
                   </div>
                 </div>
                 {/* 主体 */}
-                <div className="flex flex-col p-3.5 min-w-0">
+                <div className="flex flex-col p-3.5 min-w-0" style={{ background: 'var(--biz-card-bg, #ffffff)' }}>
                   <div className="flex items-center gap-2">
                     {/* 类型标签：色点 + 浅色底（身份色，随明暗自适应） */}
                     <span className="inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-semibold whitespace-nowrap shrink-0"

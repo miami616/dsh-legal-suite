@@ -364,16 +364,14 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
         const next = clone(reg)
         const record = next.cases[caseId]
         const groups = record.taskGroups ?? []
-        if (group.id !== undefined) {
-          const existing = groups.find((g) => g.id === group.id)
-          if (existing !== undefined) {
-            Object.assign(existing, { ...clone(group), updatedAt: now })
-          } else {
-            throw new Error(`task group not found: ${group.id}`)
-          }
+        // upsert 契约：id 存在则更新，不存在（或未提供）则新建。
+        const gid = group.id === undefined ? taskGroupId() : String(group.id)
+        const existing = groups.find((g) => g.id === gid)
+        if (existing !== undefined) {
+          Object.assign(existing, { ...clone(group), id: gid, updatedAt: now })
         } else {
           groups.push({
-            id: taskGroupId(),
+            id: gid,
             name: String(group.name ?? '新阶段'),
             order: groups.length,
             tasks: [],
@@ -435,13 +433,15 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
         const next = clone(reg)
         const record = next.cases[caseId]
         const group = findGroup(record, groupId)
-        if (task.id !== undefined) {
-          const existing = findTask(group, task.id)
-          Object.assign(existing, { ...clone(task), updatedAt: now })
+        // upsert 契约：id 存在则更新，不存在（或未提供）则新建。
+        const tid = task.id === undefined ? taskId() : String(task.id)
+        const existing = group.tasks.find((t) => t.id === tid)
+        if (existing !== undefined) {
+          Object.assign(existing, { ...clone(task), id: tid, updatedAt: now })
           syncLinkedKeyDate(record, existing)
         } else {
           group.tasks.push({
-            id: taskId(),
+            id: tid,
             title: String(task.title ?? '新任务'),
             // BUG-2: persist an explicit deadline and a caller-supplied status
             // instead of silently dropping them / forcing 'todo'.
@@ -570,14 +570,18 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
         const group = findGroup(record, groupId)
         const task = findTask(group, taskIdToEdit)
         const subtasks = task.subtasks ?? []
-        if (subtask.id !== undefined) {
-          const existing = subtasks.find((s) => s.id === subtask.id)
-          if (existing !== undefined) Object.assign(existing, { ...clone(subtask), updatedAt: now })
+        // upsert 契约：id 存在则更新，不存在（或未提供）则新建。
+        const sid = subtask.id === undefined ? childId('sub') : String(subtask.id)
+        const existing = subtasks.find((s) => s.id === sid)
+        if (existing !== undefined) {
+          Object.assign(existing, { ...clone(subtask), id: sid, updatedAt: now })
         } else {
           subtasks.push({
-            id: childId('sub'),
+            id: sid,
             title: String(subtask.title ?? '子任务'),
-            done: false,
+            detail: subtask.detail === undefined ? undefined : String(subtask.detail),
+            deadline: subtask.deadline === undefined ? undefined : String(subtask.deadline),
+            done: subtask.done === undefined ? false : Boolean(subtask.done),
             createdAt: now,
             updatedAt: now,
           })
@@ -618,14 +622,16 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
         const group = findGroup(record, groupId)
         const task = findTask(group, taskIdToEdit)
         const checklist = task.checklist ?? []
-        if (item.id !== undefined) {
-          const existing = checklist.find((c: ChecklistItem) => c.id === item.id)
-          if (existing !== undefined) Object.assign(existing, { ...clone(item), updatedAt: now })
+        // upsert 契约：id 存在则更新，不存在（或未提供）则新建。
+        const cid = item.id === undefined ? childId('chk') : String(item.id)
+        const existing = checklist.find((c: ChecklistItem) => c.id === cid)
+        if (existing !== undefined) {
+          Object.assign(existing, { ...clone(item), id: cid, updatedAt: now })
         } else {
           checklist.push({
-            id: childId('chk'),
+            id: cid,
             text: String(item.text ?? '检查项'),
-            done: false,
+            done: item.done === undefined ? false : Boolean(item.done),
             createdAt: now,
             updatedAt: now,
           })

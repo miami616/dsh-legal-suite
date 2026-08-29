@@ -2,12 +2,14 @@
 
 ## 0.1.9（2026-08-29）
 
-诉讼管家 upsert 语义修复：任务树写入不再静默丢失。
+诉讼管家 upsert 语义修复 + 内置参考用例 + 任务模块双向同步。
 
 - **upsert 契约统一**：`upsert_group` / `upsert_task` / `upsert_subtask` / `upsert_check` 统一为「id 存在则更新，不存在（或省略 id）则新建——显式 id 按该 id 创建」。此前 `upsert_subtask` / `upsert_check` 传入不存在的 id 会**静默 no-op**（返回 `ok:true` 但数据未落盘），`upsert_task` 会抛 `TypeError`，`upsert_group` 会抛「task group not found」，均违背 upsert 语义
 - **新建字段透传**：`upsert_subtask` / `upsert_check` 新建时补全 `detail` / `deadline` / `done` 字段透传（此前被丢弃）
 - **工具参数说明修正**：`subtaskId` / `checklistId` 改为「可选——省略则自动生成 id（`sub-`/`chk-` 前缀）；delete/toggle 类仍必填已有 id」，消除「按文档用必错」陷阱
-- **回归测试**：新增 `scripts/verify-upsert-fix.mjs`（14 项断言，覆盖无 id 自动生成 / 显式 id 新建 / 已存在 id 更新 / 落盘持久化）
+- **内置参考用例**：全新安装（空数据目录）时自动播种一份信息完整的诉讼参考案件（买卖合同纠纷：当事人/标的/法院/任务树/子任务/检查项/关键日期/时间轴/日程）与一份非诉参考项目（常法服务：任务树/关键日期/服务记录），新用户开箱即见完整演示；仅空 registry 播种一次，绝不覆盖已有数据
+- **任务模块双向同步**：任务中心统一视图中的诉讼/非诉任务现在可**直接切换状态**，写回源案件/项目 store（`litigation`/`nonlitigation` 任务不再只读）；诉讼/非诉里处理的任务在任务中心实时同步，任务中心切换状态也同步回源
+- **回归测试**：新增 `scripts/verify-upsert-fix.mjs`（14 项断言）与 `scripts/verify-seed-sync.mjs`（19 项断言，覆盖播种幂等与双向写回）
 
 ## 0.1.8（2026-08-29）
 

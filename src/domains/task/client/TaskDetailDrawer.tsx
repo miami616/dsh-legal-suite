@@ -57,7 +57,13 @@ export function TaskDetailDrawer({ task, onClose, onChange }: TaskDetailDrawerPr
     setSaving(true)
     setError('')
     try {
-      await api.upsertTask({ id: task.id, status: task.status === 'todo' ? 'doing' : task.status === 'doing' ? 'done' : 'todo' })
+      await api.upsertTask({
+        id: task.id,
+        status: task.status === 'todo' ? 'doing' : task.status === 'doing' ? 'done' : 'todo',
+        source: task.source,
+        sourceId: task.sourceId,
+        groupId: task.groupId,
+      })
       onChange()
       onClose()
     } catch (err) {
@@ -93,7 +99,6 @@ export function TaskDetailDrawer({ task, onClose, onChange }: TaskDetailDrawerPr
             {!editable && (
               <p className={mobileCss.taskReadonly}>{tt('mobile.task.readonly', { source: tt(SOURCE_LABEL[source]) })}</p>
             )}
-
             <label className={mobileCss.taskField}>
               <span className={mobileCss.taskFieldLabel}>{tt('mobile.task.title')}</span>
               <input className={mobileCss.taskInput} value={title} onChange={(e) => setTitle(e.target.value)} disabled={!editable} />
@@ -135,11 +140,9 @@ export function TaskDetailDrawer({ task, onClose, onChange }: TaskDetailDrawerPr
         </div>
 
         <footer className={mobileCss.taskDrawerFooter}>
-          {editable && (
-            <button className={mobileCss.taskFooterBtn} type="button" onClick={() => { void toggleStatus() }} disabled={saving}>
-              {tt(task.status === 'done' ? 'mobile.task.markTodo' : task.status === 'doing' ? 'mobile.task.markDone' : 'mobile.task.markDoing')}
-            </button>
-          )}
+          <button className={mobileCss.taskFooterBtn} type="button" onClick={() => { void toggleStatus() }} disabled={saving}>
+            {tt(task.status === 'done' ? 'mobile.task.markTodo' : task.status === 'doing' ? 'mobile.task.markDone' : 'mobile.task.markDoing')}
+          </button>
           {editable && (
             <button className={mobileCss.taskFooterDanger} type="button" onClick={() => { void remove() }} disabled={deleting}>
               {deleting ? tt('mobile.task.deleting') : tt('mobile.task.delete')}

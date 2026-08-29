@@ -16,6 +16,7 @@ interface LitigationRegistryLike {
     caseId: string
     name: string
     taskGroups?: Array<{
+      id: string
       name: string
       tasks?: Array<{
         id: string
@@ -34,6 +35,7 @@ interface NonLitigationRegistryLike {
     projectId: string
     name: string
     taskGroups?: Array<{
+      id: string
       name: string
       tasks?: Array<{
         id: string
@@ -72,6 +74,7 @@ export async function aggregateUnifiedTasks(
           source: 'litigation',
           sourceId: c.caseId,
           sourceName: c.name,
+          groupId: g.id,
         })
       }
     }
@@ -91,6 +94,7 @@ export async function aggregateUnifiedTasks(
           source: 'nonlitigation',
           sourceId: p.projectId,
           sourceName: p.name,
+          groupId: g.id,
         })
       }
     }

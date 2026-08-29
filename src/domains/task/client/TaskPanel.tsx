@@ -123,9 +123,16 @@ export function TaskPanel({ controller }: TaskPanelProps): React.JSX.Element {
   }
 
   const toggleStatus = async (task: TaskItem): Promise<void> => {
-    if (task.source !== undefined && task.source !== 'standalone') return
     try {
-      await api.upsertTask({ id: task.id, status: nextStatus(task.status) })
+      // Standalone tasks update in the task store; litigation / non-litigation
+      // tasks write through to the source case/project store (bidirectional sync).
+      await api.upsertTask({
+        id: task.id,
+        status: nextStatus(task.status),
+        source: task.source,
+        sourceId: task.sourceId,
+        groupId: task.groupId,
+      })
       await refresh()
     } catch (err) {
       setError(errorMessage(err))
@@ -328,7 +335,9 @@ export function TaskPanel({ controller }: TaskPanelProps): React.JSX.Element {
 }
 
 function TaskRow({ task, onToggle, onDelete, onOpen }: { task: TaskItem; onToggle: () => void; onDelete: () => void; onOpen?: () => void }): React.JSX.Element {
-  const editable = task.source === undefined || task.source === 'standalone'
+  // Status toggle is always available (litigation / non-litigation tasks write
+  // through to their source); delete stays standalone-only.
+  const deletable = task.source === undefined || task.source === 'standalone'
   const done = task.status === 'done'
   const deadline = task.deadline ? daysUntil(task.deadline) : null
   const deadlineCls = deadline === null ? css.deadlineNeutral : done ? css.deadlineNeutral : deadline < 0 ? css.deadlineUrgent : deadline <= 3 ? css.deadlineUrgent : deadline <= 7 ? css.deadlineSoon : css.deadlineNeutral
@@ -346,8 +355,8 @@ function TaskRow({ task, onToggle, onDelete, onOpen }: { task: TaskItem; onToggl
         className={`${css.statusToggle} ${done ? css.toggleDone : task.status === 'doing' ? css.toggleDoing : css.toggleTodo}`}
         type="button"
         onClick={(e) => { e.stopPropagation(); onToggle() }}
-        title={editable ? tt('board.status') : ''}
-        disabled={!editable}>
+        title={tt('board.status')}
+        disabled={false}>
         {done ? '✓' : task.status === 'doing' ? '◐' : ''}
       </button>
       <div className={css.taskBody}>
@@ -362,7 +371,7 @@ function TaskRow({ task, onToggle, onDelete, onOpen }: { task: TaskItem; onToggl
         {task.priority && task.priority !== 'medium' && <span className={`${css.priority} ${css[`priority${cap(task.priority)}`]}`}>{task.priority}</span>}
         {deadline !== null && <span className={`${css.deadline} ${deadlineCls}`}>{deadlineText}</span>}
         {onOpen !== undefined && <span className={css.rowChevron} aria-hidden>›</span>}
-        <button className={css.deleteBtn} type="button" aria-label="删除" disabled={!editable} onClick={(e) => { e.stopPropagation(); onDelete() }}>✕</button>
+        <button className={css.deleteBtn} type="button" aria-label="删除" disabled={!deletable} onClick={(e) => { e.stopPropagation(); onDelete() }}>✕</button>
       </div>
     </div>
   )

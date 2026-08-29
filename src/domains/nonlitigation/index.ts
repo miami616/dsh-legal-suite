@@ -16,6 +16,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Events } from '@deepseek-ai/cordis'
 import { syncShippedPreset } from '../../shared/preset-sync.ts'
+import { seedNonLitigationSample } from '../../shared/seed/index.ts'
 import { createProjectStore } from './store/project-store.ts'
 import { createServiceStore } from './store/service-store.ts'
 import { makeRoutes } from './routes.ts'
@@ -266,6 +267,13 @@ export function apply(ctx: Context, config: Config = {}): void {
       })
     const projectStore = createProjectStore(dataDir, ctx)
     const serviceStore = createServiceStore(dataDir, ctx)
+    // 全新安装（空数据目录）时内置一份参考项目，让新用户开箱即见完整演示。
+    // 仅当 registry 为空时播种，绝不覆盖已有数据；失败仅告警不致命。
+    void seedNonLitigationSample(projectStore, serviceStore)
+      .then((seeded) => {
+        if (seeded !== undefined) console.warn(`[agentlex-nonlitigation] 已播种内置参考项目 ${seeded}`)
+      })
+      .catch((error) => console.warn('[agentlex-nonlitigation] 参考项目播种失败:', error))
     // Automatic backup: snapshot after every data write (throttled), plus one
     // on apply. Backups land OUTSIDE the dataDir (~/.dsh/agentlex-backups/).
     const disposers: Array<() => void> = [ctx.on('agentlex:registry-changed' as keyof Events, () => {

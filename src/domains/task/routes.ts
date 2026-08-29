@@ -4,6 +4,8 @@ import { aggregateUnifiedTasks } from './aggregate/unified.ts'
 import type { TaskStore } from './store/task-store.ts'
 import type { ApiResponse } from './store/types.ts'
 import { registerLegacyCompatRoutes } from './legacy-compat.ts'
+import { createCaseStore } from '../litigation/store/case-store.ts'
+import { createProjectStore } from '../nonlitigation/store/project-store.ts'
 
 export interface RouteDeps {
   taskStore: TaskStore
@@ -103,6 +105,39 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     // upsert key, so an update never silently becomes a new standalone task.
     const { taskId, ...input } = b
     if (taskId !== undefined) input.id = String(taskId)
+
+    // Write-through: a task sourced from litigation / non-litigation updates
+    // the source case/project store (same shared ctx → broadcasts the change
+    // to both the task panel and the source panel). Standalone tasks stay in
+    // the task store.
+    const source = input.source === undefined ? undefined : String(input.source)
+    if (source === 'litigation' || source === 'nonlitigation') {
+      const sourceId = input.sourceId === undefined ? undefined : String(input.sourceId)
+      const groupId = input.groupId === undefined ? undefined : String(input.groupId)
+      const rawId = input.id === undefined ? undefined : String(input.id)
+      if (sourceId === undefined || groupId === undefined || rawId === undefined) {
+        return fail(res, 'source write-through requires sourceId/groupId/id')
+      }
+      // The unified view spells the id as `<src>-<sourceId>-<taskId>`; strip the
+      // prefix to recover the real task id in the source store.
+      const prefix = `${source === 'litigation' ? 'lit' : 'nl'}-${sourceId}-`
+      const taskIdToEdit = rawId.startsWith(prefix) ? rawId.slice(prefix.length) : rawId
+      const patch: Record<string, unknown> = {}
+      if (input.status !== undefined) patch.status = String(input.status)
+      if (input.title !== undefined) patch.title = String(input.title)
+      if (input.deadline !== undefined) patch.deadline = String(input.deadline)
+      if (input.priority !== undefined) patch.priority = String(input.priority)
+      if (input.detail !== undefined) patch.detail = String(input.detail)
+      if (source === 'litigation') {
+        const caseStore = createCaseStore(d.litigationDir, ctx)
+        const record = await caseStore.upsertTask(sourceId, groupId, { id: taskIdToEdit, ...patch })
+        return ok(res, { id: taskIdToEdit, source, sourceId, ok: true, updatedAt: record.updatedAt })
+      }
+      const projectStore = createProjectStore(d.nonlitigationDir, ctx)
+      const record = await projectStore.upsertTask(sourceId, groupId, { id: taskIdToEdit, ...patch })
+      return ok(res, { id: taskIdToEdit, source, sourceId, ok: true, updatedAt: record.updatedAt })
+    }
+
     ok(res, await d.taskStore.upsertTask(input))
   })
 

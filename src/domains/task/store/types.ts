@@ -10,6 +10,8 @@ export interface TaskItem {
   source?: 'standalone' | 'litigation' | 'nonlitigation'
   sourceId?: string
   sourceName?: string
+  /** The task-group (stage) id within the source case/project — enables write-through. */
+  groupId?: string
   createdAt?: string
   updatedAt?: string
 }

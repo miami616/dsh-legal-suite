@@ -23,6 +23,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Events } from '@deepseek-ai/cordis'
 import { syncShippedPreset } from '../../shared/preset-sync.ts'
+import { seedLitigationSample } from '../../shared/seed/index.ts'
 import { createCaseStore } from './store/case-store.ts'
 import { createScheduleStore } from './store/schedule-store.ts'
 import { createTimelineStore } from './store/timeline-store.ts'
@@ -340,6 +341,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     const caseStore = createCaseStore(dataDir, ctx)
     const timelineStore = createTimelineStore(dataDir, ctx)
     const scheduleStore = createScheduleStore(dataDir, ctx)
+    // 全新安装（空数据目录）时内置一份参考用例，让新用户开箱即见完整演示。
+    // 仅当 registry 为空时播种，绝不覆盖已有数据；失败仅告警不致命。
+    void seedLitigationSample(caseStore, timelineStore, scheduleStore)
+      .then((seeded) => {
+        if (seeded !== undefined) console.warn(`[agentlex-litigation] 已播种内置参考用例 ${seeded}`)
+      })
+      .catch((error) => console.warn('[agentlex-litigation] 参考用例播种失败:', error))
     const deadlines = async (caseId?: string, opts?: { includeOverdue?: boolean }) => {
       const [registry, events] = await Promise.all([caseStore.readRegistry(), timelineStore.listEvents()])
       return computeDeadlines(registry, events, caseId, opts)

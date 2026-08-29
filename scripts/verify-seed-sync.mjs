@@ -59,6 +59,7 @@ try {
   // ============ 2. seed non-litigation ============
   const projectId = await seedNonLitigationSample(projectStore, serviceStore)
   check('seedNonLitigationSample returns projectId', projectId !== undefined, String(projectId))
+  check('projectId is numeric YYYY-NNN', /^\d{4}-\d{3}$/.test(projectId ?? ''), String(projectId))
   const proj = await projectStore.readProject(projectId)
   check('seeded project has name', proj?.name === '某制造公司常年法律顾问', proj?.name)
   check('seeded project has taskGroups', (proj?.taskGroups?.length ?? 0) >= 3, `groups=${proj?.taskGroups?.length}`)

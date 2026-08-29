@@ -25,6 +25,21 @@ export function nextCaseId(cases: Record<string, unknown>): string {
   return `${year}-${String(max + 1).padStart(3, '0')}`
 }
 
+/** Generate a per-year project number: YYYY-NNN, next after the highest existing. */
+export function nextProjectId(projects: Record<string, unknown>): string {
+  const year = currentYear()
+  let max = 0
+  for (const id of Object.keys(projects)) {
+    const match = /^(\d{4})-(\d{3})$/.exec(id)
+    if (match === null) continue
+    const y = Number(match[1])
+    if (y !== year) continue
+    const n = Number(match[2])
+    if (n > max) max = n
+  }
+  return `${year}-${String(max + 1).padStart(3, '0')}`
+}
+
 /** Unique child id with a short prefix + timestamp-derived tail. */
 export function childId(prefix: string): string {
   const tail = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)

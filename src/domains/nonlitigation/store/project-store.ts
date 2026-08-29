@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { JsonFileStore } from './file-store.ts'
-import { childId, nowIso } from './id.ts'
+import { childId, nextProjectId, nowIso } from './id.ts'
 import type { ProjectRecord, ProjectRegistry, ProjectTask } from './types.ts'
 
 export interface ProjectStore {
@@ -60,30 +60,39 @@ export function createProjectStore(dataDir: string, ctx: Context): ProjectStore 
     },
     async registerProject(input) {
       const now = nowIso()
-      const id = s(input.projectId) ?? childId('proj')
-      const record: ProjectRecord = {
-        projectId: id,
-        name: s(input.name) ?? '未命名项目',
-        projectType: s(input.projectType) ?? 'other',
-        status: s(input.status) ?? 'active',
-        leadLawyer: s(input.leadLawyer),
-        contractAmount: s(input.contractAmount),
-        servicePeriod: typeof input.servicePeriod === 'object' && input.servicePeriod !== null
-          ? input.servicePeriod as { start?: string; end?: string } : undefined,
-        serviceScope: Array.isArray(input.serviceScope) ? (input.serviceScope as unknown[]).map(String) : [],
-        folder: s(input.folder),
-        summary: s(input.summary),
-        taskGroups: Array.isArray(input.taskGroups) ? input.taskGroups as ProjectRecord['taskGroups'] : [],
-        createdAt: now,
-        updatedAt: now,
-      }
+      // Respect an explicit projectId (AgentLex import carries its own ids);
+      // otherwise assign the next per-year number (YYYY-NNN, like litigation).
+      const explicitId = s(input.projectId)
+      let record: ProjectRecord | undefined
       await save((reg) => {
+        const id = explicitId !== undefined && explicitId !== ''
+          ? (reg.projects[explicitId] !== undefined
+            ? (() => { throw new Error(`project id collision: ${explicitId}`) })()
+            : explicitId)
+          : nextProjectId(reg.projects)
         if (reg.projects[id] !== undefined) throw new Error(`project exists: ${id}`)
-        reg.projects[id] = record
+        const created: ProjectRecord = {
+          projectId: id,
+          name: s(input.name) ?? '未命名项目',
+          projectType: s(input.projectType) ?? 'other',
+          status: s(input.status) ?? 'active',
+          leadLawyer: s(input.leadLawyer),
+          contractAmount: s(input.contractAmount),
+          servicePeriod: typeof input.servicePeriod === 'object' && input.servicePeriod !== null
+            ? input.servicePeriod as { start?: string; end?: string } : undefined,
+          serviceScope: Array.isArray(input.serviceScope) ? (input.serviceScope as unknown[]).map(String) : [],
+          folder: s(input.folder),
+          summary: s(input.summary),
+          taskGroups: Array.isArray(input.taskGroups) ? input.taskGroups as ProjectRecord['taskGroups'] : [],
+          createdAt: now,
+          updatedAt: now,
+        }
+        reg.projects[id] = created
         reg.lastUpdated = now
+        record = created
         return reg
       }, 'register-project')
-      return record
+      return record!
     },
     async updateProject(projectId, patch) {
       const now = nowIso()

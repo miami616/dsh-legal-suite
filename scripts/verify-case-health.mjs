@@ -119,7 +119,7 @@ try {
     `score=${hSeed.completeness.score} gaps=${gapFields(hSeed).join(',')}`)
 
   const seededExecution = Object.values((await caseStore.readRegistry()).cases)
-    .find((c) => c.status === 'execution')
+    .find((c) => c.status === 'investigation')
   const hExec = await computeCaseHealth(seededExecution)
   check('执行参考案例要求执行阶段标识', gapFields(hExec).includes('level') === false,
     gapFields(hExec).join(','))

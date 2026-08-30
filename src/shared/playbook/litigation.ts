@@ -28,34 +28,79 @@ export interface LitigationStatusDef {
 }
 
 /**
- * 诉讼案件状态阶梯（8 档）。
+ * 诉讼案件状态阶梯——按审级/程序分立多套。
  *
- * 这是**程序推进**的单轴：收案 → 诉前 → 立案 → 庭前 → 待开庭 → 庭后 → 执行
- * → 结案。审级（一审/二审/执行）是另一条正交轴，由 `level` 字段表达，
- * 不混进 status——二审案件同样要经历「庭前准备 / 待开庭」。
+ * 不同程序的状态语义不同（一审走「诉前→立案→开庭」，二审走「上诉立案→
+ * 审查→二审判决」，执行走「查控→处置→分配」），因此状态阶梯按 `level`
+ * 分套，而不是用一审向的单一 8 档。未定制的程序（再审/仲裁）回退到一审套；
+ * 每套均以 收案 → 已结案 收尾，未知状态回落 intake。
  */
-export const LITIGATION_STATUSES: LitigationStatusDef[] = [
-  { id: 'intake', label: '收案', tone: 'neutral', order: 1 },
-  { id: 'pre_filing', label: '诉前', tone: 'neutral', order: 2 },
-  { id: 'filing', label: '立案中', tone: 'info', order: 3 },
-  { id: 'pretrial', label: '庭前准备', tone: 'info', order: 4 },
-  { id: 'awaiting_trial', label: '待开庭', tone: 'accent', order: 5 },
-  { id: 'post_trial', label: '庭后管理', tone: 'outline', order: 6 },
-  { id: 'execution', label: '执行中', tone: 'warning', order: 7 },
-  { id: 'closed', label: '已结案', tone: 'success', order: 99 },
-]
-
-const STATUS_BY_ID = new Map(LITIGATION_STATUSES.map((s) => [s.id, s]))
-
-/** 是否合法状态 id（管家/工具写入前的校验依据）。 */
-export function isLitigationStatus(id: string | undefined | null): boolean {
-  return id !== undefined && id !== null && STATUS_BY_ID.has(id)
+export const STATUS_LADDERS: Record<string, LitigationStatusDef[]> = {
+  /** 一审：诉前 → 立案 → 庭前 → 开庭 → 庭后 → 执行 → 结案（8 档）。 */
+  一审: [
+    { id: 'intake', label: '收案', tone: 'neutral', order: 1 },
+    { id: 'pre_filing', label: '诉前', tone: 'neutral', order: 2 },
+    { id: 'filing', label: '立案中', tone: 'info', order: 3 },
+    { id: 'pretrial', label: '庭前准备', tone: 'info', order: 4 },
+    { id: 'awaiting_trial', label: '待开庭', tone: 'accent', order: 5 },
+    { id: 'post_trial', label: '庭后管理', tone: 'outline', order: 6 },
+    { id: 'execution', label: '执行中', tone: 'warning', order: 7 },
+    { id: 'closed', label: '已结案', tone: 'success', order: 99 },
+  ],
+  /** 二审：上诉立案 → 审查 → 开庭 → 二审判决 → 结案（6 档）。 */
+  二审: [
+    { id: 'intake', label: '收案', tone: 'neutral', order: 1 },
+    { id: 'appeal_filed', label: '上诉立案', tone: 'info', order: 2 },
+    { id: 'reviewing', label: '审查中', tone: 'info', order: 3 },
+    { id: 'awaiting_trial', label: '待开庭', tone: 'accent', order: 4 },
+    { id: 'post_judgment', label: '二审判决', tone: 'outline', order: 5 },
+    { id: 'closed', label: '已结案', tone: 'success', order: 99 },
+  ],
+  /** 执行（首次/恢复执行共用）：查控 → 处置 → 分配 → 结案（5 档）。 */
+  首次执行: [
+    { id: 'intake', label: '收案', tone: 'neutral', order: 1 },
+    { id: 'investigation', label: '财产查控', tone: 'info', order: 2 },
+    { id: 'disposal', label: '处置中', tone: 'accent', order: 3 },
+    { id: 'distribution', label: '分配发还', tone: 'outline', order: 4 },
+    { id: 'closed', label: '已结案', tone: 'success', order: 99 },
+  ],
+  恢复执行: [
+    { id: 'intake', label: '收案', tone: 'neutral', order: 1 },
+    { id: 'investigation', label: '财产查控', tone: 'info', order: 2 },
+    { id: 'disposal', label: '处置中', tone: 'accent', order: 3 },
+    { id: 'distribution', label: '分配发还', tone: 'outline', order: 4 },
+    { id: 'closed', label: '已结案', tone: 'success', order: 99 },
+  ],
 }
 
-/** 取状态定义，未知值回落到 intake（收案）。 */
-export function getLitigationStatus(id: string | undefined | null): LitigationStatusDef {
+/** 未定制的程序（再审/仲裁等）回退到一审套。 */
+const FALLBACK_LADDER = '一审'
+
+/** 一审套兼容导出（既有调用方按单轴使用）。 */
+export const LITIGATION_STATUSES: LitigationStatusDef[] = STATUS_LADDERS['一审']
+
+/** 归一化 level → 阶梯 key（含「执行」等口语）。 */
+function ladderKey(level: string | undefined | null): string {
+  const key = (level ?? '').trim()
+  if (key === '执行' || key === '执行中') return '首次执行'
+  return STATUS_LADDERS[key] !== undefined ? key : FALLBACK_LADDER
+}
+
+/** 取某审级的状态阶梯。 */
+export function getStatusLadder(level: string | undefined | null): LitigationStatusDef[] {
+  return STATUS_LADDERS[ladderKey(level)]
+}
+
+/** 是否合法状态 id（管家/工具写入前的校验依据）。传 level 时按对应阶梯，不传按一审套。 */
+export function isLitigationStatus(id: string | undefined | null, level?: string | undefined | null): boolean {
+  if (id === undefined || id === null) return false
+  return getStatusLadder(level).some((s) => s.id === id)
+}
+
+/** 取状态定义，未知值回落到该审级阶梯的 intake（收案）。 */
+export function getLitigationStatus(id: string | undefined | null, level?: string | undefined | null): LitigationStatusDef {
   const key = (id ?? '').trim()
-  return STATUS_BY_ID.get(key) ?? { id: 'intake', label: '收案', tone: 'neutral', order: 1 }
+  return getStatusLadder(level).find((s) => s.id === key) ?? { id: 'intake', label: '收案', tone: 'neutral', order: 1 }
 }
 
 /* ------------------------------------------------------- 任务命名规范 */

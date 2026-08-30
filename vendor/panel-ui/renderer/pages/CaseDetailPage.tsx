@@ -705,7 +705,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
             {entry.level && <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getProcedureColor(entry.level)}`}>{entry.level}</span>}
             {entry.archived && <span className="px-2 py-0.5 rounded text-xs font-medium bg-[var(--paper-inset)] text-[var(--ink-muted)]">已归档</span>}
             <span className="flex-1" />
-            <StatusBadge status={entry.status} editable onChange={(s) => updateCase(entry.caseId, c => ({ ...c, status: s, updatedAt: new Date().toISOString() }))} />
+            <StatusBadge status={entry.status} level={(entry as any).level} editable onChange={(s) => updateCase(entry.caseId, c => ({ ...c, status: s, updatedAt: new Date().toISOString() }))} />
             <AgentSessionButton agent={CASE_AGENTS[0]} boundSessions={entry.boundSessions} onOpen={openManagerSession} getArchivedSessionIds={getArchivedSessionIds} />
           </div>
 

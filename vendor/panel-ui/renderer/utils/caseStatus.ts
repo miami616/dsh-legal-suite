@@ -20,18 +20,77 @@ export interface CaseStatusDef {
   order: number;    // Display order (1=earliest, 99=closed)
 }
 
-export const CASE_STATUSES: CaseStatusDef[] = [
-  { id: 'intake', label: '收案', color: 'bg-[var(--info-bg)] text-[var(--info)]', dot: 'bg-[var(--info)]', barColor: 'bg-[var(--info)]', order: 1 },
-  { id: 'pretrial', label: '庭前准备', color: 'bg-[var(--success-bg)] text-[var(--success)]', dot: 'bg-[var(--success)]', barColor: 'bg-[var(--success)]', order: 2 },
-  { id: 'awaiting_trial', label: '待开庭', color: 'bg-[var(--accent-warm-subtle)] text-[var(--accent-warm)]', dot: 'bg-[var(--accent-warm)]', barColor: 'bg-[var(--accent-warm)]', order: 3 },
-  { id: 'post_trial', label: '庭后管理', color: 'bg-[var(--warning-bg)] text-[var(--warning)]', dot: 'bg-[var(--warning)]', barColor: 'bg-[var(--warning)]', order: 4 },
-  { id: 'closed', label: '已结案', color: 'bg-[var(--success-bg)] text-[var(--success)]', dot: 'bg-[var(--success)]', barColor: 'bg-[var(--success)]', order: 99 },
-];
+/**
+ * 状态阶梯按审级分套（一审 8 档 / 二审 6 档 / 执行 5 档；再审/仲裁回退一审）。
+ * 与 src/shared/playbook/litigation.ts 的 STATUS_LADDERS 保持同一套 id/标签。
+ * status 轴与 level（审级）轴正交：显示与筛选按 case.level 取对应阶梯。
+ */
+const PILL = (bg: string, text: string) => ({ color: `${bg} ${text}`, dot: bg, barColor: bg });
+const INFO_PILL = 'bg-[var(--info-bg)] text-[var(--info)]';
+const ACCENT_PILL = 'bg-[var(--accent-warm-subtle)] text-[var(--accent-warm)]';
+const OUTLINE_PILL = 'bg-[var(--warning-bg)] text-[var(--warning)]';
+const WARNING_PILL = 'bg-[var(--warning-bg)] text-[var(--warning)]';
+const SUCCESS_PILL = 'bg-[var(--success-bg)] text-[var(--success)]';
+
+export const STATUS_LADDERS: Record<string, CaseStatusDef[]> = {
+  一审: [
+    { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
+    { id: 'pre_filing', label: '诉前', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'filing', label: '立案中', ...PILL(INFO_PILL, INFO_PILL), order: 3 },
+    { id: 'pretrial', label: '庭前准备', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 4 },
+    { id: 'awaiting_trial', label: '待开庭', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 5 },
+    { id: 'post_trial', label: '庭后管理', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 6 },
+    { id: 'execution', label: '执行中', ...PILL(WARNING_PILL, WARNING_PILL), order: 7 },
+    { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
+  ],
+  二审: [
+    { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
+    { id: 'appeal_filed', label: '上诉立案', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'reviewing', label: '审查中', ...PILL(INFO_PILL, INFO_PILL), order: 3 },
+    { id: 'awaiting_trial', label: '待开庭', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 4 },
+    { id: 'post_judgment', label: '二审判决', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 5 },
+    { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
+  ],
+  首次执行: [
+    { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
+    { id: 'investigation', label: '财产查控', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'disposal', label: '处置中', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 3 },
+    { id: 'distribution', label: '分配发还', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 4 },
+    { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
+  ],
+  恢复执行: [
+    { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
+    { id: 'investigation', label: '财产查控', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'disposal', label: '处置中', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 3 },
+    { id: 'distribution', label: '分配发还', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 4 },
+    { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
+  ],
+};
+
+const FALLBACK_LADDER = '一审';
+
+/** 未定制的程序（再审/仲裁等）回退一审套；口语「执行」归一为首次执行。 */
+function ladderKey(level: string | null | undefined): string {
+  const key = (level ?? '').trim();
+  if (key === '执行' || key === '执行中') return '首次执行';
+  return STATUS_LADDERS[key] !== undefined ? key : FALLBACK_LADDER;
+}
+
+/** 某审级的状态阶梯选项（下拉/筛选用）。 */
+export function getStatusOptions(level?: string | null): CaseStatusDef[] {
+  return STATUS_LADDERS[ladderKey(level)];
+}
+
+/** 兼容导出：一审套。 */
+export const CASE_STATUSES: CaseStatusDef[] = STATUS_LADDERS['一审'];
 
 const STATUS_MAP = new Map(CASE_STATUSES.map(s => [s.id, s]));
 
-export function getStatusDef(statusId: string): CaseStatusDef | undefined {
-  return STATUS_MAP.get(statusId);
+/** 按审级解析状态定义（未知回落一审套，避免旧数据变未知）。 */
+export function getStatusDef(statusId: string | undefined | null, level?: string | null): CaseStatusDef | undefined {
+  const hit = getStatusOptions(level).find(s => s.id === (statusId ?? ''));
+  if (hit) return hit;
+  return STATUS_MAP.get(statusId ?? '');
 }
 
 /**
@@ -106,24 +165,25 @@ export function sortByStatus(aId: string, bId: string): number {
 }
 
 /**
- * Map legacy free-text statuses to the new simplified 5 status IDs.
- *
- * First checks whether the value is already one of the standard IDs — this
- * prevents the regex matchers from greedily matching within the ID itself
- * (e.g. "awaiting_trial" contains "trial" → would have been mapped to
- * "post_trial" instead of staying "awaiting_trial").
+ * Map legacy free-text statuses to status IDs of the given procedure ladder
+ * (default: 一审). First checks whether the value is already one of the
+ * ladder's standard IDs — this prevents the regex matchers from greedily
+ * matching within the ID itself (e.g. "awaiting_trial" contains "trial" → would
+ * have been mapped to "post_trial" instead of staying "awaiting_trial").
  */
-export function normalizeStatus(raw: string): string {
+export function normalizeStatus(raw: string, level?: string | null): string {
   const t = raw.trim();
-  // Already a standard ID? Return directly (the regex fallback below is for
-  // legacy free-text values like "开庭", "等待判决", etc.).
-  if (CASE_STATUSES.some(s => s.id === t)) return t;
+  const options = getStatusOptions(level);
+  if (options.some(s => s.id === t)) return t;
   if (/委托|接案|收案|intake/.test(t)) return 'intake';
   if (/诉前|准备起诉|起草诉状|证据收集|pre_filing/.test(t)) return 'pretrial';
-  if (/立案|受理|filing/.test(t)) return 'pretrial';
+  if (/立案|受理|filing|上诉|appeal/.test(t)) return level === '二审' ? 'appeal_filed' : 'pretrial';
+  if (/查控|冻结|查封|investigation/.test(t)) return options.some(s => s.id === 'investigation') ? 'investigation' : 'post_trial';
+  if (/处置|拍卖|变卖|disposal/.test(t)) return options.some(s => s.id === 'disposal') ? 'disposal' : 'post_trial';
+  if (/分配|发还|distribution/.test(t)) return options.some(s => s.id === 'distribution') ? 'distribution' : 'post_trial';
   if (/开庭|等待开庭|排期|awaiting_hearing/.test(t)) return 'awaiting_trial';
   if (/审理|庭审|质证|辩论|举证/.test(t)) return 'post_trial';
-  if (/待判|等待判决|合议|上诉|二审|judged|appeal/.test(t)) return 'post_trial';
+  if (/待判|等待判决|合议|judged|二审判决|post_judgment/.test(t)) return level === '二审' ? 'post_judgment' : 'post_trial';
   if (/执行|execution/.test(t)) return 'post_trial';
   if (/撤诉|撤回|withdrawn/.test(t)) return 'closed';
   if (/结案|驳回起诉|调解|和解|closed/.test(t)) return 'closed';

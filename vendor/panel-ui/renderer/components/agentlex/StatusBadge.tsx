@@ -3,17 +3,20 @@
  */
 import { memo, useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { CASE_STATUSES, getStatusDef } from '@/utils/caseStatus';
+import { getStatusDef, getStatusOptions } from '@/utils/caseStatus';
 
 interface StatusBadgeProps {
   status: string;
+  /** 审级（一审/二审/执行…）：状态阶梯按审级分套。 */
+  level?: string | null;
   onChange?: (statusId: string) => void;
   /** When true, clicking shows a dropdown to change status. */
   editable?: boolean;
 }
 
-export default memo(function StatusBadge({ status, onChange, editable = false }: StatusBadgeProps) {
-  const def = getStatusDef(status);
+export default memo(function StatusBadge({ status, level, onChange, editable = false }: StatusBadgeProps) {
+  const def = getStatusDef(status, level);
+  const options = getStatusOptions(level);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -38,7 +41,7 @@ export default memo(function StatusBadge({ status, onChange, editable = false }:
       </button>
       {open && (
         <div className="absolute top-full left-0 mt-1 w-36 bg-[var(--paper-elevated)] border border-[var(--paper-inset)] rounded-xl shadow-lg z-50 py-1 max-h-64 overflow-y-auto">
-          {CASE_STATUSES.map(s => (
+          {options.map(s => (
             <button key={s.id} onClick={() => { onChange?.(s.id); setOpen(false); }}
               className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--paper-inset)] transition-colors ${s.id === status ? 'font-semibold' : ''}`}>
               <span className={`inline-block w-2 h-2 rounded-full mr-2 ${s.dot}`} />

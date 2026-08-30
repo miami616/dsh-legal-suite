@@ -1,5 +1,16 @@
 # Changelog
 
+## 未发布（0.1.13 预览）
+
+### P1 · 诉讼状态阶梯按审级/程序分立
+
+- **状态阶梯按审级分套**（用户需求：一审/二审/执行各有独立状态标签体系）：
+  - `playbook/litigation.ts` 的 `STATUS_LADDERS` 定义三套：一审 8 档（不变）；**二审 6 档**（收案→上诉立案→审查中→待开庭→二审判决→已结案）；**执行 5 档**（收案→财产查控→处置中→分配发还→已结案）；再审/仲裁回退一审套
+  - 校验与取值函数 `isLitigationStatus` / `getLitigationStatus` / `getStatusLadder` 增加 **level 感知**
+- **适配层同步**：`case-status.ts` 导出多套阶梯 + `getStatusDef(statusId, level?)`；`tools` 状态参数说明按审级列出各套合法值；`health` / `stage-expansion` 按 `record.level` 取值
+- **旧面板显示层（vendor）**：`caseStatus.ts` 同样三套阶梯；`StatusBadge` 徽章与可编辑下拉按案件 `level` 取阶梯（卡片列表/详情页均传入 level）；`normalizeStatus` 审级感知
+- **数据与回归**：seed 执行参考案状态 `execution`→`investigation`（语义归位到执行阶梯）；verify-seed-sync / verify-case-health 改为按审级校验，四个回归脚本全过
+
 ## 未发布（0.1.12 预览）
 
 ### P1 · 面板体系收敛 + 老版 harness 兼容补丁

@@ -118,7 +118,7 @@ export async function computeCaseHealth(
   opts: HealthOptions = {},
 ): Promise<CaseHealth> {
   const statusId = s(record.status) === '' ? 'intake' : s(record.status)
-  const statusDef = getLitigationStatus(statusId)
+  const statusDef = getLitigationStatus(statusId, record.level)
   const order = statusDef.order
 
   const applicable = FIELD_RULES.filter((rule) => {

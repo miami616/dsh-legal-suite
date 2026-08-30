@@ -262,7 +262,7 @@ export function detectStageSuggestions(
   for (const record of Object.values(registry.cases)) {
     if (onlyCaseId !== undefined && record.caseId !== onlyCaseId) continue
     const statusId = (record.status ?? 'intake').trim()
-    const statusDef = getLitigationStatus(statusId)
+    const statusDef = getLitigationStatus(statusId, record.level)
     const suggestions = suggestForCase(record, statusId)
     if (suggestions.length > 0) {
       out.push({
@@ -282,7 +282,7 @@ function suggestForCase(record: CaseRecord, statusId: string): StageSuggestion[]
   if (statusId === 'closed') return suggestions
   if (STATUS_TO_STAGE[statusId] === undefined) return suggestions
 
-  const statusDef = getLitigationStatus(statusId)
+  const statusDef = getLitigationStatus(statusId, record.level)
   const stageId = STATUS_TO_STAGE[statusId]
   const stage = getLitigationStage(stageId)!
   const group = (record.taskGroups ?? []).find((g) => g.name === stage.name)
@@ -329,7 +329,7 @@ function suggestForCase(record: CaseRecord, statusId: string): StageSuggestion[]
       return suggestions
     }
     const nextStage = getLitigationStage(next)!
-    const nextStatusDef = getLitigationStatus(nextStage.status)
+    const nextStatusDef = getLitigationStatus(nextStage.status, record.level)
     suggestions.push({
       type: 'expand_next',
       stageId: next,

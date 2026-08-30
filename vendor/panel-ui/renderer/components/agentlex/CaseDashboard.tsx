@@ -552,7 +552,7 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
                       {s(c.type)}
                     </span>
                     <h3 className="flex-1 min-w-0 text-sm font-semibold text-[var(--ink)] truncate leading-snug" style={{ letterSpacing: '-0.005em' }} title={s(c.name)}>{s(c.name)}</h3>
-                    <StatusBadge status={normalizeStatus(c.status)} />
+                    <StatusBadge status={normalizeStatus(c.status, c.level)} level={c.level} />
                   </div>
                   {/* 我方：诉讼地位 + 我方名称（写清楚） */}
                   <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--ink-muted)] min-w-0">

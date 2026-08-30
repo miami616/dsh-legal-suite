@@ -26,6 +26,8 @@ import { createServiceStore } from '../lib/domains/nonlitigation/store/service-s
 import { seedLitigationSample, seedNonLitigationSample } from '../lib/shared/seed/index.js'
 import {
   LITIGATION_STATUSES,
+  STATUS_LADDERS,
+  getStatusLadder,
   KEYDATE_LABELS,
   isCanonicalTaskTitle,
 } from '../lib/shared/playbook/litigation.js'
@@ -69,15 +71,16 @@ try {
   const statuses = cases.map((c) => c.status)
   check('3 distinct case statuses', new Set(statuses).size === 3, statuses.join(','))
   check(
-    'statuses cover 诉前/待开庭/执行',
-    ['pre_filing', 'awaiting_trial', 'execution'].every((s) => statuses.includes(s)),
+    'statuses cover 诉前/待开庭/财产查控',
+    ['pre_filing', 'awaiting_trial', 'investigation'].every((s) => statuses.includes(s)),
     statuses.join(','),
   )
 
-  // ---- 状态必须在规范阶梯内 ----
-  const validStatusIds = new Set(LITIGATION_STATUSES.map((s) => s.id))
-  const badStatus = cases.filter((c) => !validStatusIds.has(c.status)).map((c) => `${c.name}:${c.status}`)
-  check('all case statuses canonical', badStatus.length === 0, badStatus.join(' | '))
+  // ---- 状态必须在「按审级」的规范阶梯内（一审/二审/执行各有阶梯） ----
+  const badStatus = cases
+    .filter((c) => !getStatusLadder(c.level).some((s) => s.id === c.status))
+    .map((c) => `${c.name}[${c.level}]:${c.status}`)
+  check('all case statuses canonical (per-level ladder)', badStatus.length === 0, badStatus.join(' | '))
 
   // ---- 任务名必须「写动作不写状态」 ----
   const badTitles = cases.flatMap((c) => allTaskTitles(c).filter((t) => !isCanonicalTaskTitle(t)))
@@ -108,7 +111,7 @@ try {
   check('primary case schedules', schedules.length >= 1, `schedules=${schedules.length}`)
 
   // 执行案例应有自己独有的任务（与诉讼阶段不重叠）
-  const execCase = cases.find((c) => c.status === 'execution')
+  const execCase = cases.find((c) => c.status === 'investigation')
   const execTitles = allTaskTitles(execCase)
   check('execution case has stage-unique tasks', execTitles.includes('提供被执行人财产线索'), execTitles.join(','))
 

@@ -445,7 +445,7 @@ async function seedExecutionCase(
     name: '某贸易公司与陈某民间借贷纠纷执行案',
     type: '执行',
     cause: '金钱给付',
-    status: 'execution',
+    status: 'investigation',
     court: '北京市朝阳区人民法院',
     judge: '刘执行员',
     level: '首次执行',

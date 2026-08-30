@@ -14,18 +14,28 @@
 
 import {
   LITIGATION_STATUSES,
+  STATUS_LADDERS as PLAYBOOK_STATUS_LADDERS,
   getLitigationStatus,
+  getStatusLadder,
 } from '../../../shared/playbook/litigation.ts'
 import type { LitigationStatusDef as CaseStatusDef } from '../../../shared/playbook/litigation.ts'
 
 export type { CaseStatusDef }
 
-/** The full status ladder (single source of truth: shared playbook). */
+/** 按审级的状态阶梯表（唯一事实源：shared playbook）。 */
+export const STATUS_LADDERS: Record<string, CaseStatusDef[]> = PLAYBOOK_STATUS_LADDERS
+
+/** The full status ladder of the default (一审) procedure — legacy single-axis export. */
 export const CASE_STATUSES: CaseStatusDef[] = LITIGATION_STATUSES
 
-/** Resolve a status def by id (fallback: intake). */
-export function getStatusDef(statusId: string | undefined | null): CaseStatusDef {
-  return getLitigationStatus(statusId)
+/** 取某审级的状态阶梯。 */
+export function getStatusLadderForLevel(level: string | undefined | null): CaseStatusDef[] {
+  return getStatusLadder(level)
+}
+
+/** Resolve a status def by id, procedure-aware (fallback: that ladder's intake). */
+export function getStatusDef(statusId: string | undefined | null, level?: string | undefined | null): CaseStatusDef {
+  return getLitigationStatus(statusId, level)
 }
 
 /** Whether a status id is part of the canonical ladder. */

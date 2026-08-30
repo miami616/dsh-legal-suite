@@ -12,7 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { CaseStore } from './store/case-store.ts'
 import type { TimelineStore } from './store/timeline-store.ts'
-import { LITIGATION_STATUSES } from '../../shared/playbook/litigation.ts'
+import { LITIGATION_STATUSES, STATUS_LADDERS } from '../../shared/playbook/litigation.ts'
 import {
   STAGE_ORDER,
   applyStageExpansion,
@@ -59,6 +59,8 @@ const ACTIONS = [
 
 type Action = typeof ACTIONS[number]
 
+const LADDER_LABELS = Object.entries(STATUS_LADDERS).map(([k, v]) => `${k}: ${v.map((s) => s.id).join('/')}`).join('；')
+
 /** Tool parameters (shared by both registrations). */
 const PARAMETERS = {
   action: { type: 'string', required: true, description: `要执行的操作：${ACTIONS.join(' / ')}` },
@@ -67,7 +69,7 @@ const PARAMETERS = {
   name: { type: 'string', description: '案件名称' },
   type: { type: 'string', description: '案件类型：民商/刑事/行政/劳动争议/知识产权/执行/其他' },
   cause: { type: 'string', description: '案由，如 广告合同纠纷' },
-  status: { type: 'string', description: `进度，必须取值于规范状态阶梯：${LITIGATION_STATUSES.map((s) => s.id).join('/')}（对应 ${LITIGATION_STATUSES.map((s) => s.label).join('/')}）。审级（一审/二审/执行）写 level 字段，不要混进 status` },
+  status: { type: 'string', description: `进度，取值须与审级 level 匹配的规范阶梯：${LADDER_LABELS}。level 未指明时按一审阶梯校验` },
   court: { type: 'string', description: '受理法院' },
   judge: { type: 'string', description: '承办法官' },
   level: { type: 'string', description: '审级：一审/二审/再审/劳动仲裁/商事仲裁/首次执行/恢复执行' },

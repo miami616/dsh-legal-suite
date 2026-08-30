@@ -5,6 +5,8 @@ import type { ProjectStore } from './store/project-store.ts'
 import type { ServiceStore } from './store/service-store.ts'
 import type { ApiResponse } from './store/types.ts'
 import { registerLegacyCompatRoutes } from './legacy-compat.ts'
+import { applyStageExpansion, detectStageSuggestions, planStageExpansion } from './stage-expansion.ts'
+import { computeProjectHealth, computeRegistryHealth } from './health.ts'
 
 export interface RouteDeps {
   projectStore: ProjectStore
@@ -42,8 +44,14 @@ function fail(res: ServerResponse, error: unknown, status = 400): void {
 
 export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   const disposers: Array<() => void> = []
+  /** 同一 kind:exact 路径注册两次会让宿主启动崩溃，主动拦截并报出冲突路径。 */
+  const registeredPaths = new Set<string>()
 
   function route(path: string, handler: (deps: RouteDeps, body: Record<string, unknown>, res: ServerResponse) => Promise<void> | void): void {
+    if (registeredPaths.has(path)) {
+      throw new Error(`duplicate route registration: ${path}（同一 kind:exact 路径只能注册一次）`)
+    }
+    registeredPaths.add(path)
     disposers.push(ctx.webServer.register({
       kind: 'exact',
       path,
@@ -117,7 +125,18 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const id = String(b.projectId ?? '')
     if (id === '') return fail(res, 'projectId required')
     const { projectId: _omit, ...patch } = b
-    ok(res, await d.projectStore.updateProject(id, patch))
+    const record = await d.projectStore.updateProject(id, patch)
+    // 同回合钩子：status 被更新时内联返回阶段推进建议（见 stage-expansion.ts）。
+    if (patch.status !== undefined) {
+      const [registry, services] = await Promise.all([
+        d.projectStore.readRegistry(),
+        d.serviceStore.listServices(),
+      ])
+      const found = detectStageSuggestions(registry, services, id)[0]
+      ok(res, { ...record, stageSuggestions: found?.suggestions ?? [] })
+    } else {
+      ok(res, record)
+    }
   })
   route('/api/agentlex-nonlitigation/delete-project', async (d, b, res) => {
     const id = String(b.projectId ?? '')
@@ -235,6 +254,61 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   // import
   route('/api/agentlex-nonlitigation/import', async (d, b, res) => {
     ok(res, await importFromAgentLex(d.projectStore, d.serviceStore, String(b.sourceDir ?? '')))
+  })
+
+  /* ----------------------- stage templates & suggestions -------------- */
+  // 阶段模板展开：dryRun=true 只返回计划（预览），否则落库。模板是骨架，
+  // only/skip 供管家按项目裁剪；已存在的任务按标题跳过，天然幂等。
+  route('/api/agentlex-nonlitigation/stage-template', async (d, b, res) => {
+    const projectId = String(b.projectId ?? '')
+    const stageId = String(b.stageId ?? '')
+    if (projectId === '' || stageId === '') return fail(res, 'projectId/stageId required')
+    const opts = {
+      anchorDate: b.anchorDate === undefined ? undefined : String(b.anchorDate),
+      only: Array.isArray(b.only) ? (b.only as unknown[]).map(String) : undefined,
+      skip: Array.isArray(b.skip) ? (b.skip as unknown[]).map(String) : undefined,
+    }
+    if (b.dryRun === true) {
+      ok(res, await planStageExpansion(d.projectStore, projectId, stageId, { ...opts, dryRun: true }))
+    } else {
+      ok(res, await applyStageExpansion(d.projectStore, projectId, stageId, opts))
+    }
+  })
+
+  // 阶段推进检测：只读。返回每个项目的阶段展开/续约/台账断更/结项建议。
+  route('/api/agentlex-nonlitigation/stage-suggestions', async (d, b, res) => {
+    const [registry, services] = await Promise.all([
+      d.projectStore.readRegistry(),
+      d.serviceStore.listServices(),
+    ])
+    const projects = detectStageSuggestions(
+      registry,
+      services,
+      b.projectId === undefined ? undefined : String(b.projectId),
+    )
+    ok(res, { count: projects.length, projects })
+  })
+
+  // 项目体检：信息完整度（按类型与状态动态计算）+ 缺口清单 + 阶段进度 +
+  // 台账时效 + 服务期剩余天数 + 建议。传 projectId 单项目，不传则扫描全部。
+  // 路径必须是 project-health：`/health` 已被上面的插件健康检查占用，
+  // 同一路径注册两次会在启动时崩溃。
+  route('/api/agentlex-nonlitigation/project-health', async (d, b, res) => {
+    const projectId = b.projectId === undefined ? undefined : String(b.projectId)
+    if (projectId !== undefined && projectId !== '') {
+      const record = await d.projectStore.readProject(projectId)
+      if (record === undefined) return fail(res, `project not found: ${projectId}`, 404)
+      ok(res, computeProjectHealth(record, await d.serviceStore.listServices()))
+      return
+    }
+    const [registry, services] = await Promise.all([
+      d.projectStore.readRegistry(),
+      d.serviceStore.listServices(),
+    ])
+    const projects = computeRegistryHealth(registry, services, {
+      includeClosed: b.includeClosed === true,
+    })
+    ok(res, { count: projects.length, projects })
   })
 
   // services

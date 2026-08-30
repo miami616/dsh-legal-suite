@@ -86,7 +86,7 @@ const SECTION_ORDER = 160
 
 /** Model-facing announcement: plugin presence and capabilities. */
 export const LITIGATION_GUIDANCE =
-  '本机已安装 agentlex-dsh-litigation 插件（诉讼案件）：侧边栏「诉讼案件」入口。能力：案件管理（登记/当事人/案由/法院/标的/进度）、任务树（阶段→任务→子任务→检查项，检查项可创建/勾选）、时间轴（开庭/举证/上诉等法院程序节点与期限提醒）、日程。数据独立存储于 $DSH_HOME/agentlex/litigation/，与 AgentLex 桌面应用的数据分开；可通过导入工具从 ~/.myagents/agentlex/ 一次性迁移。用户提到「诉讼 / 案件 / 卷宗 / 开庭 / 举证期 / 上诉期」时即指本插件，请据此协作。模型可直接调用 litigation 工具（action 见工具参数）帮用户查询/登记/更新案件、安排任务、记录时间轴节点与期限，工具变更会实时刷新界面。'
+  '本机已安装 agentlex-dsh-litigation 插件（诉讼案件）：侧边栏「诉讼案件」入口。能力：案件管理（登记/当事人/案由/法院/标的/进度）、任务树（阶段→任务→子任务→检查项，检查项可创建/勾选）、时间轴（开庭/举证/上诉等法院程序节点与期限提醒）、日程。数据独立存储于 $DSH_HOME/agentlex/litigation/，与 AgentLex 桌面应用的数据分开；可通过导入工具从 ~/.myagents/agentlex/ 一次性迁移。用户提到「诉讼 / 案件 / 卷宗 / 开庭 / 举证期 / 上诉期」时即指本插件，请据此协作。模型可直接调用 litigation 工具（action 见工具参数）帮用户查询/登记/更新案件、安排任务、记录时间轴节点与期限，工具变更会实时刷新界面。阶段推进：apply_stage_template 按阶段模板展开标准任务（dryRun=true 先预览，only/skip 裁剪，anchorDate 推算 deadline）；stage_suggestions 只读检测「当前阶段已完成应展开下一阶段」与缺失的登记字段；update_case 改变 status 时响应会内联返回下一阶段建议。'
 
 /** URL 形态的值不是合法目录路径（历史上曾因设置项误填把 LLM 接口地址写进来）。 */
 const URLISH_PATH = /^[a-z][a-z0-9+.-]*:\/\//i

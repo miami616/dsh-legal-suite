@@ -1,32 +1,36 @@
 /**
- * Case status model — the 5-stage workflow (2026-08 AgentLex) plus the
- * procedure (审级) axis, as display-only labels with theme-semantic colors.
+ * Case status model — the 8-stage procedural ladder plus the procedure (审级)
+ * axis, as display-only labels with theme-semantic colors.
+ *
+ * The ladder itself is owned by the shared playbook
+ * (`src/shared/playbook/litigation.ts`) so that the agent persona, the tool
+ * parameter docs, the seeded reference cases and these badges can never drift
+ * apart. This module only adapts it for the UI (CSS tone classes).
+ *
+ * Historical note: this file previously declared its own 5-stage list, and any
+ * status outside it (e.g. `审理中`) silently fell back to "收案" — a case that
+ * was mid-trial rendered as just-received.
  */
 
-export interface CaseStatusDef {
-  id: string
-  label: string
-  /** Tailwind-free: semantic role → our CSS token class (mapped in board CSS). */
-  tone: 'neutral' | 'info' | 'accent' | 'outline' | 'success'
-  order: number
-}
+import {
+  LITIGATION_STATUSES,
+  getLitigationStatus,
+} from '../../../shared/playbook/litigation.ts'
+import type { LitigationStatusDef as CaseStatusDef } from '../../../shared/playbook/litigation.ts'
 
-/** 5-stage status workflow (user-set, display only). */
-export const CASE_STATUSES: CaseStatusDef[] = [
-  { id: 'intake', label: '收案', tone: 'neutral', order: 1 },
-  { id: 'pretrial', label: '庭前准备', tone: 'info', order: 2 },
-  { id: 'awaiting_trial', label: '待开庭', tone: 'accent', order: 3 },
-  { id: 'post_trial', label: '庭后管理', tone: 'outline', order: 4 },
-  { id: 'closed', label: '已结案', tone: 'success', order: 99 },
-]
+export type { CaseStatusDef }
 
-const STATUS_MAP = new Map(CASE_STATUSES.map((s) => [s.id, s]))
+/** The full status ladder (single source of truth: shared playbook). */
+export const CASE_STATUSES: CaseStatusDef[] = LITIGATION_STATUSES
 
 /** Resolve a status def by id (fallback: intake). */
 export function getStatusDef(statusId: string | undefined | null): CaseStatusDef {
-  return (statusId !== null && statusId !== undefined && STATUS_MAP.has(statusId))
-    ? STATUS_MAP.get(statusId)!
-    : { id: 'intake', label: '收案', tone: 'neutral', order: 1 }
+  return getLitigationStatus(statusId)
+}
+
+/** Whether a status id is part of the canonical ladder. */
+export function isKnownStatus(statusId: string | undefined | null): boolean {
+  return CASE_STATUSES.some((s) => s.id === (statusId ?? '').trim())
 }
 
 /** Procedure (审级) tags — neutral, independent of status. */

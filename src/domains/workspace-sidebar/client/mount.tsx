@@ -13,10 +13,11 @@
  * 折叠按钮：优先贴到对话标题行（tablist）最右，找不到则回退为一个固定浮动按钮。
  */
 import { createRoot, type Root } from 'react-dom/client'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import { WorkspacePanel } from './WorkspacePanel.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { ThemeRuntimeProvider } from '@/theme'
+import { readSessionScope, type SessionScope } from './session-scope.ts'
 import { disposeTitleBarStrip, subscribeTitleBarStrip } from './titlebar-strip.ts'
 
 /** Attribute marking the injected panel host. */
@@ -52,21 +53,6 @@ function writeStorage(key: string, value: string): void {
   } catch {
     /* storage unavailable — non-critical */
   }
-}
-
-/** Current session id + cwd from the sessions feed. */
-interface SessionScope {
-  sessionId: string
-  cwd: string
-}
-
-function readScope(ctx: ClientContext): SessionScope | undefined {
-  const info = ctx.sessions.currentProvideInfo.getSnapshot()
-  const sessionId = info?.sessionId
-  if (!sessionId) return undefined
-  const list = ctx.sessions.list.getSnapshot()
-  const row = list?.byId ? (list.byId as Record<string, { cwd?: string }>)[sessionId] : undefined
-  return { sessionId, cwd: row?.cwd ?? '' }
 }
 
 /**
@@ -224,7 +210,7 @@ export function mountWorkspacePanel(ctx: ClientContext): () => void {
     if (root === null) {
       root = createRoot(spanHost as HTMLElement)
       const render = (): void => {
-        const scope = readScope(ctx)
+        const scope = readSessionScope(ctx)
         // 跟随 DSH 应用当前配色（深/浅），而不是强制 light：否则用户在设置里
         // 切深色模式时，这里会把 html 的 color-scheme 顶回 light，全局不生效。
         const appearanceMode =
@@ -248,8 +234,10 @@ export function mountWorkspacePanel(ctx: ClientContext): () => void {
           </ErrorBoundary>,
         )
       }
-      const unsubInfo = ctx.sessions.currentProvideInfo.subscribe(render)
-      const unsubList = ctx.sessions.list.subscribe(render)
+      // The node-side `dsh-session` package shadows `Context.sessions` with its
+      // own `SessionStore` (list(): Session[]); cast to the client runtime face
+      // the app actually serves so `.list.subscribe` type-checks.
+      const unsubList = (ctx.sessions as unknown as ISessions).list.subscribe(render)
       // 应用层切换深/浅色时会改 <html data-color-scheme>，跟随重渲染。
       const schemeObserver = new MutationObserver(render)
       schemeObserver.observe(document.documentElement, {
@@ -258,7 +246,6 @@ export function mountWorkspacePanel(ctx: ClientContext): () => void {
       })
       render()
       ;(root as unknown as { __unsubs?: () => void }).__unsubs = () => {
-        unsubInfo()
         unsubList()
         schemeObserver.disconnect()
       }

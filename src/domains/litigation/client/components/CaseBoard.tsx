@@ -9,6 +9,7 @@ import { daysUntil, parseAmountValue, timeAgo, todayStr } from '../case-format.t
 import { CASE_TYPES, getCaseTypeDot, normalizeCaseType } from '../case-taxonomy.ts'
 import { CASE_STATUSES, getStatusDef, normalizeLevel } from '../case-status.ts'
 import { tt } from '../i18n.ts'
+import type { CaseHealthView } from '../api.ts'
 import { CaseCard } from './CaseCard.tsx'
 import css from './board.module.css'
 
@@ -25,6 +26,8 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 interface CaseBoardProps {
   cases: CaseRecord[]
   timelineEvents: TimelineEvent[]
+  /** 案件体检（caseId → 完整度/缺口），旁路数据，可能为空表。 */
+  healthByCase?: Map<string, CaseHealthView>
   searchQuery: string
   onSearch: (q: string) => void
   onOpenCase: (caseId: string) => void
@@ -47,7 +50,7 @@ function upcomingByCase(events: TimelineEvent[]): Map<string, TimelineEvent[]> {
   return map
 }
 
-export function CaseBoard({ cases, timelineEvents, searchQuery, onSearch, onOpenCase, onNewCase, onDeleteCase, onImport }: CaseBoardProps): React.JSX.Element {
+export function CaseBoard({ cases, timelineEvents, healthByCase, searchQuery, onSearch, onOpenCase, onNewCase, onDeleteCase, onImport }: CaseBoardProps): React.JSX.Element {
   const [typeFilter, setTypeFilter] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('recent')
@@ -120,6 +123,14 @@ export function CaseBoard({ cases, timelineEvents, searchQuery, onSearch, onOpen
     return items.slice(0, 5)
   }, [timelineEvents])
 
+  // 待补信息：按当前阶段该填却缺失的案件数（不含已结案）。体检是旁路数据，
+  // 取不到时 healthByCase 为空表，这里自然为 0，不影响看板。
+  const missingInfoCount = useMemo(
+    () => [...(healthByCase?.values() ?? [])]
+      .filter((h) => h.status !== 'closed' && h.completeness.gaps.length > 0).length,
+    [healthByCase],
+  )
+
   const countByType = (key: string): number => visible.filter((c) => normalizeCaseType(c.type) === key).length
   const countByStatus = (id: string): number => visible.filter((c) => (c.status ?? 'intake') === id).length
 
@@ -140,6 +151,9 @@ export function CaseBoard({ cases, timelineEvents, searchQuery, onSearch, onOpen
             )}
             {urgentDates.length > 0 && (
               <button className={css.urgentPill} type="button">!! {urgentDates.length} {tt('board.urgent')}</button>
+            )}
+            {missingInfoCount > 0 && (
+              <span className={css.missingPill} title="按各案件当前阶段应填、但尚未登记的字段数">待补信息 {missingInfoCount}</span>
             )}
           </div>
         </div>
@@ -220,7 +234,14 @@ export function CaseBoard({ cases, timelineEvents, searchQuery, onSearch, onOpen
       ) : (
         <div className={css.grid}>
           {visible.map((c) => (
-            <CaseCard key={c.caseId} record={c} upcomingEvents={upcoming.get(c.caseId)} onClick={() => onOpenCase(c.caseId)} onDelete={onDeleteCase} />
+            <CaseCard
+              key={c.caseId}
+              record={c}
+              upcomingEvents={upcoming.get(c.caseId)}
+              health={healthByCase?.get(c.caseId)}
+              onClick={() => onOpenCase(c.caseId)}
+              onDelete={onDeleteCase}
+            />
           ))}
         </div>
       )}

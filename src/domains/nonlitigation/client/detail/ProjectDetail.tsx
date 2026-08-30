@@ -123,12 +123,81 @@ function OverviewTab({ record, pickFolder, folderBusy }: { record: ProjectRecord
       </div>
 
       <div className={css.rightCol}>
+        <HealthPanel record={record} />
         <section className={css.section}>
           <h3 className={css.sectionTitle}>{tt('detail.summary')}</h3>
           {record.summary ? <p className={css.summaryText}>{record.summary}</p> : <p className={css.summaryEmpty}>{tt('detail.noSummary')}</p>}
         </section>
       </div>
     </div>
+  )
+}
+
+/**
+ * 信息完整度：完整度按项目类型与状态动态计算，另含台账时效与服务期剩余
+ * 天数——常法最容易漏、后果最直接的两件事。旁路数据，取不到就整块不渲染。
+ */
+function HealthPanel({ record }: { record: ProjectRecord }): React.JSX.Element | null {
+  const [health, setHealth] = useState<api.ProjectHealthView | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void api.projectHealth(record.projectId)
+      .then((res) => { if (alive) setHealth(res as api.ProjectHealthView) })
+      .catch(() => { if (alive) setHealth(null) })
+    return () => { alive = false }
+  }, [record.projectId, record.updatedAt])
+
+  if (health === null) return null
+  const { completeness, serviceLog, daysToExpiry } = health
+
+  return (
+    <section className={css.section}>
+      <h3 className={css.sectionTitle}>信息完整度</h3>
+      <div className={css.healthHead}>
+        <span className={css.healthScore}>{completeness.score}%</span>
+        <span className={css.healthMeta}>
+          按「{health.statusLabel}」计算 · 已填 {completeness.filled}/{completeness.total}
+        </span>
+      </div>
+      <span className={css.healthBar} aria-hidden>
+        <span className={css.healthBarFill} style={{ width: `${completeness.score}%` }} />
+      </span>
+      {health.stage.name !== undefined && health.stage.total > 0 && (
+        <p className={css.healthMeta}>
+          当前阶段「{health.stage.name}」：共 {health.stage.total} 项，已完成 {health.stage.done} 项，待办 {health.stage.open} 项
+        </p>
+      )}
+      {daysToExpiry !== undefined && (
+        <p className={css.healthMeta}>
+          服务期 {daysToExpiry >= 0 ? `还剩 ${daysToExpiry} 天` : `已届满 ${-daysToExpiry} 天`}
+        </p>
+      )}
+      {serviceLog.stale && (
+        <p className={css.healthWarn}>
+          服务台账已超过 30 天未登记{serviceLog.lastDate !== undefined ? `（最近一条 ${serviceLog.lastDate}）` : '（尚无记录）'}，常法的工作量证明依赖台账，请补登
+        </p>
+      )}
+      {completeness.gaps.length > 0 ? (
+        <ul className={css.healthGaps}>
+          {completeness.gaps.map((g) => (
+            <li key={g.field}>
+              <span className={css.healthGapLabel}>{g.label}</span>
+              <span className={css.healthGapWhy}>{g.why}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className={css.sectionMuted}>当前阶段应登记的信息已齐全。</p>
+      )}
+      {health.suggestions.length > 0 && (
+        <ul className={css.healthSuggestions}>
+          {health.suggestions.map((s, i) => (
+            <li key={`${s.type}-${i}`}>{s.reason}</li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 

@@ -34,6 +34,8 @@ export function NonLitigationPanel({ controller }: NonLitigationPanelProps): Rea
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [loading, setLoading] = useState(true)
+  /** 项目体检（projectId → 完整度/缺口/台账/建议），旁路数据。 */
+  const [healthByProject, setHealthByProject] = useState<Map<string, api.ProjectHealthView>>(new Map())
   const bootedRef = useRef(false)
 
   const refresh = useCallback(async () => {
@@ -46,6 +48,13 @@ export function NonLitigationPanel({ controller }: NonLitigationPanelProps): Rea
       setError(errorMessage(err))
     } finally {
       setLoading(false)
+    }
+    // 体检是只读旁路数据：失败只影响「完整度」提示，不能拖垮看板。
+    try {
+      const summary = await api.projectHealth() as { projects: api.ProjectHealthView[] }
+      setHealthByProject(new Map(summary.projects.map((h) => [h.projectId, h])))
+    } catch {
+      /* 静默降级 */
     }
   }, [])
 
@@ -147,6 +156,7 @@ export function NonLitigationPanel({ controller }: NonLitigationPanelProps): Rea
             ) : view === 'projects' ? (
               <ProjectBoard
                 projects={projects}
+                healthByProject={healthByProject}
                 searchQuery={searchQuery}
                 onSearch={setSearchQuery}
                 onOpenProject={setSelectedProjectId}

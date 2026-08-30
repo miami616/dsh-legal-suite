@@ -7,15 +7,18 @@ import type { ProjectRecord } from '../../store/types.ts'
 import { countTasks, daysUntil, timeAgo } from '../format.ts'
 import { getProjectTypeDot, getStatusDef, projectTypeLabel } from '../project-taxonomy.ts'
 import { tt } from '../i18n.ts'
+import type { ProjectHealthView } from '../api.ts'
 import css from '../board.module.css'
 
 interface ProjectCardProps {
   record: ProjectRecord
+  /** 项目体检结果（旁路数据，取不到时不显示完整度）。 */
+  health?: ProjectHealthView
   onClick: () => void
   onDelete: (projectId: string) => void
 }
 
-export function ProjectCard({ record, onClick, onDelete }: ProjectCardProps): React.JSX.Element {
+export function ProjectCard({ record, health, onClick, onDelete }: ProjectCardProps): React.JSX.Element {
   const typeLabel = projectTypeLabel(record.projectType)
   const typeDot = getProjectTypeDot(record.projectType)
   const status = getStatusDef(record.status)
@@ -98,6 +101,17 @@ export function ProjectCard({ record, onClick, onDelete }: ProjectCardProps): Re
             )
           })}
           {total > 0 && <span className={css.taskStat}>✓ {done}/{total}</span>}
+          {health !== undefined && health.completeness.gaps.length > 0 && (
+            <span
+              className={css.healthChip}
+              title={`信息完整度 ${health.completeness.score}%（按「${health.statusLabel}」阶段计算）\n待补：${health.completeness.gaps.map((g) => g.label).join('、')}`}
+            >
+              <span className={css.healthChipBar} aria-hidden>
+                <span className={css.healthChipFill} style={{ width: `${health.completeness.score}%` }} />
+              </span>
+              <span className={css.healthChipNum}>{health.completeness.score}%</span>
+            </span>
+          )}
           <span className={css.footerSpacer} />
           {record.updatedAt && <span className={css.cardTime}>{timeAgo(record.updatedAt)}</span>}
           <button className={css.deleteBtn} type="button" aria-label={tt('card.delete')}

@@ -206,6 +206,7 @@ body[data-ds-dark-theme] .roleAppellee {
 .tone-info { background: var(--lit-info-bg); color: var(--lit-info); }
 .tone-accent { background: var(--lit-accent-subtle); color: var(--lit-accent); }
 .tone-outline { background: transparent; color: var(--lit-ink-muted); border: 1px solid var(--lit-line-strong); }
+.tone-warning { background: var(--lit-warning-bg); color: var(--lit-warning); }
 .tone-success { background: var(--lit-success-bg); color: var(--lit-success); }
 
 /* ─── two columns ───────────────────────────────────────────────────────── */
@@ -317,6 +318,87 @@ body[data-ds-dark-theme] .roleAppellee {
   margin: 6px 0 0;
   font-size: 12px;
   color: var(--lit-error);
+}
+
+/* ─── 信息完整度 ─────────────────────────────────────────────────────────── */
+.healthHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.healthScore {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--lit-ink);
+  line-height: 1;
+}
+.healthMeta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--lit-ink-subtle);
+}
+.healthBar {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--lit-paper-inset);
+  overflow: hidden;
+  margin: 4px 0 10px;
+}
+.healthBarFill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--lit-accent);
+  transition: width 200ms ease;
+}
+.healthGaps {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.healthGaps li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--lit-paper-inset);
+}
+.healthGapLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--lit-ink);
+}
+.healthGapWhy {
+  font-size: 11px;
+  color: var(--lit-ink-subtle);
+}
+.healthSuggestions {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.healthSuggestions li {
+  font-size: 12px;
+  color: var(--lit-ink-muted);
+  padding-left: 12px;
+  position: relative;
+  line-height: 1.5;
+}
+.healthSuggestions li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: var(--lit-accent);
 }
 
 .ourSideLabel {

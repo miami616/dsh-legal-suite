@@ -17,3 +17,6 @@ lib/
 # 内部文档（不上公开仓库）
 docs/
 issue-*.md
+
+# local work-buddy tool cache
+.workbuddy/

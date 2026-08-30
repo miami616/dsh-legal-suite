@@ -1,17 +1,27 @@
 /**
  * Non-litigation project taxonomy — type/status labels, colors, formatting.
+ *
+ * The status ladder is owned by the shared playbook
+ * (`src/shared/playbook/nonlitigation.ts`) so the agent persona, the tool
+ * parameter docs, the seeded reference projects and these badges stay in sync.
+ * The historical bug this fixes: the tool advertised `active/inactive/closed`
+ * while the UI rendered five different values, so an agent-written status
+ * could silently fall through to a raw unstyled string.
  */
+
+import {
+  PROJECT_STATUSES as PLAYBOOK_STATUSES,
+  getProjectStatus,
+  isProjectStatus,
+  type ProjectStatusDef,
+} from '../../../shared/playbook/nonlitigation.ts'
+
+export type { ProjectStatusDef }
 
 export interface ProjectTypeDef {
   key: string
   label: string
   dot: string
-}
-
-export interface ProjectStatusDef {
-  id: string
-  label: string
-  tone: 'neutral' | 'info' | 'accent' | 'success'
 }
 
 export const PROJECT_TYPES: ProjectTypeDef[] = [
@@ -45,33 +55,27 @@ export function projectTypeLabel(raw: string | undefined): string {
   return TYPE_LABEL[key] ?? key
 }
 
-export const PROJECT_STATUSES: ProjectStatusDef[] = [
-  { id: 'active', label: '进行中', tone: 'accent' },
-  { id: 'retained', label: '已签约', tone: 'info' },
-  { id: 'completed', label: '已完成', tone: 'success' },
-  { id: 'closed', label: '已归档', tone: 'neutral' },
-  { id: 'suspended', label: '已暂停', tone: 'neutral' },
-]
+/** The full status ladder (single source of truth: shared playbook). */
+export const PROJECT_STATUSES: ProjectStatusDef[] = PLAYBOOK_STATUSES
 
-const STATUS_DEF: Record<string, ProjectStatusDef> = {
-  active: { id: 'active', label: '进行中', tone: 'accent' },
-  retained: { id: 'retained', label: '已签约', tone: 'info' },
-  completed: { id: 'completed', label: '已完成', tone: 'success' },
-  closed: { id: 'closed', label: '已归档', tone: 'neutral' },
-  suspended: { id: 'suspended', label: '已暂停', tone: 'neutral' },
-  '进行中': { id: 'active', label: '进行中', tone: 'accent' },
-  '已完成': { id: 'completed', label: '已完成', tone: 'success' },
-  '已归档': { id: 'closed', label: '已归档', tone: 'neutral' },
-  '已签约': { id: 'retained', label: '已签约', tone: 'info' },
-  '已暂停': { id: 'suspended', label: '已暂停', tone: 'neutral' },
+/** Chinese label → canonical id（兼容历史数据里存中文的情况）。 */
+const LABEL_ALIASES: Record<string, string> = {
+  '进行中': 'active',
+  '已完成': 'completed',
+  '已归档': 'closed',
+  '已签约': 'retained',
+  '已暂停': 'suspended',
 }
 
 export function getStatusDef(raw: string | undefined): ProjectStatusDef {
-  const key = (raw ?? 'active').trim()
-  return STATUS_DEF[key] ?? { id: key || 'active', label: key || '进行中', tone: 'neutral' }
+  const key = (raw ?? '').trim()
+  const id = LABEL_ALIASES[key] ?? key
+  return getProjectStatus(id === '' ? 'active' : id)
 }
 
 export function normalizeStatusKey(raw: string | undefined): string {
   const key = (raw ?? '').trim()
-  return STATUS_DEF[key]?.id ?? (key === '' ? 'active' : key)
+  const id = LABEL_ALIASES[key] ?? key
+  if (id === '') return 'active'
+  return isProjectStatus(id) ? id : id
 }

@@ -10,6 +10,11 @@ export interface ProjectTask {
   status: 'todo' | 'doing' | 'done'
   subtasks?: Array<{ id: string; title: string; done: boolean; [k: string]: unknown }>
   checklist?: Array<{ id: string; text: string; done: boolean; [k: string]: unknown }>
+  /**
+   * 该任务由哪个阶段模板任务展开而来（存模板里的规范标题）。管家改名后
+   * 据此仍能识别「已展开过」，避免重复展开时又新建一个原名版本。
+   */
+  templateTitle?: string
   createdAt?: string
   updatedAt?: string
 }

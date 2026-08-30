@@ -12,6 +12,14 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { CaseStore } from './store/case-store.ts'
 import type { TimelineStore } from './store/timeline-store.ts'
+import { LITIGATION_STATUSES } from '../../shared/playbook/litigation.ts'
+import {
+  STAGE_ORDER,
+  applyStageExpansion,
+  detectStageSuggestions,
+  planStageExpansion,
+} from './stage-expansion.ts'
+import { computeCaseHealth, computeRegistryHealth } from './health.ts'
 
 /** Stores the tool operates on (same instances as the route family). */
 export interface ToolDeps {
@@ -44,6 +52,9 @@ const ACTIONS = [
   'delete_event',
   'list_events',
   'deadlines',
+  'apply_stage_template',
+  'stage_suggestions',
+  'case_health',
 ] as const
 
 type Action = typeof ACTIONS[number]
@@ -56,7 +67,7 @@ const PARAMETERS = {
   name: { type: 'string', description: '案件名称' },
   type: { type: 'string', description: '案件类型：民商/刑事/行政/劳动争议/知识产权/执行/其他' },
   cause: { type: 'string', description: '案由，如 广告合同纠纷' },
-  status: { type: 'string', description: '进度：intake/pre_filing/filing/pretrial/awaiting_hearing/awaiting_trial/post_trial/execution/closed，或中文如 调解结案/结案；按案件实际进度传值' },
+  status: { type: 'string', description: `进度，必须取值于规范状态阶梯：${LITIGATION_STATUSES.map((s) => s.id).join('/')}（对应 ${LITIGATION_STATUSES.map((s) => s.label).join('/')}）。审级（一审/二审/执行）写 level 字段，不要混进 status` },
   court: { type: 'string', description: '受理法院' },
   judge: { type: 'string', description: '承办法官' },
   level: { type: 'string', description: '审级：一审/二审/再审/劳动仲裁/商事仲裁/首次执行/恢复执行' },
@@ -86,6 +97,12 @@ const PARAMETERS = {
   title: { type: 'string', description: '时间轴事件名称，如 第一次开庭' },
   detail: { type: 'string', description: '事件详情' },
   includeOverdue: { type: 'boolean', description: 'deadlines 是否包含已过期历史事项（默认 false，只返回未到期）' },
+  stageId: { type: 'string', description: `apply_stage_template 的阶段模板 id：${STAGE_ORDER.join('/')}。模板只给骨架，落地后可按案情增删改用 only/skip 裁剪` },
+  anchorDate: { type: 'string', description: 'apply_stage_template 的锚点日期 YYYY-MM-DD（如开庭日）：模板中带提前量的任务据此推算 deadline' },
+  only: { type: 'json', description: 'apply_stage_template 只展开这些任务标题的数组，如 ["提交证据","申请财产保全"]' },
+  skip: { type: 'json', description: 'apply_stage_template 跳过这些任务标题的数组（本案不适用的标准动作）' },
+  dryRun: { type: 'boolean', description: 'apply_stage_template 传 true 时只返回展开计划不落库（预览用）；默认 false' },
+  includeClosed: { type: 'boolean', description: 'case_health 不带 caseId 扫描全部时，是否包含已结案案件（默认 false）' },
 } as const
 
 /** Tool description — the model reads this to know when to call. */
@@ -94,6 +111,13 @@ const DESCRIPTION = [
   '任务树（阶段→任务→子任务→检查项）、时间轴（开庭/举证/上诉等节点与提醒）、关键日期、期限汇总。',
   '当用户提到具体案件、要求登记/更新案件、安排任务、记录开庭/举证/上诉等节点、查询期限时调用。',
   'action 必填；各 action 所需字段见 parameters。列表/查询类只读，变更类会立即持久化并刷新界面。',
+  '写入纪律：任务名写「动作」不写「状态」（用「出庭参加庭审」，不用「等待开庭」）；',
+  '同一事项不得同时登记为任务 deadline、关键日期与时间轴事件，只登记必要的体系；',
+  '新建案件时只铺当前阶段，不要一次性生成全流程任务。',
+  '阶段推进：apply_stage_template 按阶段模板展开标准任务（dryRun=true 先预览、only/skip 裁剪、anchorDate 推算 deadline）；',
+  'stage_suggestions 只读检测「当前阶段已完成→该展开下一阶段」与缺失的登记字段；',
+  'update_case 改变 status 时响应会内联返回 stageSuggestions，据此向用户提出下一步建议。',
+  'case_health 只读体检：信息完整度按当前阶段动态计算（诉前不罚缺案号），附缺口清单与阶段进度。',
 ].join('')
 
 /** Validate ids are non-empty strings for mutation actions. */
@@ -137,6 +161,31 @@ function normalizeParties(value: unknown): unknown {
     }
   }
   return value
+}
+
+/**
+ * 数组类入参归一化：`type: 'json'` 的参数同样以 JSON 字符串传入，因此
+ * only/skip 既可能是真数组，也可能是 `["a","b"]` 这样的字符串，还可能是
+ * 单个标题。三种形态一律归一为字符串数组，避免管家按直觉传单个字符串时
+ * 被静默忽略。
+ */
+function toStringArray(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined
+  if (Array.isArray(value)) return value.map(String)
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed === '') return undefined
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown
+        return Array.isArray(parsed) ? parsed.map(String) : undefined
+      } catch {
+        /* 非 JSON 数组：按单个标题处理 */
+      }
+    }
+    return [trimmed]
+  }
+  return undefined
 }
 
 /**
@@ -191,6 +240,45 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           const opts = typeof args.includeOverdue === 'boolean' ? { includeOverdue: args.includeOverdue } : undefined
           return clean({ deadlines: await deps.deadlines(args.caseId === undefined ? undefined : String(args.caseId), opts) })
         }
+        /* ------------------- stage templates & suggestions -------------- */
+        case 'stage_suggestions': {
+          const registry = await cs.readRegistry()
+          const found = detectStageSuggestions(registry, s(args.caseId))
+          return clean({ count: found.length, cases: found })
+        }
+        case 'apply_stage_template': {
+          requireIds({ caseId: s(args.caseId), stageId: s(args.stageId) })
+          const opts = {
+            anchorDate: s(args.anchorDate),
+            only: toStringArray(args.only),
+            skip: toStringArray(args.skip),
+          }
+          const caseId = args.caseId as string
+          const stageId = args.stageId as string
+          const plan = args.dryRun === true
+            ? await planStageExpansion(cs, caseId, stageId, { ...opts, dryRun: true })
+            : await applyStageExpansion(cs, caseId, stageId, opts)
+          return clean(plan)
+        }
+        case 'case_health': {
+          const healthOpts = {
+            deadlines: deps.deadlines === undefined
+              ? undefined
+              : async (id: string) => await deps.deadlines!(id),
+          }
+          const caseId = s(args.caseId)
+          if (caseId !== undefined) {
+            const record = await cs.readCase(caseId)
+            if (record === undefined) return { error: `case not found: ${caseId}` }
+            return clean(await computeCaseHealth(record, healthOpts))
+          }
+          const registry = await cs.readRegistry()
+          const rows = await computeRegistryHealth(registry, {
+            ...healthOpts,
+            includeClosed: args.includeClosed === true,
+          })
+          return clean({ count: rows.length, cases: rows })
+        }
 
         /* ---------------------------- cases ----------------------------- */
         case 'register_case': {
@@ -214,6 +302,13 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           }
           if (args.parties !== undefined) patch.parties = clean(normalizeParties(args.parties))
           const record = await cs.updateCase(args.caseId as string, patch)
+          // 同回合钩子：更新 status 时内联返回阶段推进建议，让管家在同一轮
+          // 对话里就能接着问用户「要不要展开下一阶段」，不必等下一次体检。
+          if (args.status !== undefined) {
+            const registry = await cs.readRegistry()
+            const found = detectStageSuggestions(registry, args.caseId as string)[0]
+            return clean({ caseId: record.caseId, ok: true, stageSuggestions: found?.suggestions ?? [] })
+          }
           return { caseId: record.caseId, ok: true }
         }
         case 'delete_case': {
@@ -454,6 +549,9 @@ const HTTP_ROUTE: Record<Action, { route: string; map?: (data: unknown) => unkno
   upsert_event: { route: 'event' },
   toggle_event: { route: 'toggle-event' },
   delete_event: { route: 'delete-event' },
+  apply_stage_template: { route: 'stage-template' },
+  stage_suggestions: { route: 'stage-suggestions' },
+  case_health: { route: 'case-health' },
 }
 
 /** Build the request payload (route + action fields) for an action. */
@@ -494,6 +592,21 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
       body.caseId = s(args.caseId)
       if (args.groupId !== undefined) body.groupId = s(args.groupId)
       if (args.groupName !== undefined) body.name = s(args.groupName)
+      return body
+    case 'apply_stage_template': case 'stage_suggestions': case 'case_health':
+      if (args.caseId !== undefined) body.caseId = s(args.caseId)
+      if (action === 'case_health' && typeof args.includeClosed === 'boolean') {
+        body.includeClosed = args.includeClosed
+      }
+      if (action === 'apply_stage_template') {
+        if (args.stageId !== undefined) body.stageId = s(args.stageId)
+        if (args.anchorDate !== undefined) body.anchorDate = s(args.anchorDate)
+        if (typeof args.dryRun === 'boolean') body.dryRun = args.dryRun
+        const only = toStringArray(args.only)
+        if (only !== undefined) body.only = only
+        const skip = toStringArray(args.skip)
+        if (skip !== undefined) body.skip = skip
+      }
       return body
     case 'upsert_task': case 'delete_task':
       body.caseId = s(args.caseId)

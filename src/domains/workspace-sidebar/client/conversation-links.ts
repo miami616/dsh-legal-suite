@@ -11,6 +11,7 @@
  * 外部 http(s) 网页链接不拦截，仍正常新开。
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { readSessionScope } from './session-scope.ts'
 
 function tryParseUrl(href: string): URL | null {
   try {
@@ -67,14 +68,9 @@ function pathFromTarget(target: Element, cwd: string): string | null {
   return null
 }
 
-/** 会话 cwd（与 mount.tsx 的 readScope 同源）。 */
+/** 会话 cwd（与 mount.tsx 的 readSessionScope 同源）。 */
 function sessionCwd(ctx: ClientContext): string {
-  const info = ctx.sessions.currentProvideInfo.getSnapshot()
-  const sessionId = info?.sessionId
-  if (!sessionId) return ''
-  const list = ctx.sessions.list.getSnapshot()
-  const row = list?.byId ? (list.byId as Record<string, { cwd?: string }>)[sessionId] : undefined
-  return row?.cwd ?? ''
+  return readSessionScope(ctx)?.cwd ?? ''
 }
 
 /** 路径 token 形态：绝对 /…、~/…、./…、../…、file:// 或带扩展名的相对路径。 */

@@ -448,6 +448,11 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
             deadline: task.deadline === undefined ? undefined : String(task.deadline),
             status: (task.status as CaseTask['status']) ?? 'todo',
             priority: (task.priority as CaseTask['priority']) ?? 'medium',
+            // 新建分支此前未透传 detail —— 建案时写的任务说明被静默丢弃
+            // （内置参考案例的任务详情因此全为空）。一并透传 templateTitle，
+            // 让阶段模板展开的任务可被追溯（管家改名后不会被重复创建）。
+            detail: task.detail === undefined ? undefined : String(task.detail),
+            templateTitle: task.templateTitle === undefined ? undefined : String(task.templateTitle),
             remindKeyDate: task.remindKeyDate === undefined ? undefined : Boolean(task.remindKeyDate),
             keyDateId: task.keyDateId === undefined ? undefined : String(task.keyDateId),
             subtasks: [],

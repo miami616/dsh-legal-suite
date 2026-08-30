@@ -8,6 +8,7 @@ import type { ProjectRecord } from '../../store/types.ts'
 import { daysUntil, timeAgo, todayStr } from '../format.ts'
 import { getProjectTypeDot, normalizeStatusKey, PROJECT_STATUSES, PROJECT_TYPES, projectTypeLabel } from '../project-taxonomy.ts'
 import { tt } from '../i18n.ts'
+import type { ProjectHealthView } from '../api.ts'
 import { ProjectCard } from './ProjectCard.tsx'
 import css from '../board.module.css'
 
@@ -23,6 +24,8 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 
 interface ProjectBoardProps {
   projects: ProjectRecord[]
+  /** 项目体检（projectId → 完整度/缺口/台账），旁路数据，可能为空表。 */
+  healthByProject?: Map<string, ProjectHealthView>
   searchQuery: string
   onSearch: (q: string) => void
   onOpenProject: (projectId: string) => void
@@ -49,7 +52,7 @@ function progressOf(record: ProjectRecord): number {
   return total === 0 ? 1 : done / total
 }
 
-export function ProjectBoard({ projects, searchQuery, onSearch, onOpenProject, onNewProject, onDeleteProject, onImport }: ProjectBoardProps): React.JSX.Element {
+export function ProjectBoard({ projects, healthByProject, searchQuery, onSearch, onOpenProject, onNewProject, onDeleteProject, onImport }: ProjectBoardProps): React.JSX.Element {
   const [typeFilter, setTypeFilter] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('recent')
@@ -105,6 +108,13 @@ export function ProjectBoard({ projects, searchQuery, onSearch, onOpenProject, o
   const countByType = (key: string): number => visible.filter((p) => projectTypeLabel(p.projectType) === key).length
   const countByStatus = (id: string): number => visible.filter((p) => normalizeStatusKey(p.status) === id).length
 
+  // 待补信息：按项目类型与状态该填却缺失的项数（不含已归档）。
+  const missingInfoCount = useMemo(
+    () => [...(healthByProject?.values() ?? [])]
+      .filter((h) => h.status !== 'closed' && h.completeness.gaps.length > 0).length,
+    [healthByProject],
+  )
+
   const dimBtn = (active: boolean, open: boolean): string => `${css.dropBtn} ${open ? css.dropBtnOpen : active ? css.dropBtnActive : ''}`
 
   return (
@@ -121,6 +131,9 @@ export function ProjectBoard({ projects, searchQuery, onSearch, onOpenProject, o
             )}
             {expiringPeriods > 0 && (
               <button className={css.urgentStat} type="button"><span className={css.urgentNumWarn}>{expiringPeriods}</span><span className={css.urgentLabel}>{tt('board.expiring')}</span></button>
+            )}
+            {missingInfoCount > 0 && (
+              <span className={css.missingPill} title="按各项目类型与状态应填、但尚未登记的字段数">待补信息 {missingInfoCount}</span>
             )}
           </div>
         </div>
@@ -196,7 +209,13 @@ export function ProjectBoard({ projects, searchQuery, onSearch, onOpenProject, o
       ) : (
         <div className={css.grid}>
           {visible.map((p) => (
-            <ProjectCard key={p.projectId} record={p} onClick={() => onOpenProject(p.projectId)} onDelete={onDeleteProject} />
+            <ProjectCard
+              key={p.projectId}
+              record={p}
+              health={healthByProject?.get(p.projectId)}
+              onClick={() => onOpenProject(p.projectId)}
+              onDelete={onDeleteProject}
+            />
           ))}
         </div>
       )}

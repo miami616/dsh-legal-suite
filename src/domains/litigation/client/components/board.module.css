@@ -596,7 +596,54 @@ body[data-ds-dark-theme] .card:hover {
 .tone-info { background: var(--lit-info-bg); color: var(--lit-info); }
 .tone-accent { background: var(--lit-accent-subtle); color: var(--lit-accent); }
 .tone-outline { background: transparent; color: var(--lit-ink-muted); border: 1px solid var(--lit-line-strong); }
+.tone-warning { background: var(--lit-warning-bg); color: var(--lit-warning); }
 .tone-success { background: var(--lit-success-bg); color: var(--lit-success); }
+
+/* 信息完整度：卡片底部的小进度条 + 百分比。完整度按当前阶段动态计算，
+   因此只在「当前阶段该有却缺失」时出现，不会对所有案件刷存在感。 */
+.healthChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--lit-paper-inset);
+  color: var(--lit-ink-muted);
+  font-size: 11px;
+  flex: none;
+  cursor: help;
+}
+.healthChipBar {
+  display: block;
+  width: 34px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--lit-line-strong);
+  overflow: hidden;
+}
+.healthChipFill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--lit-accent);
+  transition: width 200ms ease;
+}
+.healthChipNum {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+/* 看板统计栏：待补信息计数 */
+.missingPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--lit-paper-inset);
+  color: var(--lit-ink-muted);
+  font-size: 12px;
+  cursor: help;
+}
 
 /* party rows: label column + value */
 .partyRow {

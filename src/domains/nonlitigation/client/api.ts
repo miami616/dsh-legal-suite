@@ -57,6 +57,46 @@ export function deleteService(id: string): Promise<{ deleted: boolean }> {
   return call('delete-service', { id })
 }
 
+/* --------------------------- project health --------------------------- */
+// 项目体检（只读）：完整度按类型与状态动态计算，另含台账时效与服务期剩余
+// 天数。路径是 project-health：`/health` 已被插件健康检查占用。
+
+export interface ProjectHealthGapView {
+  field: string
+  label: string
+  why: string
+}
+
+export interface ProjectSuggestionView {
+  type: string
+  reason: string
+  stageId?: string
+  stageName?: string
+  suggestStatus?: string
+  suggestStatusLabel?: string
+  preview?: string[]
+  daysLeft?: number
+  anchorDate?: string
+}
+
+export interface ProjectHealthView {
+  projectId: string
+  name: string
+  status?: string
+  statusLabel: string
+  projectType?: string
+  stage: { id?: string; name?: string; total: number; done: number; open: number }
+  completeness: { score: number; filled: number; total: number; gaps: ProjectHealthGapView[] }
+  serviceLog: { count: number; lastDate?: string; daysSince?: number; stale: boolean }
+  daysToExpiry?: number
+  suggestions: ProjectSuggestionView[]
+}
+
+/** 不传 projectId 扫描全部（跳过已归档、按完整度升序）；传则单项目体检。 */
+export function projectHealth(projectId?: string): Promise<{ count: number; projects: ProjectHealthView[] } | ProjectHealthView> {
+  return call('project-health', projectId === undefined ? {} : { projectId })
+}
+
 export interface ImportResult {
   projectsAdded: number
   projectsUpdated: number

@@ -40,6 +40,8 @@ export function LitigationPanel({ controller, launchManager, openCaseFolder }: L
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [launching, setLaunching] = useState(false)
+  /** 案件体检（caseId → 完整度/缺口/建议），旁路数据，取不到则为空表。 */
+  const [healthByCase, setHealthByCase] = useState<Map<string, api.CaseHealthView>>(new Map())
   const bootedRef = useRef(false)
 
   const refresh = useCallback(async () => {
@@ -52,6 +54,14 @@ export function LitigationPanel({ controller, launchManager, openCaseFolder }: L
       setError(errorMessage(err))
     } finally {
       setLoading(false)
+    }
+    // 体检是只读的旁路数据：失败只影响「完整度」提示，绝不能拖垮看板，
+    // 因此单独发起且不参与上面的 try/finally。
+    try {
+      const summary = await api.caseHealth() as { cases: api.CaseHealthView[] }
+      setHealthByCase(new Map(summary.cases.map((h) => [h.caseId, h])))
+    } catch {
+      /* 体检不可用时静默降级，不打扰用户 */
     }
   }, [])
 
@@ -192,6 +202,7 @@ export function LitigationPanel({ controller, launchManager, openCaseFolder }: L
               <CaseBoard
                 cases={cases}
                 timelineEvents={timelineEvents}
+                healthByCase={healthByCase}
                 searchQuery={searchQuery}
                 onSearch={setSearchQuery}
                 onOpenCase={setSelectedCaseId}

@@ -11,6 +11,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { PROJECT_STATUSES, PROJECT_STAGES } from '../../shared/playbook/nonlitigation.ts'
 
 const ACTIONS = [
   'list_projects',
@@ -36,6 +37,9 @@ const ACTIONS = [
   'upsert_service',
   'delete_service',
   'import_projects',
+  'apply_stage_template',
+  'stage_suggestions',
+  'project_health',
 ] as const
 
 type Action = typeof ACTIONS[number]
@@ -45,6 +49,13 @@ const DESCRIPTION = [
   '服务周期、负责人、合同金额、任务树（阶段→任务→子任务→检查项）、关键日期、服务记录台账。',
   '当用户提到项目、常法、专项、服务周期、合同金额、任务计划、服务台账时调用。',
   'action 必填；各 action 所需字段见 parameters。列表/查询类只读，变更类会立即持久化并刷新界面。',
+  '写入纪律：任务名写「动作 + 对象」不写「状态」（用「审查采购合同」，不用「合同审查中」）；',
+  '每次对外服务都要登记一条服务记录，note 写交付物与耗时；',
+  '阶段推进：apply_stage_template 按项目类型阶段模板展开标准任务（dryRun=true 先预览、only/skip 裁剪、anchorDate 推算 deadline）；',
+  'stage_suggestions 只读检测阶段推进、服务期临近续约与台账断更；',
+  'update_project 改变 status 时响应会内联返回 stageSuggestions，据此向用户提出下一步建议。',
+  'project_health 只读体检：信息完整度按类型与状态动态计算，附缺口清单、阶段进度、台账时效与服务期剩余天数。',
+  '新建项目时只铺当前阶段，不要一次性生成全流程任务。',
 ].join('')
 
 type JsonVal = null | boolean | number | string | JsonVal[] | { [key: string]: JsonVal }
@@ -61,6 +72,30 @@ function clean(value: unknown): JsonVal {
     return out
   }
   return value as JsonVal
+}
+
+/**
+ * 数组类入参归一化：`type: 'json'` 的参数以 JSON 字符串传入，因此 only/skip
+ * 既可能是真数组，也可能是 `["a","b"]` 这样的字符串，还可能是单个标题。
+ * 三种形态一律归一为字符串数组，避免管家按直觉传单个字符串时被静默忽略。
+ */
+function toStringArray(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined
+  if (Array.isArray(value)) return value.map(String)
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed === '') return undefined
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown
+        return Array.isArray(parsed) ? parsed.map(String) : undefined
+      } catch {
+        /* 非 JSON 数组：按单个标题处理 */
+      }
+    }
+    return [trimmed]
+  }
+  return undefined
 }
 
 /** Resolve the host base URL for node-side fetches. */
@@ -125,6 +160,9 @@ const HTTP_ROUTE: Record<Action, { path: string; map?: (data: unknown) => unknow
   upsert_service: { path: 'service' },
   delete_service: { path: 'delete-service' },
   import_projects: { path: 'import' },
+  apply_stage_template: { path: 'stage-template' },
+  stage_suggestions: { path: 'stage-suggestions' },
+  project_health: { path: 'project-health' },
 }
 
 /** Build the request payload (route + action fields) for an action. */
@@ -221,6 +259,21 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
     case 'import_projects':
       if (args.sourceDir !== undefined) body.sourceDir = s(args.sourceDir)
       return body
+    case 'apply_stage_template': case 'stage_suggestions': case 'project_health':
+      if (args.projectId !== undefined) body.projectId = s(args.projectId)
+      if (action === 'project_health' && typeof args.includeClosed === 'boolean') {
+        body.includeClosed = args.includeClosed
+      }
+      if (action === 'apply_stage_template') {
+        if (args.stageId !== undefined) body.stageId = s(args.stageId)
+        if (args.anchorDate !== undefined) body.anchorDate = s(args.anchorDate)
+        if (typeof args.dryRun === 'boolean') body.dryRun = args.dryRun
+        const only = toStringArray(args.only)
+        if (only !== undefined) body.only = only
+        const skip = toStringArray(args.skip)
+        if (skip !== undefined) body.skip = skip
+      }
+      return body
     default:
       return body
   }
@@ -239,8 +292,8 @@ export function registerNonLitigationHttpTool(ctx: Context): () => void {
       action: { type: 'string', required: true, description: `要执行的操作：${ACTIONS.join(' / ')}` },
       projectId: { type: 'string', description: '项目编号，如 CF-2026-001' },
       name: { type: 'string', description: '项目名称' },
-      projectType: { type: 'string', description: '项目类型：retainer/special' },
-      status: { type: 'string', description: '状态：active/inactive/closed' },
+      projectType: { type: 'string', description: '项目类型：retainer（常法）/special（专项）/consult（咨询）' },
+      status: { type: 'string', description: `状态，必须取值于规范状态阶梯：${PROJECT_STATUSES.map((s) => s.id).join('/')}（对应 ${PROJECT_STATUSES.map((s) => s.label).join('/')}）` },
       leadLawyer: { type: 'string', description: '负责人' },
       contractAmount: { type: 'string', description: '合同金额' },
       folder: { type: 'string', description: '项目文件夹路径' },
@@ -268,6 +321,12 @@ export function registerNonLitigationHttpTool(ctx: Context): () => void {
       client: { type: 'string', description: '服务客户' },
       note: { type: 'string', description: '服务备注' },
       sourceDir: { type: 'string', description: 'import_projects 源目录（AgentLex 桌面数据目录）' },
+      stageId: { type: 'string', description: `apply_stage_template 的阶段模板 id：${PROJECT_STAGES.map((s) => s.id).join('/')}。模板只给骨架，落地后可按项目增删改用 only/skip 裁剪` },
+      anchorDate: { type: 'string', description: 'apply_stage_template 的锚点日期 YYYY-MM-DD（如服务期届满日、交割日）：模板中带提前量的任务据此推算 deadline' },
+      only: { type: 'json', description: 'apply_stage_template 只展开这些任务标题的数组，如 ["发送尽职调查清单","出具尽职调查报告"]' },
+      skip: { type: 'json', description: 'apply_stage_template 跳过这些任务标题的数组（本项目不适用的标准动作）' },
+      dryRun: { type: 'boolean', description: 'apply_stage_template 传 true 时只返回展开计划不落库（预览用）；默认 false' },
+      includeClosed: { type: 'boolean', description: 'project_health 不带 projectId 扫描全部时，是否包含已归档项目（默认 false）' },
     },
     output: {
       schema: { type: 'json' },

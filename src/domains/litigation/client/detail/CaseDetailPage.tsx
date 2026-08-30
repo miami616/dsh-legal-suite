@@ -8,7 +8,7 @@
  * Data model is the plugin's CaseRecord (no instances/tags/folder/fee);
  * the procedure journey renders the single current level.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { CaseRecord, TimelineEvent } from '../../store/types.ts'
 import { daysUntil, formatAmount, parseAmountValue, timeAgo, todayStr } from '../case-format.ts'
 import { getCaseTypeDot, normalizeCaseType } from '../case-taxonomy.ts'
@@ -46,6 +46,16 @@ export function CaseDetailPage({ record, events, onChange, onOpenAgent, onOpenFo
   const [summaryError, setSummaryError] = useState('')
   const [folderDraft, setFolderDraft] = useState<string | null>(null)
   const [folderError, setFolderError] = useState('')
+  // 案件体检：完整度按当前阶段动态计算（诉前不罚缺案号）。旁路数据，
+  // 取不到就整块不渲染，绝不影响详情页主体。
+  const [health, setHealth] = useState<api.CaseHealthView | null>(null)
+  useEffect(() => {
+    let alive = true
+    void api.caseHealth(record.caseId)
+      .then((res) => { if (alive) setHealth(res as api.CaseHealthView) })
+      .catch(() => { if (alive) setHealth(null) })
+    return () => { alive = false }
+  }, [record.caseId, record.updatedAt])
 
   const typeLabel = normalizeCaseType(record.type)
   const typeDot = getCaseTypeDot(record.type)
@@ -321,6 +331,46 @@ export function CaseDetailPage({ record, events, onChange, onOpenAgent, onOpenFo
               <button className={css.summaryEmpty} type="button" onClick={() => setSummaryDraft('')}>+ {tt('detail.overview')}</button>
             )}
           </section>
+
+          {/* 信息完整度 */}
+          {health !== null && (
+            <section className={css.section}>
+              <h3 className={css.sectionTitle}>信息完整度</h3>
+              <div className={css.healthHead}>
+                <span className={css.healthScore}>{health.completeness.score}%</span>
+                <span className={css.healthMeta}>
+                  按「{health.statusLabel}」阶段计算 · 已填 {health.completeness.filled}/{health.completeness.total}
+                </span>
+              </div>
+              <span className={css.healthBar} aria-hidden>
+                <span className={css.healthBarFill} style={{ width: `${health.completeness.score}%` }} />
+              </span>
+              {health.stage.name !== undefined && health.stage.total > 0 && (
+                <p className={css.healthMeta}>
+                  当前阶段「{health.stage.name}」：共 {health.stage.total} 项，已完成 {health.stage.done} 项，待办 {health.stage.open} 项
+                </p>
+              )}
+              {health.completeness.gaps.length > 0 ? (
+                <ul className={css.healthGaps}>
+                  {health.completeness.gaps.map((g) => (
+                    <li key={g.field}>
+                      <span className={css.healthGapLabel}>{g.label}</span>
+                      <span className={css.healthGapWhy}>{g.why}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className={css.sectionMuted}>当前阶段应登记的信息已齐全。</p>
+              )}
+              {health.suggestions.length > 0 && (
+                <ul className={css.healthSuggestions}>
+                  {health.suggestions.map((s, i) => (
+                    <li key={`${s.type}-${i}`}>{s.reason}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
 
           {/* 审级历程 */}
           <section className={css.section}>

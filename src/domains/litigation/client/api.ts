@@ -49,6 +49,43 @@ export function health(): Promise<{ ok: boolean; plugin: string; status: string 
   return call('health')
 }
 
+/* ---------------------------- case health ----------------------------- */
+// 案件体检（只读）：完整度按当前阶段动态计算——诉前案件不会因为还没案号被
+// 扣分，立案之后才会。路径是 case-health：`/health` 已被插件健康检查占用。
+
+export interface HealthGapView {
+  field: string
+  label: string
+  why: string
+}
+
+export interface StageSuggestionView {
+  type: string
+  reason: string
+  stageId?: string
+  stageName?: string
+  suggestStatus?: string
+  suggestStatusLabel?: string
+  preview?: string[]
+  anchorDate?: string
+  gaps?: string[]
+}
+
+export interface CaseHealthView {
+  caseId: string
+  name: string
+  status?: string
+  statusLabel: string
+  stage: { id?: string; name?: string; total: number; done: number; open: number }
+  completeness: { score: number; filled: number; total: number; gaps: HealthGapView[] }
+  suggestions: StageSuggestionView[]
+}
+
+/** 不传 caseId 扫描全部（跳过已结案、按完整度升序）；传则单案件体检。 */
+export function caseHealth(caseId?: string): Promise<{ count: number; cases: CaseHealthView[] } | CaseHealthView> {
+  return call('case-health', caseId === undefined ? {} : { caseId })
+}
+
 /* -------------------------------- cases ------------------------------- */
 
 export function readRegistry(): Promise<CaseRegistry> {

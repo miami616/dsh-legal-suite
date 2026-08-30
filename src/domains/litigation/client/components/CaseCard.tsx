@@ -9,6 +9,7 @@ import { getCaseTypeDot, normalizeCaseType } from '../case-taxonomy.ts'
 import { getProcedureShort, getStatusDef, normalizeLevel } from '../case-status.ts'
 import { resolveCounterparty, resolveOurParty } from '../party.ts'
 import { tt } from '../i18n.ts'
+import type { CaseHealthView } from '../api.ts'
 import type { CaseRecord, TimelineEvent } from '../../store/types.ts'
 import css from './board.module.css'
 
@@ -16,11 +17,13 @@ interface CaseCardProps {
   record: CaseRecord
   /** Upcoming pending timeline events (soonest first). */
   upcomingEvents?: TimelineEvent[]
+  /** 案件体检结果（旁路数据，取不到时不显示完整度）。 */
+  health?: CaseHealthView
   onClick: () => void
   onDelete: (caseId: string) => void
 }
 
-export function CaseCard({ record, upcomingEvents = [], onClick, onDelete }: CaseCardProps): React.JSX.Element {
+export function CaseCard({ record, upcomingEvents = [], health, onClick, onDelete }: CaseCardProps): React.JSX.Element {
   const typeLabel = normalizeCaseType(record.type)
   const typeDot = getCaseTypeDot(record.type)
   const status = getStatusDef(record.status)
@@ -121,6 +124,17 @@ export function CaseCard({ record, upcomingEvents = [], onClick, onDelete }: Cas
               </span>
             )
           })}
+          {health !== undefined && health.completeness.gaps.length > 0 && (
+            <span
+              className={css.healthChip}
+              title={`信息完整度 ${health.completeness.score}%（按「${health.statusLabel}」阶段计算）\n待补：${health.completeness.gaps.map((g) => g.label).join('、')}`}
+            >
+              <span className={css.healthChipBar} aria-hidden>
+                <span className={css.healthChipFill} style={{ width: `${health.completeness.score}%` }} />
+              </span>
+              <span className={css.healthChipNum}>{health.completeness.score}%</span>
+            </span>
+          )}
           <span className={css.footerSpacer} />
           {record.updatedAt && <span className={css.cardTime}>{timeAgo(record.updatedAt)}</span>}
           <button className={css.deleteBtn} type="button" aria-label={tt('card.delete')}

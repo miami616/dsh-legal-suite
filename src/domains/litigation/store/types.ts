@@ -64,6 +64,12 @@ export interface CaseTask {
   remindKeyDate?: boolean
   /** Id of the linked case key date (task ↔ keydate bidirectional link). */
   keyDateId?: string
+  /**
+   * 该任务由哪个阶段模板任务展开而来（存模板里的规范标题）。
+   * 管家把任务改名后，据此仍能识别「这一条已经展开过了」，
+   * 避免重复展开时又新建一个原名版本。
+   */
+  templateTitle?: string
   createdAt?: string
   updatedAt?: string
 }

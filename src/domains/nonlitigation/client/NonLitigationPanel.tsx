@@ -17,11 +17,13 @@ import mobileCss from './mobile.module.css'
 
 interface NonLitigationPanelProps {
   controller: PanelController
+  /** Opens the 非诉管家 system agent session (optional project context). */
+  launchManager?: (opts?: { context?: string; projectName?: string; onLaunched?: (sessionId?: string) => void }) => Promise<string | undefined>
 }
 
 type View = 'projects' | 'services'
 
-export function NonLitigationPanel({ controller }: NonLitigationPanelProps): React.JSX.Element {
+export function NonLitigationPanel({ controller, launchManager }: NonLitigationPanelProps): React.JSX.Element {
   const mobile = useIsMobile()
   const [view, setView] = useState<View>('projects')
   const [projects, setProjects] = useState<ProjectRecord[]>([])
@@ -34,6 +36,7 @@ export function NonLitigationPanel({ controller }: NonLitigationPanelProps): Rea
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [loading, setLoading] = useState(true)
+  const [launching, setLaunching] = useState(false)
   /** 项目体检（projectId → 完整度/缺口/台账/建议），旁路数据。 */
   const [healthByProject, setHealthByProject] = useState<Map<string, api.ProjectHealthView>>(new Map())
   const bootedRef = useRef(false)
@@ -120,6 +123,24 @@ export function NonLitigationPanel({ controller }: NonLitigationPanelProps): Rea
   const selected = selectedProjectId === null ? undefined : projects.find((p) => p.projectId === selectedProjectId)
   const inDetail = selectedProjectId !== null && selected !== undefined
 
+  /** 打开非诉管家会话：成功后把中心栏交还会话 UI。 */
+  const handleLaunchManager = async (context?: string): Promise<void> => {
+    if (launching || launchManager === undefined) return
+    setLaunching(true)
+    setError('')
+    try {
+      const sessionId = await launchManager({
+        ...(context !== undefined ? { context } : {}),
+        onLaunched: () => { /* panel closes below */ },
+      })
+      if (sessionId !== undefined) controller.close()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setLaunching(false)
+    }
+  }
+
   return (
     <div className={`${css.panel} ${mobile ? mobileCss.panelMobile : ''}`}>
       <header className={`${css.header} ${mobile ? mobileCss.headerMobile : ''}`}>
@@ -136,6 +157,18 @@ export function NonLitigationPanel({ controller }: NonLitigationPanelProps): Rea
               <div className={css.viewSwitch}>
                 <button type="button" className={view === 'projects' ? `${css.viewSwitchBtn} ${css.viewSwitchBtnActive}` : css.viewSwitchBtn} onClick={() => setView('projects')}>{tt('service.projects')}</button>
                 <button type="button" className={view === 'services' ? `${css.viewSwitchBtn} ${css.viewSwitchBtnActive}` : css.viewSwitchBtn} onClick={() => setView('services')}>{tt('service.services')}</button>
+                {launchManager !== undefined && (
+                  <button
+                    type="button"
+                    className={css.viewSwitchBtn}
+                    disabled={launching}
+                    onClick={() => { void handleLaunchManager() }}
+                    title="打开非诉管家"
+                    style={{ color: 'var(--lit-accent, #0f766e)', fontWeight: 600 }}
+                  >
+                    {launching ? '…' : '⚖ 非诉管家'}
+                  </button>
+                )}
               </div>
             )}
           </>
@@ -152,7 +185,7 @@ export function NonLitigationPanel({ controller }: NonLitigationPanelProps): Rea
         <>
           <div className={css.body}>
             {!mobile && inDetail ? (
-              <ProjectDetail record={selected!} onChange={refresh} />
+              <ProjectDetail record={selected!} onChange={refresh} onOpenAgent={(context) => { void handleLaunchManager(context) }} />
             ) : view === 'projects' ? (
               <ProjectBoard
                 projects={projects}
@@ -179,7 +212,7 @@ export function NonLitigationPanel({ controller }: NonLitigationPanelProps): Rea
                   <button className={css.close} type="button" aria-label="Close" onClick={() => setSelectedProjectId(null)}>✕</button>
                 </header>
                 <div className={mobileCss.drawerBody}>
-                  <ProjectDetail record={selected!} onChange={refresh} />
+                  <ProjectDetail record={selected!} onChange={refresh} onOpenAgent={(context) => { void handleLaunchManager(context) }} />
                 </div>
               </div>
             </div>

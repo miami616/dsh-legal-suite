@@ -182,6 +182,30 @@ export async function getSessions(agentDir?: string): Promise<SessionMetadata[]>
         }
     }
 
+    // DSH web（0.1.2-alpha.1 起无 /sessions 端点）：优先经插件会话快照桥读取
+    // 宿主会话列表，避免 404 噪音并恢复「过期绑定会话清理」。
+    const bridge = (window as unknown as {
+        __agentlexListSessions?: () => Promise<Array<{ id: string; title?: string; agentDir?: string; lastActiveAt?: string }>>;
+    }).__agentlexListSessions;
+    if (typeof bridge === 'function' && !isTauri()) {
+        try {
+            const rows = await bridge();
+            const sessions: SessionMetadata[] = rows.map((r) => ({
+                id: r.id,
+                agentDir: r.agentDir ?? '',
+                title: r.title ?? r.id,
+                createdAt: '',
+                lastActiveAt: r.lastActiveAt ?? '',
+            }));
+            const filtered = agentDir === undefined
+                ? sessions
+                : sessions.filter((s) => s.agentDir === agentDir);
+            return sortSessionsByLastActive(filtered);
+        } catch (error) {
+            console.warn('[sessionClient] snapshot bridge failed, falling back to /sessions:', error);
+        }
+    }
+
     const endpoint = agentDir
         ? `/sessions?agentDir=${encodeURIComponent(agentDir)}`
         : '/sessions';

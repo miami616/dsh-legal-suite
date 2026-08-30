@@ -629,3 +629,22 @@
   .section { padding: 14px; }
   .infoGrid { grid-template-columns: 1fr 1fr; gap: 12px 14px; }
 }
+
+/* 非诉详情页「非诉管家」按钮（与诉讼详情页 agent 按钮同风格） */
+.agentBtn {
+  margin-left: auto;
+  align-self: center;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--lit-accent, #0f766e);
+  background: color-mix(in srgb, var(--lit-accent, #0f766e) 12%, transparent);
+  transition: background-color 120ms ease;
+}
+.agentBtn:hover {
+  background: color-mix(in srgb, var(--lit-accent, #0f766e) 22%, transparent);
+}

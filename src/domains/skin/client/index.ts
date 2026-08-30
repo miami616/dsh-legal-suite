@@ -48,39 +48,56 @@ function injectStyle(id: string, css: string): () => void {
 export function apply(ctx: ClientContext): void {
   const disposers: Array<() => void> = []
 
+  // 诊断：品牌槽注册失败等原因写入 window，供排查（0.1.2-alpha.1 品牌槽
+  // 曾被官方插件占用，禁止后仍不显示时据此定位）。
+  const diag = (message: string): void => {
+    console.warn('[agentlex-skin]', message)
+    if (typeof window !== 'undefined') {
+      try { (window as unknown as { __agentlexSkinDiag?: string }).__agentlexSkinDiag = message } catch { /* ignore */ }
+    }
+  }
+
   // 0. Load customizable skin config (brand/hero copy).
   // 先同步初始化主题与品牌（读 localStorage），避免刷新时先显示默认主题再跳转的闪烁；
   // 品牌（欢迎称呼 userName 等）同样先本地恢复，避免 settings scope 水合时序竞态
   // 导致首页称呼刷新后退回默认 'User'。
-  initThemeFromStorage()
-  restoreBrandFromStorage()
-  void loadSkinConfig()
-  const settingsScope = (ctx as unknown as { settingsScope?: { bind<T>(spec: { namespace: string }): SettingsScope<T> } }).settingsScope
-  const agentlexScope = settingsScope?.bind<AgentLexSkinConfig>({ namespace: 'agentlex-legal-suite' })
-  bindAgentLexSettingsScope(agentlexScope)
-  if (agentlexScope) {
-    const syncFromScope = (): void => {
-      const value = agentlexScope.getSnapshot().value
-      if (value) {
-        // theme 由 localStorage/默认主题管理（scope 的 resolved 值带 host 默认
-        // 'warm'，会覆盖用户选择与默认 pure），这里排除，只同步其余字段。
-        const { theme: _ignored, ...rest } = value
-        // 品牌字段（欢迎称呼 userName 等）：localStorage 已有用户偏好时，scope 的
-        // 默认值（如 userName='User'）不得回写覆盖——避免水合时序竞态把首页称呼
-        // 重置为默认。guardStoredBrand 会过滤掉品牌字段。
-        setSkinConfig(guardStoredBrand(rest))
-      }
-    }
-    syncFromScope()
-    disposers.push(agentlexScope.subscribe(syncFromScope))
+  try {
+    initThemeFromStorage()
+    restoreBrandFromStorage()
+    void loadSkinConfig()
+  } catch (error) {
+    diag(`skin config init failed: ${error instanceof Error ? error.message : String(error)}`)
   }
-  // Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change).
-  bindModuleDataDirScopes({
-    litigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-litigation' }),
-    nonlitigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-nonlitigation' }),
-  })
-  // 目录选择器（设置页「数据目录 → 选择目录…」按钮，走 client-runtime 的 workspaces.pickDirectory()）。
-  bindWorkspaces(ctx.workspaces)
+  try {
+    const settingsScope = (ctx as unknown as { settingsScope?: { bind<T>(spec: { namespace: string }): SettingsScope<T> } }).settingsScope
+    const agentlexScope = settingsScope?.bind<AgentLexSkinConfig>({ namespace: 'agentlex-legal-suite' })
+    bindAgentLexSettingsScope(agentlexScope)
+    if (agentlexScope) {
+      const syncFromScope = (): void => {
+        const value = agentlexScope.getSnapshot().value
+        if (value) {
+          // theme 由 localStorage/默认主题管理（scope 的 resolved 值带 host 默认
+          // 'warm'，会覆盖用户选择与默认 pure），这里排除，只同步其余字段。
+          const { theme: _ignored, ...rest } = value
+          // 品牌字段（欢迎称呼 userName 等）：localStorage 已有用户偏好时，scope 的
+          // 默认值（如 userName='User'）不得回写覆盖——避免水合时序竞态把首页称呼
+          // 重置为默认。guardStoredBrand 会过滤掉品牌字段。
+          setSkinConfig(guardStoredBrand(rest))
+        }
+      }
+      syncFromScope()
+      disposers.push(agentlexScope.subscribe(syncFromScope))
+    }
+    // Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change).
+    bindModuleDataDirScopes({
+      litigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-litigation' }),
+      nonlitigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-nonlitigation' }),
+    })
+    // 目录选择器（设置页「数据目录 → 选择目录…」按钮，走 client-runtime 的 workspaces.pickDirectory()）。
+    bindWorkspaces(ctx.workspaces)
+  } catch (error) {
+    diag(`skin settingsScope/bind failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
 
   // 1. Dynamic skin: theme + sidebar CSS + brand slots, controllable by settings.
   const skinDisposers: Array<() => void> = []
@@ -164,20 +181,36 @@ export function apply(ctx: ClientContext): void {
   const applySkin = (): void => {
     if (skinApplied) return
     skinApplied = true
-    skinDisposers.push(injectStyle('themes', buildThemesCss()))
-    applyTheme()
-    // 深浅色切换时刷新内联 lit 变量（body[data-ds-dark-theme] 由 DSH 管理）
-    darkObserver = new MutationObserver(() => applyLitVars())
-    darkObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
-    skinDisposers.push(injectStyle('sidebar', AGENTLEX_SIDEBAR_CSS))
-    skinDisposers.push(injectStyle('business', BUSINESS_MODULES_CSS))
-    skinDisposers.push(mountAgentLexSidebarGroup())
+    // 主题/排版/样式注入：任一失败都不阻断品牌槽注册。
     try {
-      skinDisposers.push(ctx.slots.register({ name: 'sidebar.brand.mark', priority: -10 }, AgentLexBrandMark))
-      skinDisposers.push(ctx.slots.register({ name: 'sidebar.brand.name', priority: -10 }, AgentLexBrandName))
-      skinDisposers.push(ctx.slots.register({ name: 'conversation.hero.brand.mark', priority: -10 }, AgentLexHeroMark))
+      skinDisposers.push(injectStyle('themes', buildThemesCss()))
+      applyTheme()
+      // 深浅色切换时刷新内联 lit 变量（body[data-ds-dark-theme] 由 DSH 管理）
+      darkObserver = new MutationObserver(() => applyLitVars())
+      darkObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+      skinDisposers.push(injectStyle('sidebar', AGENTLEX_SIDEBAR_CSS))
+      skinDisposers.push(injectStyle('business', BUSINESS_MODULES_CSS))
+      skinDisposers.push(mountAgentLexSidebarGroup())
     } catch (error) {
-      console.warn('[agentlex-skin] brand slot registration failed:', error)
+      diag(`skin theme/sidebar styles failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    // 品牌槽注册独立 try：失败只影响品牌展示，不拖垮皮肤。
+    // 0.1.2-alpha.1 起槽注册要求「父条目 children 表已声明该槽」，直接注册
+    // 会撞时序型 not-declared；官方（ui-brand-official）用 slots.inject 延迟到
+    // 槽渲染时注册（届时声明必就绪），照抄该模式。
+    try {
+      const registerBrands = function* (): Generator<unknown> {
+        yield ctx.slots.register({ name: 'sidebar.brand.mark', priority: -10 }, AgentLexBrandMark)
+        yield ctx.slots.register({ name: 'sidebar.brand.name', priority: -10 }, AgentLexBrandName)
+        yield ctx.slots.register({ name: 'conversation.hero.brand.mark', priority: -10 }, AgentLexHeroMark)
+        return undefined
+      }
+      const injected = ctx.slots.inject('sidebar.brand.mark', () =>
+        ctx.slots.inject('sidebar.brand.name', () =>
+          ctx.slots.inject('conversation.hero.brand.mark', registerBrands)))
+      if (typeof injected === 'function') skinDisposers.push(injected)
+    } catch (error) {
+      diag(`brand slot registration failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -211,22 +244,28 @@ export function apply(ctx: ClientContext): void {
 
 
   // Settings sections stay always available (so the user can turn skin back on).
+  // 0.1.2-alpha.1 时序：settings.section 需等 ui-settings 声明就绪，改用
+  // slots.inject 延迟到设置页渲染时注册（声明必已就绪）。
   try {
-    disposers.push(ctx.slots.register({
-      name: 'settings.section',
-      id: 'agentlex-legal-suite',
-      order: 50,
-      label: 'AgentLex 设置',
-      // 本页拥有的套件设置槽位：注册该页的同时声明 agentlex.workbench.item，
-      // litigation 的「插件版本与更新」块注册进这里（页面内渲染，不占顶层导航）。
-      children: {
-        'agentlex.workbench.item': {
-          kind: 'list',
-          scope: 'root',
-          owner: {},
+    const registerSettingsSection = (): void => {
+      disposers.push(ctx.slots.register({
+        name: 'settings.section',
+        id: 'agentlex-legal-suite',
+        order: 50,
+        label: 'AgentLex 设置',
+        // 本页拥有的套件设置槽位：注册该页的同时声明 agentlex.workbench.item，
+        // litigation 的「插件版本与更新」块注册进这里（页面内渲染，不占顶层导航）。
+        children: {
+          'agentlex.workbench.item': {
+            kind: 'list',
+            scope: 'root',
+            owner: {},
+          },
         },
-      },
-    }, AgentLexSettingsSection))
+      }, AgentLexSettingsSection))
+    }
+    const injected = ctx.slots.inject('settings.section', registerSettingsSection)
+    if (injected === undefined) registerSettingsSection()
   } catch (error) {
     console.warn('[agentlex-skin] settings section registration failed:', error)
   }

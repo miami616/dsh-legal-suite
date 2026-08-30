@@ -4,6 +4,7 @@
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindCaseWorkspaces, installAgentlexPickBridge } from '../../../shared/folder-picker.ts'
+import { installSessionSnapshotBridge } from '../../../shared/session-snapshot.ts'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { PanelController } from './controller.ts'
@@ -26,8 +27,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  *  经 ctx 惰性解析 workspaces.pickDirectory()。
  *  `sessions` 必须注入：非诉管家 launcher 经 ctx.get('sessions') 创建并选中
  *  新会话；不注入则 cordis 不等待该服务挂载，首次点击时可能拿到 undefined，
- *  导致「点击非诉管家不跳转新会话」（与诉讼管家一致）。 */
-export const inject = ['slots', 'locale', 'sessions', 'workspaces']
+ *  导致「点击非诉管家不跳转新会话」（与诉讼管家一致）。
+ *  `remote` + `remote.session` + `remote.workspace` 必须注入（0.1.2-alpha.1）：
+ *  会话/工作区 RPC 走 typert gateway remote 命名空间；该网关是代理对象，
+ *  子命名空间未单独注入时访问会抛 "cannot get property "remote.session"
+ *  without inject"（管家按钮静默无反应的根因）。 */
+export const inject = ['slots', 'locale', 'sessions', 'workspaces', 'connection', 'remote', 'remote.session', 'remote.workspace']
 
 export type { PanelControllerSnapshot } from './controller.ts'
 export type { NonLitigationKey } from './locales.ts'
@@ -38,6 +43,8 @@ export function apply(ctx: ClientContext): void {
   // 旧版 AgentLex 渲染层（Original*Panel）的「绑定/更换文件夹」通过该桥调用
   // DSH 原生目录选择框（workspaces.pickDirectory）。
   const disposePickBridge = installAgentlexPickBridge()
+  // DSH 会话快照桥（旧渲染层 getSessions 的 0.1.2-alpha.1 兼容数据源）。
+  const disposeSnapshotBridge = installSessionSnapshotBridge(ctx)
 
   let uiDisposers: Array<() => void> = []
   let mounted = false
@@ -95,6 +102,7 @@ export function apply(ctx: ClientContext): void {
     unsubscribe()
     window.removeEventListener('agentlex:toggles-changed', onTogglesChanged)
     disposePickBridge()
+    disposeSnapshotBridge()
     unmount()
   }, 'agentlex-nonlitigation: ui mounts')
 }

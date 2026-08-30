@@ -9,18 +9,18 @@
  *   4. select it in the DSH UI so the user lands in the conversation
  *   5. return the session id so the caller can bind it to a case/project
  *
- * The client runtime exposes `connection.api` (IApiClient) and `sessions`
- * (sessions manager). This module is bundled into each plugin client; it does
- * not depend on any one plugin's store.
+ * Harness contract note: >= v0.1.2-alpha.1 removed the old
+ * `connection.api.sessions/workspace` (IApiClient) namespaces. RPC calls now
+ * go through the typert-gateway `remote` namespace (`ctx.get('remote')`,
+ * RemoteResult { ok, value }); seeding uses the session face
+ * (`sessions.binding(id)?.session.prompt`); the archived-session set rides
+ * the `workspaces.list` snapshot.
  */
 
 interface RpcResultLike<T = unknown> {
   ok?: boolean
   value?: T
-}
-
-interface RpcResponseLike<T = unknown> {
-  result?: RpcResultLike<T>
+  error?: { code?: string; message?: string }
 }
 
 interface SessionCreateResult {
@@ -33,27 +33,31 @@ interface WorkspaceCreateResult {
   created?: boolean
 }
 
-interface SessionApiLike {
-  create(payload: { workspaceId?: string; cwd?: string; sessionId?: string; agentPreset?: string }): Promise<RpcResponseLike<SessionCreateResult>>
-  rename(payload: { sessionId: string; title: string }): Promise<RpcResponseLike<{ title?: string }>>
-  prompt(payload: {
-    sessionId: string
-    mode: 'queue' | 'steer'
-    content: Array<{ type: 'text'; text: string }>
-  }): Promise<RpcResponseLike<{ accepted?: boolean }>>
+/** typert-gateway remote sessions namespace. */
+interface SessionRemoteLike {
+  create(payload: { workspaceId?: string; cwd?: string; sessionId?: string; agentPreset?: string }): Promise<RpcResultLike<SessionCreateResult>>
+  rename(payload: { sessionId: string; title: string }): Promise<RpcResultLike<{ title?: string }>>
 }
 
-interface WorkspaceApiLike {
-  create(payload: { path: string }): Promise<RpcResponseLike<WorkspaceCreateResult>>
-  rename(payload: { workspaceId: string; title: string }): Promise<RpcResponseLike<{ workspace?: { workspaceId?: string } }>>
-  list(payload: Record<string, never>): Promise<RpcResponseLike<{ archivedSessionIds?: string[] }>>
+/** typert-gateway remote workspaces namespace. */
+interface WorkspaceRemoteLike {
+  create(payload: { path: string }): Promise<RpcResultLike<WorkspaceCreateResult>>
+  rename(payload: { workspaceId: string; title: string }): Promise<RpcResultLike<{ workspace?: { workspaceId?: string } }>>
 }
 
-interface ConnectionLike {
-  api?: {
-    sessions?: SessionApiLike
-    workspace?: WorkspaceApiLike
-  }
+/** The `remote` gateway namespaces the bridge depends on. */
+interface RemoteLike {
+  session?: SessionRemoteLike
+  workspace?: WorkspaceRemoteLike
+}
+
+/** SessionFace prompt (no request id required at this level). */
+interface SessionFaceLike {
+  prompt(content: Array<{ type: 'text'; text: string }>, mode: 'queue' | 'steer'): Promise<unknown>
+}
+
+interface SessionBindingLike {
+  session?: SessionFaceLike
 }
 
 interface SessionsManagerLike {
@@ -63,6 +67,15 @@ interface SessionsManagerLike {
   list?: {
     getSnapshot(): { byId?: Record<string, unknown>; ids?: string[] }
     subscribe?(listener: () => void): () => void
+  }
+  /** Resolve a stable session binding (its `.session` face seeds prompts). */
+  binding?(sessionId: string): SessionBindingLike | undefined
+}
+
+/** The workspaces service snapshot (archived session set). */
+interface WorkspacesServiceLike {
+  list?: {
+    getSnapshot(): { archivedSessionIds?: string[] }
   }
 }
 
@@ -84,9 +97,48 @@ export interface CreateBusinessSessionOptions {
   context?: string
 }
 
-function unwrap<T>(response: RpcResponseLike<T> | undefined): T | undefined {
-  if (response?.result?.ok === true) return response.result.value
+function unwrap<T>(response: RpcResultLike<T> | undefined): T | undefined {
+  if (response?.ok === true) return response.value
   return undefined
+}
+
+/**
+ * Resolve a cordis service by name, root-first.
+ *
+ * gateway `remote`（及严格代理类服务）要求访问者 ctx 的注入表显式声明
+ * （"cannot get property ... without inject"），而子 fiber 的 `export const
+ * inject` 在打包合并后不一定被 cordis 读取。cordis 根 ctx 无注入限制，从
+ * `ctx.root` 解析可绕开该检查，也兼容已注入的 fiber。
+ */
+function serviceOf<T>(ctx: SessionBridgeContext, name: string): T | undefined {
+  const anyCtx = ctx as unknown as { root?: unknown }
+  const candidates: unknown[] = [anyCtx.root, ctx]
+  for (const candidate of candidates) {
+    if (candidate === undefined || candidate === null) continue
+    const getter = (candidate as { get?: (n: string) => unknown }).get
+    if (typeof getter !== 'function') continue
+    try {
+      const value = getter.call(candidate, name)
+      if (value !== undefined) return value as T
+    } catch {
+      /* 该 ctx 不可解析时试下一个 */
+    }
+  }
+  return undefined
+}
+
+/**
+ * Resolve the typert-gateway `remote` client, root-first (see {@link serviceOf}).
+ */
+function remoteOf(ctx: SessionBridgeContext): RemoteLike | undefined {
+  const root = (ctx as unknown as { root?: unknown }).root ?? ctx
+  const anyRoot = root as { remote?: RemoteLike; get?: (n: string) => unknown }
+  try {
+    if (anyRoot.remote !== undefined) return anyRoot.remote
+  } catch {
+    /* fall through to get() */
+  }
+  return serviceOf<RemoteLike>(ctx, 'remote')
 }
 
 /**
@@ -97,11 +149,10 @@ export async function ensureWorkspace(
   ctx: SessionBridgeContext,
   path: string,
 ): Promise<string | undefined> {
-  const connection = ctx.get<ConnectionLike>('connection')
-  const workspaceApi = connection?.api?.workspace
-  if (!workspaceApi) return undefined
+  const workspace = remoteOf(ctx)?.workspace
+  if (!workspace?.create) return undefined
   try {
-    const response = await workspaceApi.create({ path })
+    const response = await workspace.create({ path })
     return unwrap(response)?.workspace?.workspaceId
   } catch (error) {
     console.warn('[agentlex-session-bridge] workspace.create failed:', error)
@@ -125,7 +176,7 @@ export function openExistingSession(
   ctx: SessionBridgeContext,
   sessionId: string,
 ): boolean {
-  const sessions = ctx.get<SessionsManagerLike>('sessions')
+  const sessions = serviceOf<SessionsManagerLike>(ctx, 'sessions')
   if (!sessions) return false
   sessions.open(sessionId)
   return true
@@ -203,76 +254,99 @@ async function openWhenListed(
  * @returns the archived session ids; empty set when the API is unavailable.
  */
 export async function fetchArchivedSessionIds(ctx: SessionBridgeContext): Promise<Set<string>> {
-  const connection = ctx.get<ConnectionLike>('connection')
-  const workspaceApi = connection?.api?.workspace
-  if (!workspaceApi?.list) return new Set()
   try {
-    const response = await workspaceApi.list({})
-    const value = unwrap<{ archivedSessionIds?: string[] }>(response)
-    return new Set(value?.archivedSessionIds ?? [])
+    const workspaces = serviceOf<WorkspacesServiceLike>(ctx, 'workspaces')
+    const snapshot = workspaces?.list?.getSnapshot()
+    if (Array.isArray(snapshot?.archivedSessionIds)) {
+      return new Set(snapshot.archivedSessionIds)
+    }
   } catch (error) {
-    console.warn('[agentlex-session-bridge] workspace.list failed:', error)
-    return new Set()
+    console.warn('[agentlex-session-bridge] workspaces.list snapshot failed:', error)
   }
+  return new Set()
 }
 
 export async function createBusinessSession(
   ctx: SessionBridgeContext,
   options: CreateBusinessSessionOptions,
 ): Promise<string | undefined> {
-  const connection = ctx.get<ConnectionLike>('connection')
-  const sessions = ctx.get<SessionsManagerLike>('sessions')
-  const api = connection?.api
-  if (!api?.sessions || !sessions) {
-    console.warn('[agentlex-session-bridge] connection/sessions unavailable')
+  const remote = remoteOf(ctx)
+  const sessions = serviceOf<SessionsManagerLike>(ctx, 'sessions')
+  if (!sessions) {
+    console.warn('[agentlex-session-bridge] sessions unavailable')
     return undefined
   }
 
-  // 1. Create/ensure the module workspace, then give it a Chinese display name.
+  // 1. Create/ensure the module workspace, then give it a Chinese display name
+  //    (best-effort — remote 不可用时降级为 cwd 会话）。
   const workspaceId = await ensureWorkspace(ctx, options.workspacePath)
-  if (workspaceId && options.workspaceTitle) {
+  if (workspaceId && options.workspaceTitle && remote?.workspace?.rename) {
     try {
-      await api.workspace?.rename({ workspaceId, title: options.workspaceTitle })
+      await remote.workspace.rename({ workspaceId, title: options.workspaceTitle })
     } catch (error) {
       console.warn('[agentlex-session-bridge] workspace.rename failed:', error)
     }
   }
 
-  // 2. Create the session with the module's agent preset.
-  const createPayload: { workspaceId?: string; cwd?: string; agentPreset: string } = {
-    agentPreset: options.agentPreset,
-  }
-  if (workspaceId) createPayload.workspaceId = workspaceId
-  else createPayload.cwd = options.workspacePath
-
+  // 2. Create the session. 优先 remote.session.create（带 agentPreset）；
+  //    0.1.2-alpha.1 的 gateway remote 子命名空间受限（without inject）时
+  //    降级到 ctx.sessions.create（无 preset，但保证会话可建、按钮可用）。
   let sessionId: string | undefined
-  try {
-    const createResponse = await api.sessions.create(createPayload)
-    sessionId = unwrap(createResponse)?.sessionId
-  } catch (error) {
-    console.warn('[agentlex-session-bridge] session.create failed:', error)
-    return undefined
+  if (remote?.session?.create) {
+    const createPayload: { workspaceId?: string; cwd?: string; agentPreset: string } = {
+      agentPreset: options.agentPreset,
+    }
+    if (workspaceId) createPayload.workspaceId = workspaceId
+    else createPayload.cwd = options.workspacePath
+    try {
+      const createResponse = await remote.session.create(createPayload)
+      sessionId = unwrap(createResponse)?.sessionId
+    } catch (error) {
+      console.warn('[agentlex-session-bridge] remote.session.create failed, falling back:', error)
+      sessionId = undefined
+    }
+  }
+  if (sessionId === undefined) {
+    try {
+      const sessionsCreate = sessions as unknown as {
+        create?(o: { workspaceId?: string; cwd?: string }): Promise<string>
+      }
+      sessionId = await sessionsCreate.create?.({
+        ...(workspaceId !== undefined ? { workspaceId } : { cwd: options.workspacePath }),
+      })
+    } catch (error) {
+      console.warn('[agentlex-session-bridge] sessions.create fallback failed:', error)
+      return undefined
+    }
   }
   if (!sessionId) {
-    console.warn('[agentlex-session-bridge] session.create returned no sessionId')
+    console.warn('[agentlex-session-bridge] no session id from create')
     return undefined
   }
 
-  // 3. Rename for a human-readable title.
+  // 3. Rename for a human-readable title (best-effort).
   try {
-    await api.sessions.rename({ sessionId, title: options.title })
+    if (remote?.session?.rename) {
+      await remote.session.rename({ sessionId, title: options.title })
+    } else {
+      const face = sessions.binding?.(sessionId)?.session as unknown as
+        | { rename?(p: { title: string }): Promise<unknown> }
+        | undefined
+      if (face?.rename) await face.rename({ title: options.title })
+    }
   } catch (error) {
     console.warn('[agentlex-session-bridge] rename failed:', error)
   }
 
-  // 4. Seed the first prompt (best-effort).
+  // 4. Seed the first prompt (best-effort) through the session face.
   if (options.context && options.context.trim() !== '') {
     try {
-      await api.sessions.prompt({
-        sessionId,
-        mode: 'queue',
-        content: [{ type: 'text', text: options.context }],
-      })
+      const face = sessions.binding?.(sessionId)?.session
+      if (face !== undefined) {
+        await face.prompt([{ type: 'text', text: options.context }], 'queue')
+      } else {
+        console.warn('[agentlex-session-bridge] session binding unavailable; seed skipped')
+      }
     } catch (error) {
       console.warn('[agentlex-session-bridge] seeding prompt failed:', error)
     }

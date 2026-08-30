@@ -5,3 +5,11 @@
 - insert:
     - id: agentlex
       name: 'dsh-legal-suite'
+# 0.1.2-alpha.1 起官方 dsh-client-ui-brand-official 占用三个 single 品牌槽
+# （sidebar.brand.mark / sidebar.brand.name / conversation.hero.brand.mark），
+# 第三方再注册会抛 "already has a registration"。本条目禁用官方品牌插件
+# （loader 条目 id 为短 id `ui-brand-official`），让 AgentLex 品牌/欢迎词经
+# 插件既有注册恢复展示；旧版 harness 无此条目时 applyEntryPatches 仅告警
+# 跳过，不影响装配。
+- id: ui-brand-official
+  disabled: true

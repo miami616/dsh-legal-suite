@@ -1,13 +1,23 @@
 # Changelog
 
-## 未发布（0.1.10 预览）
+## 未发布（0.1.11 预览）
 
-两个管家专业化升级 + 参考用例扩到诉讼/非诉各三组。
+### P1 · 适配 harness v0.1.2-alpha.1 全量（品牌 / 管家会话 / 旧面板兼容）
 
-### P0 · 适配 harness v0.1.2-alpha.1（升级回归修复）
+0.1.2-alpha.1 对客户端契约做了大重构（RPC 模型、插槽声明、gateway remote、设置 scope、会话端点），以下逐项适配并在 0.1.2-alpha.1 全量回归：
+
+- **品牌/欢迎词恢复（root cause：官方品牌占槽 + 槽声明机制）**：0.1.2-alpha.1 起官方 `dsh-client-ui-brand-official` 通过 `slots.inject` 占用 `sidebar.brand.mark/name` 与 `conversation.hero.brand.mark` 三个 single 槽（第三方直接注册会抛 `already has a registration`），且新 slots 机制要求「父条目 children 表已声明该槽」（直接注册抛 `not declared`）。修复：插件自带 bundle patch（`cordis.patch.yml`）禁用官方品牌插件（loader 条目 id 为短 id `ui-brand-official`；目标不存在时 applyEntryPatches 仅告警跳过，旧版 harness 安全）；品牌/设置/技能槽注册全部改走官方同款 `ctx.slots.inject`（延迟到槽渲染时注册，声明必就绪）
+- **管家按钮恢复（root cause：客户端 RPC 模型重构）**：`connection.api.sessions/workspace`（旧 IApiClient）已移除，会话/工作区改走 typert gateway `remote` 命名空间（`RemoteResult { ok, value }`）；gateway `remote` 是严格代理，需 root ctx 解析（子 fiber 注入在打包合并后不生效，访问即抛 `cannot get property "..." without inject`）。修复：`session-bridge` 的 remote/sessions/workspaces 全部 **root-first 解析**（先 `ctx.root` 后回退当前 ctx），会话创建优先 `remote.session.create`（带管家 preset）、失败自动降级 `ctx.sessions.create`（保证按钮必可用），重命名/播种经 session face 降级
+- **旧渲染层（vendor 面板）`/sessions 404` 治理**：旧面板 `getSessions()` 请求的 `GET /sessions` 端点在 0.1.2-alpha.1 已移除（影响「过期绑定会话清理」）。修复：插件挂 `window.__agentlexListSessions` 会话快照桥（从 `sessions.list` 快照读取，root-first），vendor `getSessions` 非 Tauri 时优先走桥，桥缺失回退原端点
+- **inject 补齐**：诉讼/非诉域 inject 增加 `connection`、`remote`、`remote.session`、`remote.workspace`（官方 remote 使用方同样声明这些子命名空间）
+- **面板维持旧版渲染层**：中心面板与「案件详情页」tab 保持 vendor 旧 UI（用户指定）；0.1.10 的新面板进度组件保留但不再默认挂载
+
+### P0 · 适配 harness v0.1.2-alpha.1（升级回归修复，首发于 0.1.10）
 
 - **修复前端 half 挂载崩溃**：harness 在 rc.8 → v0.1.2-alpha.1 之间移除了渲染端 `ctx.sessions.currentProvideInfo`（无兼容壳、未进 changelog），导致插件启动时 `WorkspacePanel` 挂载即 `Cannot read properties of undefined (reading 'subscribe')`、整插件加载失败。改为从当前契约读取：`ctx.sessions.list.current`（当前 staged 会话 id）+ `ctx.sessions.list.byId[id].cwd`（工作目录），订阅也只保留 `list.subscribe`。该读法在 rc.8 与 v0.1.2-alpha.1 两种契约下都不抛错（缺失时优雅降级为「无会话」视图，不再崩溃）
 - **收敛会话作用域读取**：抽出 `src/domains/workspace-sidebar/client/session-scope.ts` 的 `readSessionScope()`，`mount.tsx` 与 `conversation-links.ts` 共用，统一对 `ctx.sessions` 做结构性 cast（`as unknown as { list?: {...} }`）+ 可选链守卫，杜绝未来 harness API 再变动导致的同类崩溃。`case-detail-view.tsx` 早已迁移到 `list.current`，本次补齐剩余两处
+
+### P2 · 0.1.10 功能（已于 0.1.10 发行版包含）
 
 - **新增共享实务 playbook**：`src/shared/playbook/litigation.ts` 与 `nonlitigation.ts` 成为术语与阶段任务的唯一事实源——管家 persona、工具参数说明、内置参考案例、界面状态徽章四处强制同源，从机制上消除「同一件事两种说法」
 - **统一状态阶梯**：诉讼 5 档 → 8 档（收案/诉前/立案中/庭前准备/待开庭/庭后管理/执行中/已结案），新增 `tone-warning` 徽章；非诉统一为 5 档（已签约/进行中/已暂停/已完成/已归档）。修复两处静默漂移：诉讼 `status` 传枚举外的值（如「审理中」）会回落成「收案」；非诉工具文档写 `active/inactive/closed` 而界面渲染另外 5 个值

@@ -15,9 +15,11 @@ type Tab = 'overview' | 'tasks' | 'dates' | 'related'
 interface ProjectDetailProps {
   record: ProjectRecord
   onChange: () => void
+  /** Open 非诉管家 for this project (seeds the session with project context). */
+  onOpenAgent?: (context: string) => void
 }
 
-export function ProjectDetail({ record, onChange }: ProjectDetailProps): React.JSX.Element {
+export function ProjectDetail({ record, onChange, onOpenAgent }: ProjectDetailProps): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('overview')
   const [folderBusy, setFolderBusy] = useState(false)
 
@@ -57,6 +59,15 @@ export function ProjectDetail({ record, onChange }: ProjectDetailProps): React.J
           <div className={css.mastheadTitleRow}>
             <span className={css.mastheadId}>{record.projectId}</span>
             <h1 className={css.mastheadName}>{record.name}</h1>
+            {onOpenAgent !== undefined && (
+              <button
+                type="button"
+                className={css.agentBtn}
+                onClick={() => onOpenAgent(`请协助处理项目「${record.name}」（${record.projectId}）：核对阶段与待办，给出本项目的下一步安排。`)}
+              >
+                ⚖ 非诉管家
+              </button>
+            )}
           </div>
           <div className={css.mastheadMeta}>
             {record.leadLawyer && <><span>{tt('detail.lead')}{record.leadLawyer}</span><span className={css.metaDivider}>·</span></>}

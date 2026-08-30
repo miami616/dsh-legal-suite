@@ -13,6 +13,7 @@
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindCaseWorkspaces, installAgentlexPickBridge } from '../../../shared/folder-picker.ts'
+import { installSessionSnapshotBridge } from '../../../shared/session-snapshot.ts'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the LocaleNamespaceMap merge table.
@@ -45,8 +46,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Required services (fiber inject waiting — the runtime must be up first).
  *  `workspaces` 必须注入：目录选择桥（旧版 UI 的「绑定/更换文件夹」）在点击时
  *  经 ctx 惰性解析 workspaces.pickDirectory()；不注入则 apply 后该服务可能
- *  尚未挂载（issue:「案件绑定/更换文件夹仍然不可用」）。 */
-export const inject = ['slots', 'locale', 'sessions', 'workspaces']
+ *  尚未挂载（issue:「案件绑定/更换文件夹仍然不可用」）。
+ *  `remote` + `remote.session` + `remote.workspace` 必须注入（0.1.2-alpha.1）：
+ *  会话/工作区 RPC 走 typert gateway remote 命名空间；该网关是代理对象，
+ *  子命名空间未单独注入时访问会抛 "cannot get property "remote.session"
+ *  without inject"（管家按钮静默无反应的根因）。 */
+export const inject = ['slots', 'locale', 'sessions', 'workspaces', 'connection', 'remote', 'remote.session', 'remote.workspace']
 
 /** Type-only surface (export discipline: no value exports beyond the plugin contract). */
 export type { PanelControllerSnapshot } from './controller.ts'
@@ -62,6 +67,7 @@ export function apply(ctx: ClientContextWithSidebar): void {
   // 旧版 AgentLex 渲染层（Original*Panel）的「绑定/更换文件夹」通过该桥调用
   // DSH 原生目录选择框（workspaces.pickDirectory）。
   const disposePickBridge = installAgentlexPickBridge()
+  const disposeSnapshotBridge = installSessionSnapshotBridge(ctx)
   registerCaseFolderTab(ctx)
 
   let uiDisposers: Array<() => void> = []
@@ -108,6 +114,7 @@ export function apply(ctx: ClientContextWithSidebar): void {
     unsubscribe()
     window.removeEventListener('agentlex:toggles-changed', onTogglesChanged)
     disposePickBridge()
+    disposeSnapshotBridge()
     unmount()
   }, 'agentlex-litigation: ui mounts')
 

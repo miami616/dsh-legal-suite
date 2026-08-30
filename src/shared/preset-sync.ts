@@ -55,6 +55,19 @@ function yamlQuote(value: string): string {
 }
 
 /**
+ * 全局串行队列：suite.ts 的 ensureAgentPresets 与各域（litigation/nonlitigation）
+ * 的 syncShippedPresets 是不同调用方、各自队列互不相干，会对同一 preset 目录
+ * 并发 rm→cp，交错出 `ENOTEMPTY: rmdir`（issue:「非诉管家 agent 预设提示错误」）。
+ * 把互斥下沉到本模块，所有调用方共享一条写队列。
+ */
+let presetWriteQueue: Promise<void> = Promise.resolve()
+function serializePresetWrite<T>(task: () => Promise<T>): Promise<T> {
+  const run = presetWriteQueue.then(task, task)
+  presetWriteQueue = run.then(() => undefined, () => undefined)
+  return run
+}
+
+/**
  * Rewrite the `name: 'dsh-legal-suite'` agent-plugin row to the package's own
  * absolute entry URL. Any other row (`@deepseek-ai/...`) is left untouched.
  * Idempotent: an already-URL'd row no longer matches and stays as-is.
@@ -69,22 +82,24 @@ export function rewriteSuiteEntry(yml: string, entryUrl: string): string {
  * Copy a shipped preset directory into `${DSH_HOME}/.agent-presets/<id>`,
  * rewriting agent.cordis.yml's plugin row from the bare package name to the
  * package's own absolute entry URL (see module comment). Every other entry is
- * copied byte-for-byte. Serialize callers with their own queue; this function
- * is rm→mkdir→per-entry copy, so concurrent runs into the same target never
- * interleave into a half-written preset.
+ * copied byte-for-byte. Runs inside the module-level serial queue so all
+ * callers (suite + domains) can never interleave rm→cp into a half-written
+ * preset (ENOTEMPTY race).
  */
-export async function syncShippedPreset(source: string, target: string): Promise<void> {
-  await rm(target, { recursive: true, force: true })
-  await mkdir(target, { recursive: true })
-  const entryUrl = suiteEntryUrl()
-  for (const entry of await readdir(source, { withFileTypes: true })) {
-    const srcPath = join(source, entry.name)
-    const dstPath = join(target, entry.name)
-    if (entry.name === 'agent.cordis.yml' && entry.isFile()) {
-      const text = await readFile(srcPath, 'utf8')
-      await writeFile(dstPath, rewriteSuiteEntry(text, entryUrl), 'utf8')
-    } else {
-      await cp(srcPath, dstPath, { recursive: true, force: true })
+export function syncShippedPreset(source: string, target: string): Promise<void> {
+  return serializePresetWrite(async () => {
+    await rm(target, { recursive: true, force: true })
+    await mkdir(target, { recursive: true })
+    const entryUrl = suiteEntryUrl()
+    for (const entry of await readdir(source, { withFileTypes: true })) {
+      const srcPath = join(source, entry.name)
+      const dstPath = join(target, entry.name)
+      if (entry.name === 'agent.cordis.yml' && entry.isFile()) {
+        const text = await readFile(srcPath, 'utf8')
+        await writeFile(dstPath, rewriteSuiteEntry(text, entryUrl), 'utf8')
+      } else {
+        await cp(srcPath, dstPath, { recursive: true, force: true })
+      }
     }
-  }
+  })
 }

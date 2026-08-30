@@ -146,16 +146,24 @@ export function apply(ctx: ClientContext): void {
       }))
       // 输入框「技能」选择按钮（conversation.input.left 槽位，codex-ui 同款）。
       // 0.1.2-alpha.1 时序：直接注册会撞 not-declared，改用 slots.inject 等
-      // ui-conversation 声明就绪（槽渲染时）再注册。
+      // ui-conversation 声明就绪（槽渲染时）再注册；老版无 slots.inject 时直接注册。
+      const slotsService = ctx.slots as unknown as {
+        inject?(name: string, fn: () => unknown): unknown
+        register(o: unknown, c: unknown): unknown
+      }
       const registerSkillsPicker = (): void => {
-        uiDisposers.push(ctx.slots.register({
+        uiDisposers.push(slotsService.register({
           name: 'conversation.input.left',
           id: 'agentlex-skills-tools',
           order: 60,
         }, SkillsToolsPicker as never))
       }
-      const injected = ctx.slots.inject('conversation.input.left', registerSkillsPicker)
-      if (injected === undefined) registerSkillsPicker()
+      if (typeof slotsService.inject === 'function') {
+        const injected = slotsService.inject('conversation.input.left', registerSkillsPicker)
+        if (injected === undefined) registerSkillsPicker()
+      } else {
+        registerSkillsPicker()
+      }
       // `/` 命令（打开面板 / 添加技能 / 添加 MCP）。
       uiDisposers.push(registerSlashSource(ctx as never))
     } catch (error) {

@@ -28,11 +28,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  *  `sessions` 必须注入：非诉管家 launcher 经 ctx.get('sessions') 创建并选中
  *  新会话；不注入则 cordis 不等待该服务挂载，首次点击时可能拿到 undefined，
  *  导致「点击非诉管家不跳转新会话」（与诉讼管家一致）。
- *  `remote` + `remote.session` + `remote.workspace` 必须注入（0.1.2-alpha.1）：
- *  会话/工作区 RPC 走 typert gateway remote 命名空间；该网关是代理对象，
- *  子命名空间未单独注入时访问会抛 "cannot get property "remote.session"
- *  without inject"（管家按钮静默无反应的根因）。 */
-export const inject = ['slots', 'locale', 'sessions', 'workspaces', 'connection', 'remote', 'remote.session', 'remote.workspace']
+ *  注意：不要 inject `remote` 系列（详见 litigation/client/index.ts 注释）——
+ *  仅 0.1.2-alpha.1 及以后存在，老版会挂起；改由 session-bridge 运行时
+ *  root-first 解析并降级 ctx.sessions.create。 */
+export const inject = ['slots', 'locale', 'sessions', 'workspaces', 'connection']
 
 export type { PanelControllerSnapshot } from './controller.ts'
 export type { NonLitigationKey } from './locales.ts'

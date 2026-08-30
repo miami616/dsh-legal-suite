@@ -1,5 +1,16 @@
 # Changelog
 
+## 未发布（0.1.12 预览）
+
+### P1 · 面板体系收敛 + 老版 harness 兼容补丁
+
+- **面板体系收敛为单一旧渲染层**：删除 src 新面板体系全部 23 个文件（`LitigationPanel`/`NonLitigationPanel`/`CaseBoard`/`CaseCard`/`ProjectBoard`/`ProjectCard`/`NewCaseModal`/`NewProjectModal`/`ImportModal`/`detail/CaseDetailPage`/`ProjectDetail`/`TaskTree`/`Timeline` 及对应 css、`use-mobile`）——中心面板与「案件详情页」tab 统一走 vendor 旧渲染层（`Original*Panel`+mount+case-detail-view），共享层（api/store/controller/launch-manager/session-bridge/locales 等）与 task/skills 域不受影响
+- **老版 harness（rc.2/rc.8）兼容**：
+  - `inject` 移除 `remote` 系列（`remote`/`remote.session`/`remote.workspace` 仅 v0.1.2-alpha.1 及以后存在，老版等待不存在的服务会挂起）——gateway remote 改由 session-bridge 运行时 root-first 解析
+  - `slots.inject` 加老版存在性守卫：品牌/设置/skills 槽注册在无 inject 方法的旧 harness 上回退直接注册
+  - 会话创建升级为三级降级：`remote.session.create`（新）→ `ctx.sessions.create`（新）→ `connection.api.sessions.create`（rc 世代老路径，已加回）
+- **preset 同步全局串行化**：`syncShippedPreset` 内置模块级写队列，消除 suite 与各域并发同步同一预设目录的 `ENOTEMPTY: rmdir` 竞态（issue:「非诉管家 agent 预设提示错误」）
+
 ## 未发布（0.1.11 预览）
 
 ### P1 · 适配 harness v0.1.2-alpha.1 全量（品牌 / 管家会话 / 旧面板兼容）

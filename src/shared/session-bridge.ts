@@ -316,7 +316,35 @@ export async function createBusinessSession(
       })
     } catch (error) {
       console.warn('[agentlex-session-bridge] sessions.create fallback failed:', error)
-      return undefined
+      sessionId = undefined
+    }
+  }
+  // 第三降级：rc 世代 harness 的 connection.api.sessions.create（0.1.2-alpha.1
+  // 已无该 RPC；老版有）。返回体为 { result: { ok, value } }。
+  if (sessionId === undefined) {
+    try {
+      const connection = serviceOf<{
+        api?: {
+          sessions?: {
+            create(p: { workspaceId?: string; cwd?: string; agentPreset?: string }): Promise<{
+              result?: { ok?: boolean; value?: { sessionId?: string } }
+            }>
+          }
+        }
+      }>(ctx, 'connection')
+      const legacyCreate = connection?.api?.sessions?.create
+      if (typeof legacyCreate === 'function') {
+        const payload: { workspaceId?: string; cwd?: string; agentPreset: string } = {
+          agentPreset: options.agentPreset,
+        }
+        if (workspaceId) payload.workspaceId = workspaceId
+        else payload.cwd = options.workspacePath
+        const legacyResult = await legacyCreate(payload)
+        sessionId = legacyResult?.result?.ok === true ? legacyResult.result.value?.sessionId : undefined
+      }
+    } catch (error) {
+      console.warn('[agentlex-session-bridge] connection.api.sessions.create fallback failed:', error)
+      sessionId = undefined
     }
   }
   if (!sessionId) {

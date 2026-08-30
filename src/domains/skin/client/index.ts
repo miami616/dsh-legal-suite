@@ -197,18 +197,28 @@ export function apply(ctx: ClientContext): void {
     // 品牌槽注册独立 try：失败只影响品牌展示，不拖垮皮肤。
     // 0.1.2-alpha.1 起槽注册要求「父条目 children 表已声明该槽」，直接注册
     // 会撞时序型 not-declared；官方（ui-brand-official）用 slots.inject 延迟到
-    // 槽渲染时注册（届时声明必就绪），照抄该模式。
+    // 槽渲染时注册（届时声明必就绪），照抄该模式。老版 harness 无 slots.inject
+    // 时回退直接注册（老版 slots 宽松，无需声明）。
     try {
+      const slotsService = ctx.slots as unknown as {
+        inject?(name: string, fn: () => unknown): unknown
+        register(o: unknown, c: unknown): unknown
+      }
       const registerBrands = function* (): Generator<unknown> {
-        yield ctx.slots.register({ name: 'sidebar.brand.mark', priority: -10 }, AgentLexBrandMark)
-        yield ctx.slots.register({ name: 'sidebar.brand.name', priority: -10 }, AgentLexBrandName)
-        yield ctx.slots.register({ name: 'conversation.hero.brand.mark', priority: -10 }, AgentLexHeroMark)
+        yield slotsService.register({ name: 'sidebar.brand.mark', priority: -10 }, AgentLexBrandMark)
+        yield slotsService.register({ name: 'sidebar.brand.name', priority: -10 }, AgentLexBrandName)
+        yield slotsService.register({ name: 'conversation.hero.brand.mark', priority: -10 }, AgentLexHeroMark)
         return undefined
       }
-      const injected = ctx.slots.inject('sidebar.brand.mark', () =>
-        ctx.slots.inject('sidebar.brand.name', () =>
-          ctx.slots.inject('conversation.hero.brand.mark', registerBrands)))
-      if (typeof injected === 'function') skinDisposers.push(injected)
+      if (typeof slotsService.inject === 'function') {
+        const injected = slotsService.inject('sidebar.brand.mark', () =>
+          slotsService.inject!('sidebar.brand.name', () =>
+            slotsService.inject!('conversation.hero.brand.mark', registerBrands)))
+        if (typeof injected === 'function') skinDisposers.push(injected)
+      } else {
+        const generator = registerBrands()
+        while (!generator.next().done) { /* sync drive */ }
+      }
     } catch (error) {
       diag(`brand slot registration failed: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -247,8 +257,12 @@ export function apply(ctx: ClientContext): void {
   // 0.1.2-alpha.1 时序：settings.section 需等 ui-settings 声明就绪，改用
   // slots.inject 延迟到设置页渲染时注册（声明必已就绪）。
   try {
+    const slotsService = ctx.slots as unknown as {
+      inject?(name: string, fn: () => unknown): unknown
+      register(o: unknown, c: unknown): unknown
+    }
     const registerSettingsSection = (): void => {
-      disposers.push(ctx.slots.register({
+      disposers.push(slotsService.register({
         name: 'settings.section',
         id: 'agentlex-legal-suite',
         order: 50,
@@ -264,8 +278,13 @@ export function apply(ctx: ClientContext): void {
         },
       }, AgentLexSettingsSection))
     }
-    const injected = ctx.slots.inject('settings.section', registerSettingsSection)
-    if (injected === undefined) registerSettingsSection()
+    // 0.1.2-alpha.1 时序：等 ui-settings 声明就绪；老版无 slots.inject 时直接注册。
+    if (typeof slotsService.inject === 'function') {
+      const injected = slotsService.inject('settings.section', registerSettingsSection)
+      if (injected === undefined) registerSettingsSection()
+    } else {
+      registerSettingsSection()
+    }
   } catch (error) {
     console.warn('[agentlex-skin] settings section registration failed:', error)
   }

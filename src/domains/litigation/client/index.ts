@@ -47,11 +47,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  *  `workspaces` 必须注入：目录选择桥（旧版 UI 的「绑定/更换文件夹」）在点击时
  *  经 ctx 惰性解析 workspaces.pickDirectory()；不注入则 apply 后该服务可能
  *  尚未挂载（issue:「案件绑定/更换文件夹仍然不可用」）。
- *  `remote` + `remote.session` + `remote.workspace` 必须注入（0.1.2-alpha.1）：
- *  会话/工作区 RPC 走 typert gateway remote 命名空间；该网关是代理对象，
- *  子命名空间未单独注入时访问会抛 "cannot get property "remote.session"
- *  without inject"（管家按钮静默无反应的根因）。 */
-export const inject = ['slots', 'locale', 'sessions', 'workspaces', 'connection', 'remote', 'remote.session', 'remote.workspace']
+ *  注意：不要 inject `remote` 系列（remote / remote.session / remote.workspace）——
+ *  它们只在 harness >= v0.1.2-alpha.1（typert gateway）存在，老版（rc.2/rc.8）
+ *  没有；那些版本上等待不存在的服务会让插件挂起。gateway remote 改由
+ *  session-bridge 在运行时 root-first 解析（无则降级 ctx.sessions.create），
+ *  `connection` 保留（老版公有的 ConnectionHandle）。 */
+export const inject = ['slots', 'locale', 'sessions', 'workspaces', 'connection']
 
 /** Type-only surface (export discipline: no value exports beyond the plugin contract). */
 export type { PanelControllerSnapshot } from './controller.ts'

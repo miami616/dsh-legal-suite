@@ -31,6 +31,7 @@ import { computeDeadlines } from './deadlines.ts'
 import { defaultSourcePath, importFromAgentLex } from './import/agentlex-migrate.ts'
 import { makeRoutes } from './routes.ts'
 import { registerLitigationHttpTool } from './tools.ts'
+import { installSettingsSection } from '../../shared/settings-adapter.ts'
 import {
   checkPluginUpdate,
   performPluginUpdate,
@@ -394,7 +395,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  ctx.settings.installSection(ctx, LITIGATION_SETTINGS_NAMESPACE, Config, config, {
+  const disposeSettings = installSettingsSection(ctx, LITIGATION_SETTINGS_NAMESPACE, Config, config, {
     setSource: (source) => { current = source; sync() },
     onChange: sync,
   })
@@ -403,6 +404,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   // fiber reload the old fiber's effect fires asynchronously — the token
   // check keeps it from wiping the newer reload's surface.
   ctx.effect(() => () => {
+    disposeSettings()
     disposeHostSurface(token)
     disposePresetSurface(token)
   }, 'agentlex-litigation: teardown')

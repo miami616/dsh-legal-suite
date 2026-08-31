@@ -21,6 +21,7 @@ import { createProjectStore } from './store/project-store.ts'
 import { createServiceStore } from './store/service-store.ts'
 import { makeRoutes } from './routes.ts'
 import { registerNonLitigationHttpTool } from './tools.ts'
+import { installSettingsSection } from '../../shared/settings-adapter.ts'
 
 export const name = 'nonlitigation'
 
@@ -283,7 +284,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     hostSurface = { token, dispose: () => { for (const dispose of disposers.splice(0).reverse()) dispose() } }
   }
 
-  ctx.settings.installSection(ctx, NONLITIGATION_SETTINGS_NAMESPACE, Config, config, {
+  const disposeSettings = installSettingsSection(ctx, NONLITIGATION_SETTINGS_NAMESPACE, Config, config, {
     setSource: (source) => { current = source; sync() },
     onChange: sync,
   })
@@ -292,6 +293,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   // fiber reload the old fiber's effect fires asynchronously — the token
   // check keeps it from wiping the newer reload's surface.
   ctx.effect(() => () => {
+    disposeSettings()
     disposeHostSurface(token)
     disposePresetSurface(token)
   }, 'agentlex-nonlitigation: teardown')

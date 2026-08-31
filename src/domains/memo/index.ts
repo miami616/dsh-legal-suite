@@ -15,6 +15,7 @@ import z from 'schemastery'
 import { createMemoStore, type MemoStore } from './store/memo-store.ts'
 import { makeRoutes, type RouteDeps } from './routes.ts'
 import type { MemoItem } from './store/types.ts'
+import { installSettingsSection } from '../../shared/settings-adapter.ts'
 
 export const name = 'dsh-legal-suite/memo'
 
@@ -84,12 +85,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  ctx.settings.installSection(ctx, MEMO_SETTINGS_NAMESPACE, Config, config, {
+  // 注册备忘录配置分区。用适配器同时兼容宿主 harness 的 register /
+  // installSection 两种 API，且绝不让 settings 注册失败中断路由注册。
+  const disposeSettings = installSettingsSection(ctx, MEMO_SETTINGS_NAMESPACE, Config, config, {
     setSource: (source) => { current = source; sync() },
     onChange: sync,
   })
 
-  ctx.effect(() => () => { disposeSurface(token) }, 'dsh-legal-suite/memo: teardown')
+  ctx.effect(() => () => { disposeSettings(); disposeSurface(token) }, 'dsh-legal-suite/memo: teardown')
 
   sync()
 }

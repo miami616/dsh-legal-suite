@@ -11,6 +11,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { createTaskStore } from './store/task-store.ts'
 import { makeRoutes } from './routes.ts'
+import { installSettingsSection } from '../../shared/settings-adapter.ts'
 
 export const name = 'task'
 
@@ -104,7 +105,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  ctx.settings.installSection(ctx, TASK_SETTINGS_NAMESPACE, Config, config, {
+  const disposeSettings = installSettingsSection(ctx, TASK_SETTINGS_NAMESPACE, Config, config, {
     setSource: (source) => { current = source; sync() },
     onChange: sync,
   })
@@ -112,7 +113,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   // Fiber-unload safety net: only tears down this apply's surface. During a
   // fiber reload the old fiber's effect fires asynchronously — the token
   // check keeps it from wiping the newer apply's surface.
-  ctx.effect(() => () => { disposeSurface(token) }, 'agentlex-task: teardown')
+  ctx.effect(() => () => { disposeSettings(); disposeSurface(token) }, 'agentlex-task: teardown')
 
   sync()
 }

@@ -435,7 +435,7 @@ html[data-agentlex-theme] div[class*="frame"]:not([data-sidebar-collapsed]) [dat
 }
 
 /* ═══ 右侧标签页（对话/轨迹）：分段控件 ═══ */
-html[data-agentlex-theme] [role="tablist"] {
+html[data-agentlex-theme] [data-slot="conversation"] [role="tablist"] {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -444,7 +444,7 @@ html[data-agentlex-theme] [role="tablist"] {
   background: var(--dsw-alias-bg-layer-3);
   border: 1px solid var(--dsw-alias-border-l1);
 }
-html[data-agentlex-theme] [role="tab"] {
+html[data-agentlex-theme] [data-slot="conversation"] [role="tab"] {
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -456,10 +456,10 @@ html[data-agentlex-theme] [role="tab"] {
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
 }
-html[data-agentlex-theme] [role="tab"]:hover {
+html[data-agentlex-theme] [data-slot="conversation"] [role="tab"]:hover {
   color: var(--dsw-alias-label-primary);
 }
-html[data-agentlex-theme] [role="tab"][aria-selected="true"] {
+html[data-agentlex-theme] [data-slot="conversation"] [role="tab"][aria-selected="true"] {
   background: var(--dsw-specific-bubble);
   color: var(--dsw-specific-sidebar-nav-item-active-accent);
   font-weight: 600;
@@ -467,7 +467,7 @@ html[data-agentlex-theme] [role="tab"][aria-selected="true"] {
 }
 
 /* ═══ 会话气泡与输入区 ═══ */
-html[data-agentlex-theme] [class*="bubble"] {
+html[data-agentlex-theme] [data-slot="conversation"] [class*="bubble"] {
   border-radius: 14px;
   border: 1px solid var(--dsw-alias-border-l1);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
@@ -475,17 +475,17 @@ html[data-agentlex-theme] [class*="bubble"] {
 /* 注意：不要在 composer* 容器上统一加 :focus-within 边框/光环——
    composer 类名在嵌套的多个容器上都会出现，会叠出好几圈线条。 */
 /* 代码块描边与圆角统一 */
-html[data-agentlex-theme] pre[class*="code"],
-html[data-agentlex-theme] [class*="codeBlock"] {
+html[data-agentlex-theme] [data-slot="conversation"] pre[class*="code"],
+html[data-agentlex-theme] [data-slot="conversation"] [class*="codeBlock"] {
   border-radius: 10px;
 }
 
 /* ═══ 新会话 Hero ═══ */
-html[data-agentlex-theme] [class*="headlineText"],
-html[data-agentlex-theme] [class*="previewBadge"] {
+html[data-agentlex-theme] [data-slot="conversation"] [class*="headlineText"],
+html[data-agentlex-theme] [data-slot="conversation"] [class*="previewBadge"] {
   display: none !important;
 }
-html[data-agentlex-theme] [class*="headline"]:not([class*="headlineText"]):not([class*="previewBadge"]) {
+html[data-agentlex-theme] [data-slot="conversation"] [class*="headline"]:not([class*="headlineText"]):not([class*="previewBadge"]) {
   display: flex !important;
   justify-content: center;
   align-items: center;

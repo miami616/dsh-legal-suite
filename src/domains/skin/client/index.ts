@@ -28,6 +28,7 @@ import {
   AgentLexSettingsSection,
   bindAgentLexSettingsScope,
   bindModuleDataDirScopes,
+  bindScopeRetryHooks,
   bindWorkspaces,
 } from './settings-section.tsx'
 
@@ -68,36 +69,45 @@ export function apply(ctx: ClientContext): void {
   } catch (error) {
     diag(`skin config init failed: ${error instanceof Error ? error.message : String(error)}`)
   }
-  try {
-    const settingsScope = (ctx as unknown as { settingsScope?: { bind<T>(spec: { namespace: string }): SettingsScope<T> } }).settingsScope
-    const agentlexScope = settingsScope?.bind<AgentLexSkinConfig>({ namespace: 'agentlex-legal-suite' })
-    bindAgentLexSettingsScope(agentlexScope)
-    if (agentlexScope) {
-      const syncFromScope = (): void => {
-        const value = agentlexScope.getSnapshot().value
-        if (value) {
-          // theme 由 localStorage/默认主题管理（scope 的 resolved 值带 host 默认
-          // 'warm'，会覆盖用户选择与默认 pure），这里排除，只同步其余字段。
-          const { theme: _ignored, ...rest } = value
-          // 品牌字段（欢迎称呼 userName 等）：localStorage 已有用户偏好时，scope 的
-          // 默认值（如 userName='User'）不得回写覆盖——避免水合时序竞态把首页称呼
-          // 重置为默认。guardStoredBrand 会过滤掉品牌字段。
-          setSkinConfig(guardStoredBrand(rest))
+  // 重新(bind) settings scope。远程端（dsh-bridge 远程登录）下 settingsScope 服务
+  // 可能晚于皮肤 apply 就绪：首次可能拿不到 scope，设置页会触发 bindScopeRetryHooks
+  // 的重试直到成功，从而设置页不再空白。
+  let bindSettingsScopes: (() => void) | null = null
+  const doBindSettingsScopes = (): void => {
+    try {
+      const settingsScope = (ctx as unknown as { settingsScope?: { bind<T>(spec: { namespace: string }): SettingsScope<T> } }).settingsScope
+      const agentlexScope = settingsScope?.bind<AgentLexSkinConfig>({ namespace: 'agentlex-legal-suite' })
+      bindAgentLexSettingsScope(agentlexScope)
+      if (agentlexScope) {
+        const syncFromScope = (): void => {
+          const value = agentlexScope.getSnapshot().value
+          if (value) {
+            // theme 由 localStorage/默认主题管理（scope 的 resolved 值带 host 默认
+            // 'warm'，会覆盖用户选择与默认 pure），这里排除，只同步其余字段。
+            const { theme: _ignored, ...rest } = value
+            // 品牌字段（欢迎称呼 userName 等）：localStorage 已有用户偏好时，scope 的
+            // 默认值（如 userName='User'）不得回写覆盖——避免水合时序竞态把首页称呼
+            // 重置为默认。guardStoredBrand 会过滤掉品牌字段。
+            setSkinConfig(guardStoredBrand(rest))
+          }
         }
+        syncFromScope()
+        disposers.push(agentlexScope.subscribe(syncFromScope))
       }
-      syncFromScope()
-      disposers.push(agentlexScope.subscribe(syncFromScope))
+      // Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change).
+      bindModuleDataDirScopes({
+        litigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-litigation' }),
+        nonlitigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-nonlitigation' }),
+      })
+      // 目录选择器（设置页「数据目录 → 选择目录…」按钮，走 client-runtime 的 workspaces.pickDirectory()）。
+      bindWorkspaces(ctx.workspaces)
+    } catch (error) {
+      diag(`skin settingsScope/bind failed: ${error instanceof Error ? error.message : String(error)}`)
     }
-    // Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change).
-    bindModuleDataDirScopes({
-      litigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-litigation' }),
-      nonlitigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-nonlitigation' }),
-    })
-    // 目录选择器（设置页「数据目录 → 选择目录…」按钮，走 client-runtime 的 workspaces.pickDirectory()）。
-    bindWorkspaces(ctx.workspaces)
-  } catch (error) {
-    diag(`skin settingsScope/bind failed: ${error instanceof Error ? error.message : String(error)}`)
   }
+  bindSettingsScopes = doBindSettingsScopes
+  bindScopeRetryHooks(() => { bindSettingsScopes?.() })
+  doBindSettingsScopes()
 
   // 1. Dynamic skin: theme + sidebar CSS + brand slots, controllable by settings.
   const skinDisposers: Array<() => void> = []

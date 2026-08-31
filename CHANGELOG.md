@@ -1,5 +1,24 @@
 # Changelog
 
+## 未发布（0.1.16 预览）
+
+### P0 · 兼容修复：与 bridge / IM 等第三方插件共存
+
+- **移动端导航边栏被 bridge 遮罩盖住、无法点击（与 @wenbin_wb/dsh-bridge 同开时）**：
+  我们插件注入的两份全局 CSS（`original-styles.ts` / `generated-workspace-css.ts`）含
+  `#root{z-index:1}`，在 `#root` 建 stacking context，把 bridge 移动端侧边栏(10000) 困在
+  z:1 层内、被其 backdrop(9999) 盖住。修复：两处 `#root` 规则去掉 `z-index:1`。
+- **远程登录设置页空白 / 加载中（bridge 远程）**：`AgentLexSettingsSection` 的 config 原依赖
+  client-runtime settingsScope 服务（远程不可用）。修复：渲染改用本地 `useSkinConfig()`
+  （恒有值），删除 `if(!scope||!config)` 阻塞；写入改走 `commitSetting`（scope 可用时
+  `scope.set` + 恒 `setSkinConfig` 更新本地并驱动模块启停），远程下设置项点击也有即时反馈。
+- **污染其它插件设置页/组件（如 @xmanrui/dsh-im 渠道选择条 dim-rail 横向化）**：
+  `sidebar.css.ts` 的页面级规则 `[role="tablist"]`/`[role="tab"]`、`[class*="bubble"]`、
+  `pre[class*="code"]`/`[class*="codeBlock"]`、`[class*="headlineText"/previewBadge]`、
+  `[class*="headline"]` 用通用 ARIA 角色/类名子串全局匹配，篡改所有插件同名组件（IM 的
+  dim-rail 被从 grid 覆盖成 flex→横向）。修复：全部收窄限定到会话区
+  `[data-slot="conversation"]`，仅美化 harness 会话/hero/轨迹，不再影响设置页及其它插件。
+
 ## 未发布（0.1.15 预览）
 
 ### P0 · 修复 0.1.14 回归：会话排版（两端对齐 / 排版增强）失效

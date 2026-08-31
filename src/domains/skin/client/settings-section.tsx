@@ -10,7 +10,7 @@ import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react
 import type { IWorkspaces, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the slots contract merge (agentlex.workbench.item declared below).
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-import { setSkinConfig, type AgentLexSkinConfig } from './config.ts'
+import { getSkinConfig, setSkinConfig, useSkinConfig, type AgentLexSkinConfig } from './config.ts'
 import { AGENTLEX_THEMES } from './themes.ts'
 // 目录选择弹层（工作区域提供）：远程端登录无原生目录框时回退到它浏览/输入路径。
 import DirectoryPickerDialog from '../../workspace-sidebar/client/DirectoryPickerDialog.tsx'
@@ -41,8 +41,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 let scope: SettingsScope<AgentLexSkinConfig> | undefined
 
+/** 远程端（如 dsh-bridge 远程登录）下 settingsScope 可能晚于本页就绪；
+ * 设置页检测到 scope 未绑定时调用该回调，让 skin client 重试 bind。 */
+let retryBindScope: (() => void) | null = null
+
+/** 设置页暴露给 skin client：登记 scope 绑定结果（scope 仅在写入时需要；渲染用本地 config）。 */
 export function bindAgentLexSettingsScope(next: SettingsScope<AgentLexSkinConfig> | undefined): void {
   scope = next
+}
+
+/** skin client 在 apply 时登记「重试 bind」；设置页在 scope 缺失时用于重试写入路径。 */
+export function bindScopeRetryHooks(retry: () => void): void {
+  retryBindScope = retry
 }
 
 /** Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change). */
@@ -76,17 +86,20 @@ async function pickDirectoryPath(): Promise<string | null> {
   }
 }
 
-function getSnapshot(): AgentLexSkinConfig | undefined {
-  return scope?.getSnapshot().value
-}
-
-function subscribe(listener: () => void): () => void {
-  if (!scope) return () => {}
-  return scope.subscribe(listener)
-}
-
 /** URL 形态的值不是合法目录路径（如误入的 LLM 接口地址）。 */
 const URLISH_PATH = /^[a-z][a-z0-9+.-]*:\/\//i
+
+/**
+ * 设置项写入的统一入口。远程端（dsh-bridge 远程登录）下 settingsScope 服务不可用，
+ * scope 为 undefined，`scope.set` 会是 no-op（点击无反应）。这里在 scope 可用时仍
+ * 走 scope.set（host 持久化），且**始终**更新本地 skin config（setSkinConfig →
+ * UI 立即切换 + 主题/品牌 localStorage 兜底 + 驱动模块启停），保证任意环境下点击
+ * 都有即时反馈。
+ */
+function commitSetting<K extends keyof AgentLexSkinConfig>(key: K, value: AgentLexSkinConfig[K]): void {
+  if (scope) void scope.set(key, value)
+  setSkinConfig({ [key]: value })
+}
 
 /** Subscribe a module data-dir scope (value key: dataDir)。URL 形态异常值按空处理。 */
 function useDataDirValue(subject: SettingsScope<{ dataDir?: string }> | undefined): string {
@@ -250,7 +263,7 @@ export function AgentLexSettingsSection(props: {
   close?: () => void
   renderSlot: (key: 'agentlex.workbench.item', owner: AgentLexWorkbenchItemOwnerProps) => ReactNode
 }): React.JSX.Element | null {
-  const config = useSyncExternalStore(subscribe, getSnapshot)
+  const config = useSkinConfig()
   const litigationDataDir = useDataDirValue(litigationScope)
   const nonlitigationDataDir = useDataDirValue(nonlitigationScope)
   /** 数据目录存储值被异常数据（URL 等）污染时自愈并提示。 */
@@ -276,7 +289,14 @@ export function AgentLexSettingsSection(props: {
   }, [])
   // 目录选择弹层目标：原生选择框在远程端不可用（pickDirectory 返回 null）时打开。
   const [dirPicker, setDirPicker] = useState<'litigation' | 'nonlitigation' | null>(null)
-  if (!scope || !config) return null
+  // 远程端（dsh-bridge 远程登录）下 settingsScope 可能不可用 → scope 为 undefined。
+  // 渲染只依赖本地 skin 配置（config 取自 useSkinConfig，恒有值），scope 仅用于写入
+  // （可选）。因此设置页始终完整渲染，绝不因 scope 缺失而空白/加载中阻塞。
+  useEffect(() => {
+    if (scope) return
+    const t = setTimeout(() => { retryBindScope?.() }, 120)
+    return () => { clearTimeout(t) }
+  }, [scope])
 
   return (
     <div style={{ maxWidth: 520 }}>
@@ -299,7 +319,7 @@ export function AgentLexSettingsSection(props: {
           label="启用 AgentLex"
           description="关闭后皮肤、诉讼/非诉/任务、技能与工具、工作区右边栏全部停用，回到 DSH 原生界面"
           checked={config.agentlexEnabled}
-          onChange={(v) => void scope?.set('agentlexEnabled', v)}
+          onChange={(v) => commitSetting('agentlexEnabled', v)}
         />
       </div>
 
@@ -311,23 +331,23 @@ export function AgentLexSettingsSection(props: {
           description="外壳与三模块的主题皮肤；关闭后恢复 DSH 原生外观"
           checked={config.skinEnabled}
           disabled={!config.agentlexEnabled}
-          onChange={(v) => void scope?.set('skinEnabled', v)}
+          onChange={(v) => commitSetting('skinEnabled', v)}
         />
         <div style={{ opacity: config.agentlexEnabled && config.skinEnabled ? 1 : 0.5, pointerEvents: config.agentlexEnabled && config.skinEnabled ? 'auto' : 'none' }}>
           <div style={{ margin: '10px 0 4px' }}>
-            <ThemePicker value={config.theme} onSelect={(key) => { void scope?.set('theme', key); setSkinConfig({ theme: key }) }} />
+            <ThemePicker value={config.theme} onSelect={(key) => commitSetting('theme', key)} />
           </div>
           <Toggle
             label="会话正文两端对齐"
             description="AI 输出与用户消息两端对齐，字距紧凑"
             checked={config.conversationJustify}
-            onChange={(v) => void scope?.set('conversationJustify', v)}
+            onChange={(v) => commitSetting('conversationJustify', v)}
           />
           <Toggle
             label="会话排版增强"
             description="行距段距与原生一致、背景块可见、彩色表头"
             checked={config.conversationEnhance}
-            onChange={(v) => void scope?.set('conversationEnhance', v)}
+            onChange={(v) => commitSetting('conversationEnhance', v)}
           />
         </div>
       </div>
@@ -335,25 +355,25 @@ export function AgentLexSettingsSection(props: {
       {/* ③ 品牌 */}
       <div style={{ marginBottom: 18 }}>
         <p style={{ margin: '0 0 10px', paddingTop: 8, borderTop: '1px solid var(--dsw-alias-border-l2)', fontSize: 15, fontWeight: 650, color: 'var(--dsw-alias-label-primary)' }}>品牌</p>
-        <Field label="品牌英文" value={config.brandEn} onCommit={(v) => void scope?.set('brandEn', v)} />
-        <Field label="品牌中文" value={config.brandZh} onCommit={(v) => void scope?.set('brandZh', v)} />
-        <Field label="欢迎语称呼" description="新会话欢迎语中的称呼" value={config.userName} onCommit={(v) => void scope?.set('userName', v)} />
+        <Field label="品牌英文" value={config.brandEn} onCommit={(v) => commitSetting('brandEn', v)} />
+        <Field label="品牌中文" value={config.brandZh} onCommit={(v) => commitSetting('brandZh', v)} />
+        <Field label="欢迎语称呼" description="新会话欢迎语中的称呼" value={config.userName} onCommit={(v) => commitSetting('userName', v)} />
       </div>
 
       {/* ④ 功能模块 */}
       <div style={{ marginBottom: 18 }}>
         <p style={{ margin: '0 0 10px', paddingTop: 8, borderTop: '1px solid var(--dsw-alias-border-l2)', fontSize: 15, fontWeight: 650, color: 'var(--dsw-alias-label-primary)' }}>功能模块</p>
-        <Toggle label="诉讼案件" description="案件看板 / 详情 / 任务树 / 时间轴 / 期限提醒" checked={config.litigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => void scope?.set('litigationEnabled', v)} />
-        <Toggle label="非诉项目" description="项目管理 / 合同审查 / 法律研究 / 常法服务" checked={config.nonlitigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => void scope?.set('nonlitigationEnabled', v)} />
-        <Toggle label="任务管理" description="独立任务 + 跨插件统一任务视图" checked={config.taskEnabled} disabled={!config.agentlexEnabled} onChange={(v) => void scope?.set('taskEnabled', v)} />
-        <Toggle label="技能与工具" description="技能 / MCP 面板与输入框选择" checked={config.skillsToolsEnabled} disabled={!config.agentlexEnabled} onChange={(v) => void scope?.set('skillsToolsEnabled', v)} />
-        <Toggle label="工作区右边栏" description="会话右侧文件树 / 预览 / 搜索" checked={config.workspaceSidebarEnabled} disabled={!config.agentlexEnabled} onChange={(v) => void scope?.set('workspaceSidebarEnabled', v)} />
+        <Toggle label="诉讼案件" description="案件看板 / 详情 / 任务树 / 时间轴 / 期限提醒" checked={config.litigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('litigationEnabled', v)} />
+        <Toggle label="非诉项目" description="项目管理 / 合同审查 / 法律研究 / 常法服务" checked={config.nonlitigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('nonlitigationEnabled', v)} />
+        <Toggle label="任务管理" description="独立任务 + 跨插件统一任务视图" checked={config.taskEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('taskEnabled', v)} />
+        <Toggle label="技能与工具" description="技能 / MCP 面板与输入框选择" checked={config.skillsToolsEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('skillsToolsEnabled', v)} />
+        <Toggle label="工作区右边栏" description="会话右侧文件树 / 预览 / 搜索" checked={config.workspaceSidebarEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('workspaceSidebarEnabled', v)} />
         <div style={{ paddingLeft: 22, opacity: config.agentlexEnabled && config.workspaceSidebarEnabled ? 1 : 0.5, pointerEvents: config.agentlexEnabled && config.workspaceSidebarEnabled ? 'auto' : 'none' }}>
           <Toggle
             label="侧边栏打开文件/链接"
             description="点击会话中的文件路径在右侧栏定位；仅 md 文件预览"
             checked={config.openReferencesInSidebar}
-            onChange={(v) => void scope?.set('openReferencesInSidebar', v)}
+            onChange={(v) => commitSetting('openReferencesInSidebar', v)}
           />
         </div>
       </div>

@@ -1,13 +1,12 @@
 // @ts-nocheck
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings';
 import z from 'schemastery';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { syncShippedPreset } from './shared/preset-sync.ts';
 export const name = 'dsh-legal-suite';
-export const inject = ['webServer'];
-export const AGENTLEX_SUITE_SETTINGS_NS = settingsNamespace('agentlex-legal-suite');
+export const inject = ['webServer', 'settings'];
+export const AGENTLEX_SUITE_SETTINGS_NS = 'agentlex-legal-suite' as const;
 export const Config: Schemastery<Schemastery.ObjectS<{ enabled: boolean; userName: string; brandEn: string; brandZh: string }>, { enabled: boolean; userName: string; brandEn: string; brandZh: string }> = z.object({
     enabled: z.boolean().default(true),
     userName: z.string().default('User'),
@@ -172,31 +171,27 @@ async function ensureAgentPresets() {
     if (count > 0) console.log(`[agentlex-suite] ${count} agent preset(s) ready in ${userPresetRoot}`);
 }
 export function apply(ctx, config = {}) {
-    let current = () => config;
-    let resolved = {
-        enabled: config.enabled ?? true,
-        userName: config.userName ?? 'User',
-        brandEn: config.brandEn ?? 'AgentLex',
-        brandZh: config.brandZh ?? '超级律师助理',
-    };
-    const sync = () => {
-        const value = current();
-        resolved = {
-            enabled: value.enabled ?? true,
-            userName: value.userName ?? 'User',
-            brandEn: value.brandEn ?? 'AgentLex',
-            brandZh: value.brandZh ?? '超级律师助理',
-        };
-    };
-    installSettingsSection(ctx, AGENTLEX_SUITE_SETTINGS_NS, Config, config, {
-        setSource: (source) => { current = source; sync(); },
-        onChange: sync,
-    });
+    // The full AgentLex 配置 lives under one settings namespace
+    // 'agentlex-legal-suite', owned by the skin domain (full schema: theme,
+    // module toggles, brand copy). This aggregate mount previously ALSO
+    // `installSection`'d the same namespace with a small schema — under the
+    // alpha2 harness `ctx.settings.installSection` fails LOUD on a duplicate
+    // namespace, which aborted the SKIN domain's apply and dropped its
+    // /api/agentlex-skin/config route (404). Fix: this mount no longer
+    // registers the namespace; it only READS it per-request via the provider
+    // (non-registering get) so /api/agentlex-suite/config stays live.
     const disposeRoute = ctx.webServer.register({
         kind: 'exact',
         path: '/api/agentlex-suite/config',
         handler: async (_req, res) => {
-            sendJson(res, { success: true, data: resolved });
+            const value = (ctx.settings.get(AGENTLEX_SUITE_SETTINGS_NS) || {});
+            const v = (typeof value === 'object' && value !== null) ? value : {};
+            sendJson(res, { success: true, data: {
+                enabled: v.enabled ?? config.enabled ?? true,
+                userName: v.userName ?? config.userName ?? 'User',
+                brandEn: v.brandEn ?? config.brandEn ?? 'AgentLex',
+                brandZh: v.brandZh ?? config.brandZh ?? '超级律师助理',
+            } });
         },
     });
     ctx.effect(() => () => disposeRoute(), 'dsh-legal-suite: config route');
@@ -271,7 +266,6 @@ export function apply(ctx, config = {}) {
         },
     });
     ctx.effect(() => () => disposeReadRoute(), 'dsh-legal-suite: legacy /read aggregate');
-    sync();
     void ensureAgentPresets().catch((error) => console.warn('[agentlex-suite] preset install failed', error));
 }
 //# sourceMappingURL=index.js.map

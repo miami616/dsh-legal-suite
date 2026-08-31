@@ -31,7 +31,7 @@ export const name = 'dsh-legal-suite'
  * + tools，皮肤与套件需要 webServer。声明并集让 cordis 在全部服务就绪后
  * 再 apply。
  */
-export const inject = ['webServer', 'systemPrompt', 'tools']
+export const inject = ['webServer', 'systemPrompt', 'tools', 'settings']
 
 /** 聚合配置：保留套件级开关（enabled），子域各自仍走独立设置分区。 */
 export interface Config {

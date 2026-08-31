@@ -235,10 +235,15 @@ export function AgentLexHeroMark(_props: { size?: number; className?: string }):
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: 8,
-        padding: '8px 4px',
+        alignSelf: 'center',
+        justifySelf: 'center',
+        boxSizing: 'border-box',
+        width: '100%',
         minWidth: 0,
         maxWidth: 640,
+        overflow: 'hidden',
+        gap: 8,
+        padding: '8px 4px',
       }}
     >
       <div
@@ -271,6 +276,9 @@ export function AgentLexHeroMark(_props: { size?: number; className?: string }):
           letterSpacing: '-0.02em',
           lineHeight: 1.2,
           whiteSpace: 'nowrap',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
         }}
       >
         {greetingText}

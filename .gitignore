@@ -20,3 +20,4 @@ issue-*.md
 
 # local work-buddy tool cache
 .workbuddy/
+*.tgz

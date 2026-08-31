@@ -5,7 +5,7 @@
  * S0 先提供健康路由 + 设置卡片，后续里程碑补全存储/路由/UI。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -28,9 +28,9 @@ export const name = 'nonlitigation'
 export const PRESET_IDS = ['nonlitigation-manager']
 
 /** Services required before the non-litigation surfaces can mount. */
-export const inject = ['webServer', 'systemPrompt', 'tools']
+export const inject = ['webServer', 'systemPrompt', 'tools', 'settings']
 
-export const NONLITIGATION_SETTINGS_NAMESPACE = settingsNamespace('agentlex-nonlitigation')
+export const NONLITIGATION_SETTINGS_NAMESPACE = 'agentlex-nonlitigation' as const
 
 export interface Config {
   enabled?: boolean
@@ -283,7 +283,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     hostSurface = { token, dispose: () => { for (const dispose of disposers.splice(0).reverse()) dispose() } }
   }
 
-  installSettingsSection(ctx, NONLITIGATION_SETTINGS_NAMESPACE, Config, config, {
+  ctx.settings.installSection(ctx, NONLITIGATION_SETTINGS_NAMESPACE, Config, config, {
     setSource: (source) => { current = source; sync() },
     onChange: sync,
   })

@@ -5,7 +5,7 @@
  * S0 先提供健康路由 + 设置卡片，后续里程碑补全存储/路由/UI。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -15,9 +15,9 @@ import { makeRoutes } from './routes.ts'
 export const name = 'task'
 
 /** Services required before the task-management surfaces can mount. */
-export const inject = ['webServer', 'systemPrompt']
+export const inject = ['webServer', 'systemPrompt', 'settings']
 
-export const TASK_SETTINGS_NAMESPACE = settingsNamespace('agentlex-task')
+export const TASK_SETTINGS_NAMESPACE = 'agentlex-task' as const
 
 export interface Config {
   enabled?: boolean
@@ -104,7 +104,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  installSettingsSection(ctx, TASK_SETTINGS_NAMESPACE, Config, config, {
+  ctx.settings.installSection(ctx, TASK_SETTINGS_NAMESPACE, Config, config, {
     setSource: (source) => { current = source; sync() },
     onChange: sync,
   })

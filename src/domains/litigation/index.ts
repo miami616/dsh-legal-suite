@@ -12,7 +12,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -46,14 +46,14 @@ export const name = 'litigation'
 export const PRESET_ID = 'litigation-manager'
 
 /** Services required before the litigation surfaces can mount. */
-export const inject = ['webServer', 'systemPrompt', 'tools']
+export const inject = ['webServer', 'systemPrompt', 'tools', 'settings']
 
 /**
  * Settings namespace of the litigation capability — the section the web
  * settings surface edits. Spelled here rather than imported: the browser half
  * spells the same value and must not depend on a Host package.
  */
-export const LITIGATION_SETTINGS_NAMESPACE = settingsNamespace('agentlex-litigation')
+export const LITIGATION_SETTINGS_NAMESPACE = 'agentlex-litigation' as const
 
 /** Plugin config, validated by the same-named schemastery schema. */
 export interface Config {
@@ -394,7 +394,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  installSettingsSection(ctx, LITIGATION_SETTINGS_NAMESPACE, Config, config, {
+  ctx.settings.installSection(ctx, LITIGATION_SETTINGS_NAMESPACE, Config, config, {
     setSource: (source) => { current = source; sync() },
     onChange: sync,
   })
@@ -408,6 +408,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   }, 'agentlex-litigation: teardown')
 
   // Initial registration from the composition entry (covers deployments with
-  // no settings service, whose installSettingsSection never fires its hooks).
+  // no settings service, whose installSection never fires its hooks).
   sync()
 }

@@ -6,14 +6,14 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
 export const name = 'dsh-legal-suite/skin'
-export const inject = ['webServer']
+export const inject = ['webServer', 'settings']
 
-export const AGENTLEX_SKIN_SETTINGS_NS = settingsNamespace('agentlex-legal-suite')
+export const AGENTLEX_SKIN_SETTINGS_NS = 'agentlex-legal-suite' as const
 
 export interface Config {
   enabled?: boolean
@@ -126,10 +126,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  installSettingsSection(ctx, AGENTLEX_SKIN_SETTINGS_NS, Config, config, {
-    setSource: (source) => { current = source; sync() },
-    onChange: sync,
-  })
+  // Register the settings section so the settings UI can edit this config.
+  // The suite aggregate must NOT also installSection this namespace — a
+  // duplicate registration throws in the alpha2 harness and would abort this
+  // apply before /api/agentlex-skin/config registers (the cause of a 404).
+  // Wrap defensively so a settings-service hiccup never drops the route.
+  try {
+    ctx.settings.installSection(ctx, AGENTLEX_SKIN_SETTINGS_NS, Config, config, {
+      setSource: (source) => { current = source; sync() },
+      onChange: sync,
+    })
+  } catch (error) {
+    console.warn('[agentlex-skin] settings installSection failed:', error instanceof Error ? error.message : String(error))
+  }
 
   activeRoute = {
     token,

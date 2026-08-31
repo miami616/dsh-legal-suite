@@ -23,6 +23,7 @@ import * as task from './domains/task/index.ts'
 import * as skin from './domains/skin/index.ts'
 import * as workspaceSidebar from './domains/workspace-sidebar/index.ts'
 import * as skillsTools from './domains/skills-tools/index.ts'
+import * as memo from './domains/memo/index.ts'
 
 export const name = 'dsh-legal-suite'
 
@@ -82,4 +83,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.plugin(workspaceSidebar, {})
   // 技能与工具域（技能落盘 ~/.dsh/skills + MCP 热加载，CRUD 路由）。
   ctx.plugin(skillsTools, {})
+  // 备忘录域（随手记/标签/归档 + 会话 # 引用自动补全，host 存储 + 工具）。
+  ctx.plugin(memo, {})
 }

@@ -1,6 +1,25 @@
 # Changelog
 
-## 未发布（0.1.16 预览）
+## 未发布（0.1.17 预览）
+
+### P1 · 新增「备忘录」域（随手记 / 标签 / 归档 / 会话 `#` 引用）
+
+- **新业务域 `memo`**：集合进 `dsh-legal-suite`，提供桌面浮动按钮（可拖拽调位、默认
+  透明 hover 显色）→ 居中弹窗创建/编辑备忘；每条可自定义标签并按标签筛选、可归档/
+  恢复/删除/彻底删除；可一键「引用到输入框」插入 `#ref`。
+- **会话 `#` 自动补全**：在会话输入框输入 `#` 弹出已有备忘供选择（鼠标或 ↑/↓ +
+  Enter 均可），底部「＋ 新建备忘」；选中的 `#ref` 经 Lexical `beforeinput` 注入，
+  可靠地被 composer 收敛（避免外部改 DOM 被 Lexical 回写覆盖）。
+- **Agent 工具** `memo_read` / `memo_search`：让模型把会话里的 `#ref` 解析回备忘正文，
+  或按关键字/标签搜索备忘。
+- **存储**：host 用 `JsonFileStore` 持久化到 `~/.dsh/agentlex/memos/memos.json`，
+  REST `/api/agentlex-memo/*`（CRUD + 归档 + 健康），client 经轻量轮询联动刷新（弃用
+  EventSource SSE，规避其在 headless 等环境阻塞同源 fetch 写请求）。
+- **UI 反馈**：保存/归档/删除/恢复/引用均有自动消失的 toast；保存支持 Cmd/Ctrl+Enter
+  或「保存」按钮；点击空白遮罩关闭并自动保存未提交草稿；弹窗背景实色不透明、随主题
+  深浅，680×720 扁平单列设计。
+
+## 0.1.16（2026-08-31）
 
 ### P0 · 兼容修复：与 bridge / IM 等第三方插件共存
 

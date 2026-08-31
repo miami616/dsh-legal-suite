@@ -32,7 +32,7 @@ export const REGISTRY_CHANGED_EVENT = 'agentlex:registry-changed'
 
 /** Which domain a change touched (clients refresh the relevant surface). */
 export type ChangeDomain =
-  | 'cases' | 'case' | 'tasks' | 'timeline' | 'schedules' | 'import'
+  | 'cases' | 'case' | 'tasks' | 'timeline' | 'schedules' | 'import' | 'memos'
 
 export interface RegistryChangedPayload {
   domain: ChangeDomain

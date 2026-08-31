@@ -1,5 +1,27 @@
 # Changelog
 
+## 未发布（0.1.14 预览）
+
+### P1 · 适配 alpha2 harness + 修复 composer 输入框撑宽 + 修复 skin 配置路由 404
+
+- **alpha2 settings API 迁移**：host 半 5 处 `installSettingsSection` 静态调用改为
+  `ctx.settings.installSection(owner, ns, schema, entry, hooks)`，`'settings'` 加入各域
+  inject 与聚合根并集，`settingsNamespace('x')` 改 `as const` 字面量。编译基线保持
+  rc.2 devDeps + 本地 `src/host-settings-alpha.d.ts` shim（alpha2 依赖图 pre-release
+  无法干净整树升级），运行时由 alpha2 harness 提供 `installSection`；profile 不再需要
+  固定 rc.2 host-half deps。
+- **修复 composer 输入框被撑宽 / placeholder 上浮**：`conversation-typography` 的
+  ENHANCE/TYPOGRAPHY CSS 原用 `[class$="_body"]` 选择器，会误匹配会话根 `.wSkVaW_body`
+  与 hero `.pXSMma_body`（包裹 composer），把消息正文规则套到输入框内部 `<p>` 与
+  占位符 `:after` 上。收紧为 `[class$="_body"] [class$="_markdown"] <elem>`，仅作用于
+  真实 AI 消息正文；用户气泡 `_bubble` 规则保留。
+- **修复 `/api/agentlex-skin/config` 404**：`suite.ts` 与 `skin/index.ts` 都 `installSection`
+  同一命名空间 `'agentlex-legal-suite'`，alpha2 对重复注册 fail loud，skin 的 apply 中断
+  导致路由未注册。suite 改为路由时用 `ctx.settings.get` 非注册读现取，skin 独占注册并
+  try/catch 防御；同时删除 suite apply 末尾悬垂的 `sync()` 调用。
+- **hero 欢迎块布局加固**：`alignSelf`/`width`/`overflow` 约束，避免参与父 flex 拉伸。
+- `*.tgz` 加入 `.gitignore`。
+
 ## 未发布（0.1.13 预览）
 
 ### P1 · 诉讼状态阶梯按审级/程序分立

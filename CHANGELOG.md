@@ -1,5 +1,24 @@
 # Changelog
 
+## 未发布（0.1.15 预览）
+
+### P0 · 修复 0.1.14 回归：会话排版（两端对齐 / 排版增强）失效
+
+- **回归根因**：0.1.14 在修复 composer 输入框被撑宽时，把 `CONVERSATION_TYPOGRAPHY_CSS`
+  与 `CONVERSATION_ENHANCE_CSS` 的所有正文规则选择器从 `[class$="_body"]` 收紧为
+  `[class$="_body"] [class$="_markdown"]`。但 harness 的消息正文**并不存在
+  `_markdown` 类名**（该锚点是错的），导致所有规则不再命中 → 两端对齐 / 排版增强
+  全部失效。
+- **修复**：还原为 `[class$="_body"]`（消息正文规则恢复命中），改为**显式排除
+  composer**：composer 编辑区是会话内唯一的 `[data-lexical-editor]`（Lexical 富文本，
+  消息正文不含它），新增同特异性、置于消息规则之后的 `[data-lexical-editor]`
+  覆盖规则，把 `p/li/blockquote/dd` 的 `text-align`/`letter-spacing`/`margin`/
+  `overflow-wrap` 乃至 `font-size`/`line-height` 全部还原，避免排版规则套到输入框
+  内部 `<p>` 上（不再拉宽输入框 / placeholder 上浮）。
+- **验证**：Playwright 注入真实构建 CSS 后，composer `<p>` 计算样式 margin=0、
+  text-align=start、letter-spacing=normal，输入框不受影响；消息正文仍由 `[class$="_body"]`
+  获得两端对齐与排版增强。
+
 ## 未发布（0.1.14 预览）
 
 ### P1 · 适配 alpha2 harness + 修复 composer 输入框撑宽 + 修复 skin 配置路由 404

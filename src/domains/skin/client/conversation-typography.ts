@@ -31,10 +31,10 @@
 export const CONVERSATION_TYPOGRAPHY_CSS = `
 /* —— 会话排版：AI 输出 markdown 正文两端对齐（负字距抵消 justify 撑开的
  * 字间空隙，避免中文被拉得松散） —— */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] p,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] li,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] blockquote,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] dd {
+[data-slot="conversation"] [class$="_body"] p,
+[data-slot="conversation"] [class$="_body"] li,
+[data-slot="conversation"] [class$="_body"] blockquote,
+[data-slot="conversation"] [class$="_body"] dd {
   text-align: justify;
   text-align-last: start;
   text-justify: inter-ideograph;
@@ -54,16 +54,16 @@ export const CONVERSATION_TYPOGRAPHY_CSS = `
   overflow-wrap: break-word;
 }
 /* —— 代码、表格、标题保持左对齐（不被两端拉伸） —— */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h1,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h2,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h3,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h4,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h5,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h6,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] pre,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] code,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] table,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] th {
+[data-slot="conversation"] [class$="_body"] h1,
+[data-slot="conversation"] [class$="_body"] h2,
+[data-slot="conversation"] [class$="_body"] h3,
+[data-slot="conversation"] [class$="_body"] h4,
+[data-slot="conversation"] [class$="_body"] h5,
+[data-slot="conversation"] [class$="_body"] h6,
+[data-slot="conversation"] [class$="_body"] pre,
+[data-slot="conversation"] [class$="_body"] code,
+[data-slot="conversation"] [class$="_body"] table,
+[data-slot="conversation"] [class$="_body"] th {
   text-align: left;
 }
 /* —— 含代码块/表格的段落、列表项、引用、定义项整体回退左对齐 ——
@@ -71,16 +71,38 @@ export const CONVERSATION_TYPOGRAPHY_CSS = `
  * 内部时，外层容器的 justify 仍会把容器内其余文字（以及代码块首尾的
  * 说明文字）拉散。用 :has() 命中「包含块级代码/表格」的容器，让整个
  * 容器回到左对齐，避免两端对齐把文字撑出大空隙。 */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] p:has(pre),
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] p:has(table),
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] li:has(pre),
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] li:has(table),
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] blockquote:has(pre),
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] blockquote:has(table),
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] dd:has(pre),
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] dd:has(table) {
+[data-slot="conversation"] [class$="_body"] p:has(pre),
+[data-slot="conversation"] [class$="_body"] p:has(table),
+[data-slot="conversation"] [class$="_body"] li:has(pre),
+[data-slot="conversation"] [class$="_body"] li:has(table),
+[data-slot="conversation"] [class$="_body"] blockquote:has(pre),
+[data-slot="conversation"] [class$="_body"] blockquote:has(table),
+[data-slot="conversation"] [class$="_body"] dd:has(pre),
+[data-slot="conversation"] [class$="_body"] dd:has(table) {
   text-align: left;
   text-align-last: start;
+}
+
+/* —— composer 排除：上面这些规则以 [class$="_body"] 锚定，会同时命中包裹
+ * composer 的会话根 .wSkVaW_body（含英雄页）。composer 编辑区是唯一的
+ * [data-lexical-editor]（Lexical 富文本），消息正文不含它。CSS 无法用
+ * :not(X *) 做「祖先排除」（_body :not(X *) p 仍会命中 p），故用同特异性
+ * 的 [data-lexical-editor] 覆盖规则把它们还原，且必须置于消息规则之后以
+ * 保证顺序覆盖 —— 避免两端对齐/负字距/换行/段距套到输入框内部 <p> 上。 —— */
+[data-slot="conversation"] [data-lexical-editor] p,
+[data-slot="conversation"] [data-lexical-editor] li,
+[data-slot="conversation"] [data-lexical-editor] blockquote,
+[data-slot="conversation"] [data-lexical-editor] dd {
+  text-align: inherit;
+  text-align-last: inherit;
+  text-justify: auto;
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+[data-slot="conversation"] [data-lexical-editor] p + p,
+[data-slot="conversation"] [data-lexical-editor] li + li {
+  margin-top: 0;
 }
 `.trim()
 
@@ -93,23 +115,23 @@ export const CONVERSATION_ENHANCE_CSS = `
  * 属性覆盖 size/line-height（优先级高于 .markdown 的 font 简写），
  * 字体族完全跟随 DSH 原生 / 用户字体插件的页面级设置。
  * 关闭增强开关后回到第三方/官方排版，互不污染。 */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] {
+[data-slot="conversation"] [class$="_body"] {
   font-size: 16px;
   line-height: 28px;
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h1 {
+[data-slot="conversation"] [class$="_body"] h1 {
   font-size: 24px;
   line-height: 34px;
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h2 {
+[data-slot="conversation"] [class$="_body"] h2 {
   font-size: 22px;
   line-height: 32px;
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h3 {
+[data-slot="conversation"] [class$="_body"] h3 {
   font-size: 20px;
   line-height: 30px;
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h4 {
+[data-slot="conversation"] [class$="_body"] h4 {
   font-size: 16px;
   line-height: 28px;
 }
@@ -124,76 +146,76 @@ body [data-slot="conversation.session"] [class*="dsh-recall-bubble"] {
 /* —— 正文文字加深：官方 markdown 正文偏浅，统一到各主题主文字色 ——
  * （--lit-ink 由皮肤按主题注入：warm 深棕 / jade 墨绿 / ink 藏蓝…；
  * 链接用原生灰色（label-secondary），与文件链接 chip 一致，不抢主题色。） */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] {
+[data-slot="conversation"] [class$="_body"] {
   color: var(--lit-ink, var(--dsw-alias-label-primary, #221b15));
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] a {
+[data-slot="conversation"] [class$="_body"] a {
   color: var(--dsw-alias-label-secondary, #5c6370);
 }
 
 /* —— 段距：大段之间 p 24px、段内连续子段 p+p 28px（更透气，避免拥挤）；
  * li+li 10px、ul/ol 20px（固定 px，不随字号缩水） —— */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] p {
+[data-slot="conversation"] [class$="_body"] p {
   margin: 24px 0;
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] p + p {
+[data-slot="conversation"] [class$="_body"] p + p {
   margin-top: 28px;
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] li {
+[data-slot="conversation"] [class$="_body"] li {
   margin: 0;
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] li + li {
+[data-slot="conversation"] [class$="_body"] li + li {
   margin-top: 10px;
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] ul,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] ol {
+[data-slot="conversation"] [class$="_body"] ul,
+[data-slot="conversation"] [class$="_body"] ol {
   margin: 20px 0;
   padding-left: 1.5em;
 }
 
 /* —— 背景块（代码/引用）浅色主题下清晰可见 —— */
-html:not([data-ds-dark-theme]) [data-slot="conversation"] [class$="_body"] [class$="_markdown"] pre,
-html:not([data-ds-dark-theme]) [data-slot="conversation"] [class$="_body"] [class$="_markdown"] blockquote {
+html:not([data-ds-dark-theme]) [data-slot="conversation"] [class$="_body"] pre,
+html:not([data-ds-dark-theme]) [data-slot="conversation"] [class$="_body"] blockquote {
   background: rgba(0, 0, 0, 0.016);
 }
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] pre,
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] blockquote {
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] pre,
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] blockquote {
   background: rgba(255, 255, 255, 0.07);
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] pre {
+[data-slot="conversation"] [class$="_body"] pre {
   border-radius: 8px;
   padding: 10px 12px;
 }
 
 /* —— 引用块：彩色左边框（活泼） —— */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] blockquote {
+[data-slot="conversation"] [class$="_body"] blockquote {
   border-left: 3px solid var(--lit-accent-strong, #b05e2d);
   padding-left: 12px;
 }
 
 /* —— 分隔线加深 —— */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] hr {
+[data-slot="conversation"] [class$="_body"] hr {
   border-top-color: rgba(0, 0, 0, 0.22);
 }
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] hr {
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] hr {
   border-top-color: rgba(255, 255, 255, 0.28);
 }
 
 /* —— markdown 标题带主题色（与表头/标题栏呼应，活泼） —— */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h1,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h2,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h3,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h4,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h5,
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] h6 {
+[data-slot="conversation"] [class$="_body"] h1,
+[data-slot="conversation"] [class$="_body"] h2,
+[data-slot="conversation"] [class$="_body"] h3,
+[data-slot="conversation"] [class$="_body"] h4,
+[data-slot="conversation"] [class$="_body"] h5,
+[data-slot="conversation"] [class$="_body"] h6 {
   color: var(--lit-accent-strong, #b05e2d);
 }
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] h1,
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] h2,
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] h3,
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] h4,
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] h5,
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] h6 {
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] h1,
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] h2,
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] h3,
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] h4,
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] h5,
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] h6 {
   color: var(--lit-accent, #d4803f);
 }
 
@@ -205,7 +227,7 @@ html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_m
  * overflow-wrap:break-word 作为兜底（无分隔符的超长串仅在溢出时断行），「自然边界断行」
  * 由 conversation-inline-code.ts 在 / . _ - 后注入的 <wbr> 负责，避免把目录名从中间劈开；
  * box-decoration-break:clone 保证跨多行时每段都带圆角+背景，而非只有外框圆角。 —— */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] :not(pre) > code {
+[data-slot="conversation"] [class$="_body"] :not(pre) > code {
   display: inline;
   background: var(--dsw-alias-markdown-inline-code, rgba(0, 0, 0, 0.06));
   color: var(--dsw-alias-label-primary, inherit);
@@ -218,22 +240,22 @@ html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_m
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] :not(pre) > code {
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] :not(pre) > code {
   background: var(--dsw-alias-markdown-inline-code, rgba(255, 255, 255, 0.08));
   color: var(--dsw-alias-label-primary, inherit);
 }
 
 /* —— 表格：外框/单元格边框加深，表头主题色（86%，活泼但不浓） —— */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] table {
+[data-slot="conversation"] [class$="_body"] table {
   border-collapse: collapse;
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.16);
 }
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] table {
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] table {
   border-color: rgba(255, 255, 255, 0.24);
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] table th {
+[data-slot="conversation"] [class$="_body"] table th {
   background: var(--lit-accent-strong, #b05e2d);
   background: color-mix(in srgb, var(--lit-accent-strong, #b05e2d) 86%, transparent);
   color: var(--lit-on-accent, #fff);
@@ -242,7 +264,7 @@ html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_m
   padding: 7px 12px;
   border-bottom: 2px solid color-mix(in srgb, var(--lit-accent-strong, #b05e2d) 65%, transparent);
 }
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] table th {
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] table th {
   background: var(--lit-accent-strong, #b05e2d);
   background: color-mix(in srgb, var(--lit-accent-strong, #b05e2d) 86%, transparent);
 }
@@ -250,37 +272,37 @@ html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_m
 /* —— 代码块：容器边框加深；标题栏（语言标签 + 复制按钮）与表头同色（86%） ——
  * primitives 的 CSS Modules 类名中间含 _banner_（本地名在中间），
  * 故用子串匹配 [class*="_banner_"]（不会误中 _bannerWrap_）。 */
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] .md-code-block {
+[data-slot="conversation"] [class$="_body"] .md-code-block {
   border: 1px solid rgba(0, 0, 0, 0.16);
   border-radius: 8px;
 }
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] .md-code-block {
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] .md-code-block {
   border-color: rgba(255, 255, 255, 0.24);
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] .md-code-block [class*="_banner_"] {
+[data-slot="conversation"] [class$="_body"] .md-code-block [class*="_banner_"] {
   background: var(--lit-accent-strong, #b05e2d);
   background: color-mix(in srgb, var(--lit-accent-strong, #b05e2d) 86%, transparent);
   border-radius: 8px 8px 0 0;
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] .md-code-block [class*="_banner_"],
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] .md-code-block [class*="_banner_"] * {
+[data-slot="conversation"] [class$="_body"] .md-code-block [class*="_banner_"],
+[data-slot="conversation"] [class$="_body"] .md-code-block [class*="_banner_"] * {
   color: var(--lit-on-accent, #fff);
 }
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] .md-code-block [class*="_banner_"] {
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] .md-code-block [class*="_banner_"] {
   background: var(--lit-accent-strong, #b05e2d);
   background: color-mix(in srgb, var(--lit-accent-strong, #b05e2d) 86%, transparent);
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] table td {
+[data-slot="conversation"] [class$="_body"] table td {
   padding: 6px 12px;
   border: 1px solid rgba(0, 0, 0, 0.16);
 }
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] table td {
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] table td {
   border-color: rgba(255, 255, 255, 0.24);
 }
-[data-slot="conversation"] [class$="_body"] [class$="_markdown"] table tr:nth-child(2n) td {
+[data-slot="conversation"] [class$="_body"] table tr:nth-child(2n) td {
   background: rgba(0, 0, 0, 0.025);
 }
-html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_markdown"] table tr:nth-child(2n) td {
+html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] table tr:nth-child(2n) td {
   background: rgba(255, 255, 255, 0.03);
 }
 
@@ -302,6 +324,27 @@ html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] [class$="_m
     word-spacing: normal !important;
     text-indent: 0 !important;
   }
+}
+
+/* —— composer 排除：还原增强规则套到 [data-lexical-editor]（composer 编辑区）
+ * 上的字号/行高/段距/列表缩进，避免输入框被 _body 锚定的规则影响。
+ * 置于全部增强规则之后（同特异性靠顺序覆盖）。 —— */
+[data-slot="conversation"] [data-lexical-editor] {
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+}
+[data-slot="conversation"] [data-lexical-editor] p,
+[data-slot="conversation"] [data-lexical-editor] li,
+[data-slot="conversation"] [data-lexical-editor] blockquote,
+[data-slot="conversation"] [data-lexical-editor] dd {
+  margin: 0;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+[data-slot="conversation"] [data-lexical-editor] p + p,
+[data-slot="conversation"] [data-lexical-editor] li + li {
+  margin-top: 0;
 }
 `.trim()
 

@@ -324,6 +324,47 @@ html[data-color-scheme="dark"] [data-agentlex-memo-root] {
   border-top: 1px solid var(--memo-border); margin-top: 4px; padding-top: 4px;
   color: var(--memo-accent); font-weight: 600;
 }
+
+/* ---- 移动端适配（窄屏）----
+ * 移动端（如手机 / 窄屏 Web App wrapper）主题变量可能解析出过浅的灰阶文字，
+ * 导致输入框与条目内容几乎看不清。这里在窄屏下强制提高对比度、放宽面板到
+ * 几乎全宽、收紧留白，保证窄屏可读且不溢出。
+ */
+@media (max-width: 640px) {
+  /* 文字对比度：主文字→深近黑/近白，次级→足够深/浅，不再用很浅的 tertiary */
+  [data-agentlex-memo-root] {
+    --memo-fg: #1a1a1c;                /* 主文字：深近黑，保证可读 */
+    --memo-fg-muted: #4a4a52;          /* 次级：足够深 */
+    --memo-fg-subtle: #5f5f6a;         /* 弱化：仍清晰，不再过浅 */
+    --memo-bg: var(--paper-elevated, #ffffff);
+    --memo-bg-inset: var(--paper-inset, #f5f4f1);
+    color-scheme: light;
+  }
+  html[data-color-scheme="dark"] [data-agentlex-memo-root] {
+    --memo-fg: #f2f2f4;                /* 深色下主文字近白 */
+    --memo-fg-muted: #d6d6dc;          /* 次级不再过灰 */
+    --memo-fg-subtle: #c2c2ca;
+  }
+  /* 面板几乎占满可用宽度，保证窄屏不溢出 */
+  .memo-panel[data-agentlex-memo-root] {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 32px);
+    border-radius: 14px;
+  }
+  /* 头部/列表等减少大段留白，放大字号便于移动阅读 */
+  .memo-panel__header { padding: 14px 16px 10px; gap: 8px; }
+  .memo-draft { padding: 4px 16px 10px; }
+  .memo-draft--edit { margin: 0 16px 10px; padding: 12px; }
+  .memo-tags-bar { padding: 4px 16px 10px; }
+  .memo-tabs { padding: 10px 16px 0; }
+  .memo-item { padding: 13px 16px; gap: 8px; }
+  .memo-item__content { font-size: 16px; }
+  .memo-draft__input { font-size: 16px; min-height: 64px; }
+  .memo-draft__tags-input { font-size: 15px; height: 44px; }
+  .memo-footer { padding: 10px 16px; }
+  .memo-act { width: 38px; height: 38px; }
+}
 `
 
 /* 预留空导出满足 ESM 类型 */

@@ -104,19 +104,30 @@ export function mountMemo(ctx: unknown): () => void {
       // 默认透明灰图标，hover 才显强调色。
       'touch-action: none;',
     ].join(' ')
-    // 拖拽
-    let dragging = false
+    // 拖拽：用「按下点」到「抬起点」的位移判断是拖动还是点击。
+    // 关键：浏览器在 pointerup 之后才派发 click，若在 onUp 里直接清掉 dragging
+    // 标志，纯拖动结束时 click 会误触发打开面板。改为记录按下起点并累计位移，
+    // 只有位移超过阈值才算「拖拽」，否则视为「点击」。
+    const DRAG_THRESHOLD = 6 // px；超过即判定为拖动，忽略随后的 click。
+    let pressing = false
+    let moved = false
+    let downX = 0
+    let downY = 0
     let offX = 0
     let offY = 0
     const onDown = (e: PointerEvent): void => {
-      dragging = true
+      pressing = true
+      moved = false
+      downX = e.clientX
+      downY = e.clientY
       offX = e.clientX - floatBtn!.getBoundingClientRect().left
       offY = e.clientY - floatBtn!.getBoundingClientRect().top
       floatBtn!.style.transition = 'none'
       e.preventDefault()
     }
     const onMove = (e: PointerEvent): void => {
-      if (!dragging || !floatBtn) return
+      if (!pressing || !floatBtn) return
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > DRAG_THRESHOLD) moved = true
       const x = Math.min(window.innerWidth - size, Math.max(0, e.clientX - offX))
       const y = Math.min(window.innerHeight - size, Math.max(0, e.clientY - offY))
       floatBtn.style.left = `${x}px`
@@ -124,13 +135,14 @@ export function mountMemo(ctx: unknown): () => void {
       writeStorage(STORAGE_POS, `${Math.round(x)},${Math.round(y)}`)
     }
     const onUp = (): void => {
-      if (!dragging) return
-      dragging = false
+      if (!pressing) return
+      pressing = false
       // 清掉拖拽期间的内联 transition，交还给 .memo-float 的 CSS 过渡。
       floatBtn!.style.transition = ''
     }
     const onClick = (): void => {
-      if (dragging) return
+      // 位移超过阈值说明刚才是纯拖动，不打开面板。
+      if (moved) return
       togglePanel()
     }
     floatBtn.addEventListener('pointerdown', onDown)

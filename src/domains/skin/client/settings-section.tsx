@@ -299,7 +299,7 @@ export function AgentLexSettingsSection(props: {
   }, [scope])
 
   return (
-    <div style={{ maxWidth: 520 }}>
+    <div style={{ maxWidth: 520, width: '100%' }}>
       {/* 顶部标题区：品牌名 + 版本 + 一句话定位 */}
       <div style={{ marginBottom: 18, paddingBottom: 14, borderBottom: '1px solid var(--dsw-alias-border-l2)' }}>
         <p style={{ margin: '0 0 2px', fontSize: 20, fontWeight: 750, letterSpacing: 0.2, color: 'var(--dsw-alias-label-primary)' }}>

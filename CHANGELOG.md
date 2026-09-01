@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.21（2026-09-01）
+
+### P0 · 会话轨迹导航（TurnNavigator）Codex 风格美化 + 数据源
+
+- **轨迹导航美化**（`conversation-navigation.ts`）：把 DSH 原生 TurnNavigator 改造成
+  dsh-codex-timeline 视觉风格——
+  - 轨道透明、去掉竖线，只保留低对比短横标记；
+  - 悬停标记扩展为 39px，邻近形成 30/21/15px 分级波动（`:has()` 相邻兄弟）；
+  - 预览卡沿用原生外观（原生 10px 圆角/边框/阴影，不覆盖背景色）。
+- **预览卡数据源**（新增 `conversation-turn-data.ts`）：卡片内容从「位置 + 标题 + 内容」
+  增强为「位置 + 时间 + 状态 + 指标 + 两行摘要」，匹配参考插件——
+  - 时间：从会话 DOM 回合 `timeStart` 标记按回合读取；
+  - 状态：已完成/进行中；
+  - 指标：`session.projections.faceOf('sessionStats')` 折算平均 TTFT + tok/s
+    （与会话 footer 一致，如 "TTFT 3.4s · 292 tok/s"）。
+- **hover 检测修复**：原生 mark 按钮 `pointer-events:none`，`pointerenter` 不触发，
+  改为在 nav 上监听 `pointermove` + `elementFromPoint` 定位；tooltip 内容更新是
+  characterData 变化，MutationObserver 加 `characterData:true` 才能捕获后续 hover 切换。
+- **设置项**：新增「会话轨迹导航美化」开关（关闭恢复 DSH 原生轨迹导航）+ 位置选择
+  （右侧/左侧，去掉「隐藏」选项）。
+
 ## 0.1.20（2026-09-01）
 
 ### P0 · 检查更新交互重构 + 排队消息横条修复

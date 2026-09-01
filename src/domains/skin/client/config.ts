@@ -33,6 +33,10 @@ export interface AgentLexSkinConfig {
   conversationJustify: boolean
   /** 会话排版增强：行距段距与原生一致、可见背景块、彩色表头。 */
   conversationEnhance: boolean
+  /** 会话轨迹导航（TurnNavigator）美化开关：关闭后恢复 DSH 原生轨迹导航。 */
+  conversationNavEnabled: boolean
+  /** 会话轨迹导航（TurnNavigator）位置：'right' 右侧（默认）| 'left' 左侧。 */
+  conversationNavPosition: 'right' | 'left'
 }
 
 const DEFAULT_CONFIG: AgentLexSkinConfig = {
@@ -51,6 +55,8 @@ const DEFAULT_CONFIG: AgentLexSkinConfig = {
   theme: DEFAULT_THEME_KEY,
   conversationJustify: true,
   conversationEnhance: true,
+  conversationNavEnabled: true,
+  conversationNavPosition: 'right',
 }
 
 let config: AgentLexSkinConfig = DEFAULT_CONFIG

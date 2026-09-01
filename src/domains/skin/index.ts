@@ -36,6 +36,10 @@ export interface Config {
   conversationJustify?: boolean
   /** 会话排版增强：行距段距与原生一致、可见背景块、彩色表头。 */
   conversationEnhance?: boolean
+  /** 会话轨迹导航（TurnNavigator）美化开关：关闭后恢复 DSH 原生轨迹导航。 */
+  conversationNavEnabled?: boolean
+  /** 会话轨迹导航（TurnNavigator）位置：'right' 右侧（默认）| 'left' 左侧。 */
+  conversationNavPosition?: 'right' | 'left'
 }
 
 export const Config: z<Config> = z.object({
@@ -55,6 +59,8 @@ export const Config: z<Config> = z.object({
   theme: z.string().default('warm'),
   conversationJustify: z.boolean().default(true),
   conversationEnhance: z.boolean().default(true),
+  conversationNavEnabled: z.boolean().default(true),
+  conversationNavPosition: z.union(['right', 'left']).default('right'),
 })
 
 function sendJson(res: ServerResponse, body: unknown): void {
@@ -108,6 +114,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     theme: config.theme ?? 'warm',
     conversationJustify: config.conversationJustify ?? true,
     conversationEnhance: config.conversationEnhance ?? true,
+    conversationNavEnabled: config.conversationNavEnabled ?? true,
+    conversationNavPosition: config.conversationNavPosition ?? 'right',
   }
 
   const sync = (): void => {
@@ -128,6 +136,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       theme: value.theme ?? 'warm',
       conversationJustify: value.conversationJustify ?? true,
       conversationEnhance: value.conversationEnhance ?? true,
+      conversationNavEnabled: value.conversationNavEnabled ?? true,
+      conversationNavPosition: value.conversationNavPosition ?? 'right',
     }
   }
 

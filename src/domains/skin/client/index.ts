@@ -19,6 +19,8 @@ import { AgentLexBrandMark, AgentLexBrandName, AgentLexHeroMark } from './brand.
 import { AGENTLEX_THEME_TOKENS } from './theme.ts'
 import { AGENTLEX_SIDEBAR_CSS } from './sidebar.css.ts'
 import { CONVERSATION_TYPOGRAPHY_CSS, CONVERSATION_ENHANCE_CSS, CONVERSATION_TITLE_CSS } from './conversation-typography.ts'
+import { CONVERSATION_NAV_CSS, mountConversationNav, type ConversationNavPosition } from './conversation-navigation.ts'
+import { setupTurnDataSource, emptyTurnDataSource, type TurnDataSource } from './conversation-turn-data.ts'
 import { injectInlineCodeWbr } from './conversation-inline-code.ts'
 import { BUSINESS_MODULES_CSS } from './business-modules.ts'
 import { mountAgentLexSidebarGroup } from './sidebar-group.ts'
@@ -32,7 +34,7 @@ import {
   bindWorkspaces,
 } from './settings-section.tsx'
 
-export const inject = ['slots', 'locale', 'theme', 'settingsScope', 'workspaces']
+export const inject = ['slots', 'locale', 'theme', 'settingsScope', 'workspaces', 'sessions']
 
 /** Inject a style tag once. */
 function injectStyle(id: string, css: string): () => void {
@@ -123,6 +125,12 @@ export function apply(ctx: ClientContext): void {
   let enhanceDisposer: (() => void) | undefined
   /** 会话页标题字号样式注入（随皮肤启停，无独立开关）。 */
   let titleStyleDisposer: (() => void) | undefined
+  /** 会话轨迹导航（TurnNavigator）美化样式注入。 */
+  let navStyleDisposer: (() => void) | undefined
+  /** 会话轨迹导航（TurnNavigator）DOM 控制（设置 data-agentlex-nav 属性）。 */
+  let navMountDisposer: (() => void) | undefined
+  /** 会话轮次数据源（时间/状态/指标），供预览卡增强；启用时建立，停用时释放。 */
+  let turnDataSource: TurnDataSource | undefined
 
   /** 按当前配置注入/移除会话排版样式（幂等）。 */
   const syncTypography = (): void => {
@@ -157,6 +165,40 @@ export function apply(ctx: ClientContext): void {
     }
   }
   syncTypography()
+
+  /** 按当前配置注入/移除会话轨迹导航（TurnNavigator）美化样式与 DOM 控制。 */
+  const syncNav = (): void => {
+    const skinOn = getSkinConfig().agentlexEnabled && getSkinConfig().skinEnabled
+    const navOn = skinOn && getSkinConfig().conversationNavEnabled
+    const position = getSkinConfig().conversationNavPosition
+    if (navOn) {
+      // 注入样式并挂载 DOM 控制；position 为 'right'/'left' 时
+      // mountConversationNav 会设置 data-agentlex-nav 驱动 CSS 美化与左右切换。
+      if (navStyleDisposer === undefined) {
+        navStyleDisposer = injectStyle('nav', CONVERSATION_NAV_CSS)
+      }
+      // 建立会话轮次数据源（仅在启用时，避免无谓订阅）。
+      if (turnDataSource === undefined) {
+        turnDataSource = setupTurnDataSource(ctx)
+      }
+      const turnSource = turnDataSource
+      // 位置变化时重新挂载（dispose 旧的再挂载新的），确保 data-agentlex-nav 更新。
+      navMountDisposer?.()
+      navMountDisposer = mountConversationNav(
+        position,
+        turnSource ? turnSource.get.bind(turnSource) : undefined,
+      )
+    } else {
+      // 关闭时移除样式与 DOM 控制，恢复 DSH 原生轨迹导航。
+      navStyleDisposer?.()
+      navStyleDisposer = undefined
+      navMountDisposer?.()
+      navMountDisposer = undefined
+      turnDataSource?.dispose()
+      turnDataSource = undefined
+    }
+  }
+  syncNav()
 
   /** 把当前主题的 lit 变量直接写入 html 内联样式（优先级最高，不依赖注入 style 的存活/顺序）。 */
   const applyLitVars = (): void => {
@@ -304,6 +346,7 @@ export function apply(ctx: ClientContext): void {
   const unsubscribeSkin = subscribeSkinConfig(() => {
     syncSkin()
     syncTypography()
+    syncNav()
   })
   ctx.effect(() => () => {
     unsubscribeSkin()
@@ -316,6 +359,12 @@ export function apply(ctx: ClientContext): void {
     enhanceDisposer = undefined
     titleStyleDisposer?.()
     titleStyleDisposer = undefined
+    navStyleDisposer?.()
+    navStyleDisposer = undefined
+    navMountDisposer?.()
+    navMountDisposer = undefined
+    turnDataSource?.dispose()
+    turnDataSource = undefined
     for (const dispose of disposers.splice(0)) dispose()
   }, 'dsh-legal-suite/skin: theme+brand+sidebar+settings')
 }

@@ -349,6 +349,46 @@ export function AgentLexSettingsSection(props: {
             checked={config.conversationEnhance}
             onChange={(v) => commitSetting('conversationEnhance', v)}
           />
+          <Toggle
+            label="会话轨迹导航美化"
+            description="把原生回合导航改造成 Codex 风格时间线；关闭后恢复 DSH 原生轨迹导航"
+            checked={config.conversationNavEnabled}
+            onChange={(v) => commitSetting('conversationNavEnabled', v)}
+          />
+          <div style={{ margin: '10px 0 4px', opacity: config.conversationNavEnabled ? 1 : 0.5, pointerEvents: config.conversationNavEnabled ? 'auto' : 'none' }}>
+            <p style={{ margin: '0 0 6px', fontSize: 12.5, fontWeight: 600, color: 'var(--dsw-alias-label-secondary)' }}>轨迹导航位置</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {([
+                { key: 'right', label: '右侧' },
+                { key: 'left', label: '左侧' },
+              ] as const).map((opt) => {
+                const active = config.conversationNavPosition === opt.key
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => commitSetting('conversationNavPosition', opt.key)}
+                    style={{
+                      flex: 1,
+                      padding: '7px 0',
+                      borderRadius: 8,
+                      border: `1.5px solid ${active ? 'var(--dsw-alias-state-business-primary)' : 'var(--dsw-alias-border-l2)'}`,
+                      background: active ? 'var(--dsw-alias-state-business-tertiary)' : 'var(--dsw-specific-input-major)',
+                      color: 'var(--dsw-alias-label-primary)',
+                      fontSize: 12.5,
+                      fontWeight: active ? 600 : 500,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+            <p style={{ margin: '6px 0 0', fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)' }}>
+              会话旁的回合导航轨道：Codex 风格美化样式，可选左/右摆放
+            </p>
+          </div>
         </div>
       </div>
 

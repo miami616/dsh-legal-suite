@@ -366,6 +366,7 @@ export function AgentLexSettingsSection(props: {
         <Toggle label="诉讼案件" description="案件看板 / 详情 / 任务树 / 时间轴 / 期限提醒" checked={config.litigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('litigationEnabled', v)} />
         <Toggle label="非诉项目" description="项目管理 / 合同审查 / 法律研究 / 常法服务" checked={config.nonlitigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('nonlitigationEnabled', v)} />
         <Toggle label="任务管理" description="独立任务 + 跨插件统一任务视图" checked={config.taskEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('taskEnabled', v)} />
+        <Toggle label="备忘录" description="随手记 + 会话 #编号 引用备忘" checked={config.memoEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('memoEnabled', v)} />
         <Toggle label="技能与工具" description="技能 / MCP 面板与输入框选择" checked={config.skillsToolsEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('skillsToolsEnabled', v)} />
         <Toggle label="工作区右边栏" description="会话右侧文件树 / 预览 / 搜索" checked={config.workspaceSidebarEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('workspaceSidebarEnabled', v)} />
         <div style={{ paddingLeft: 22, opacity: config.agentlexEnabled && config.workspaceSidebarEnabled ? 1 : 0.5, pointerEvents: config.agentlexEnabled && config.workspaceSidebarEnabled ? 'auto' : 'none' }}>

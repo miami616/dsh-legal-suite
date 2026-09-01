@@ -233,22 +233,49 @@ export function mountMemo(ctx: unknown): () => void {
       document.body.appendChild(suggestHost)
     }
     if (suggestRoot === null) suggestRoot = createRoot(suggestHost)
+    // 定位：紧贴光标，弹出位置与 DSH 原生 / 命令菜单一致（光标下方一行）。
+    let px = 80
+    let py = 0
     const el = findComposer()
-    const pos = el ? caretPosition(el) : null
-    if (pos) {
-      suggestHost.style.position = 'fixed'
-      suggestHost.style.left = `${Math.min(pos.x, window.innerWidth - 340)}px`
-      suggestHost.style.top = `${Math.min(pos.y + 6, window.innerHeight - 40)}px`
-      suggestHost.style.zIndex = '2147483010'
-      suggestHost.style.display = 'block'
+    if (el) {
+      const caret = caretPosition(el)
+      if (caret && Number.isFinite(caret.x) && Number.isFinite(caret.y)) {
+        px = caret.x
+        py = caret.y // caretPosition 返回光标行底，直接在其下方展开
+      } else {
+        const r = el.getBoundingClientRect()
+        // 探测失败兜底：composer 左下角附近
+        px = r.left + 12
+        py = r.top + 24
+      }
     }
+    // 估算弹层高度，决定向下还是向上展开，且不越出视口。
+    const SUGGEST_EST_H = suggestMemos.length > 0 ? Math.min(56 + suggestMemos.length * 40, 300) : 40
+    const SUGGEST_W = 320
+    const GAP = 6 // 与光标底部间距
+    let left = Math.max(8, Math.min(px, window.innerWidth - SUGGEST_W - 8))
+    let top: number
+    if (py + GAP + SUGGEST_EST_H > window.innerHeight - 8) {
+      top = Math.max(8, py - GAP - SUGGEST_EST_H) // 上方展开
+    } else {
+      top = py + GAP // 光标正下方
+    }
+    suggestHost.style.position = 'fixed'
+    suggestHost.style.left = `${left}px`
+    suggestHost.style.top = `${top}px`
+    suggestHost.style.width = `${SUGGEST_W}px`
+    suggestHost.style.zIndex = '2147483010'
+    suggestHost.style.display = 'block'
     suggestRoot.render(
       React.createElement(
         'div',
-        { className: 'memo-suggest' },
+        { className: 'memo-suggest', 'data-agentlex-memo-root': true },
         suggestMemos.length > 0
           ? [
-              React.createElement('div', { className: 'memo-suggest__head', key: 'head' }, '引用备忘'),
+              React.createElement('div', { className: 'memo-suggest__head', key: 'head' },
+                React.createElement('span', null, '引用备忘'),
+                React.createElement('span', { className: 'memo-suggest__hint' }, '输入 #编号 选择'),
+              ),
               ...suggestMemos.slice(0, 8).map((m, i) =>
                 React.createElement('button', {
                   type: 'button',
@@ -358,12 +385,26 @@ export function mountMemo(ctx: unknown): () => void {
   const observer = new MutationObserver(renderFloat)
   observer.observe(document.body, { childList: true, subtree: true })
 
+  // 点击弹层外部任意处关闭补全（弹层可见时）。点击弹层内部（点选）或
+  // composer 内部（继续改 #）不关；前者交给选中逻辑，后者交给 onComposerChange。
+  const onDocPointerDown = (e: PointerEvent): void => {
+    if (!suggestVisible) return
+    const target = e.target as Node | null
+    if (!target || !(target instanceof Node)) return
+    const el = findComposer()
+    if (suggestHost?.contains(target)) return // 弹层内部，点选
+    if (el && el.contains(target)) return // composer 内部，让 onComposerChange 决定
+    hideSuggest()
+  }
+  document.addEventListener('pointerdown', onDocPointerDown, true)
+
   buildFloat()
   renderFloat()
 
   return () => {
     observer.disconnect()
     document.removeEventListener('keydown', onKeyDown, true)
+    document.removeEventListener('pointerdown', onDocPointerDown, true)
     disposeSuggest()
     closePanel()
     hideSuggest()

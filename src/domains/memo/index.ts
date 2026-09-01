@@ -24,6 +24,14 @@ export const inject = ['webServer', 'settings', 'systemPrompt', 'tools']
 
 export const MEMO_SETTINGS_NAMESPACE = 'agentlex-memo' as const
 
+/** Model-facing announcement: memo 插件能力 & `#编号` 引用解析规则。 */
+const MEMO_GUIDANCE =
+  '本机已安装 dsh-legal-suite 备忘插件（备忘录）：会话输入框输入 `#` 会弹出备忘列表，' +
+  '选中后用 `#编号`（如 `#1`、`#2`）表示一条备忘引用。当用户消息中出现 `#数字` 时，' +
+  '它表示「备忘录第 N 条」，请务必调用 memo_read 工具（传 ref=该数字）取回这条备忘的正文，' +
+  '并在回复中据此展开/应答，而不是把 `#数字` 当一个普通字符串。用户提到「备忘 / 备忘录 / ' +
+  '随手记 / 之前记的」时即指本插件的备忘条目。数据文件位于 $DSH_HOME/agentlex/memos/memos.json。'
+
 export interface Config {
   enabled?: boolean
   dataDir?: string
@@ -72,13 +80,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     const dataDir = resolveDataDir(value.dataDir)
     const memoStore = createMemoStore(dataDir, ctx)
     const deps: RouteDeps = { memoStore }
-    // 同时注册 API 路由与模型工具（agent 用 #ref 查备忘正文），
-    // 两者随同一 surface 一起卸载。
+    // 同时注册 API 路由、模型工具与系统提示（agent 用 `#编号` 查备忘正文），
+    // 三者随同一 surface 一起卸载。
     const disposeRoutes = makeRoutes(ctx, deps)
     const disposeTool = registerMemoTool(ctx, memoStore)
+    const disposePrompt = ctx.systemPrompt.section({
+      name: 'plugin:agentlex-memo',
+      order: 170,
+      text: MEMO_GUIDANCE,
+    })
     activeSurface = {
       token,
       dispose: () => {
+        disposePrompt()
         disposeTool()
         disposeRoutes()
       },

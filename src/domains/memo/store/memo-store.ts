@@ -33,15 +33,48 @@ export function normalizeTags(tags: unknown): string[] {
 }
 
 /**
- * 从正文生成引用码：优先匹配 `#[A-Za-z0-9_-]+` 中用户主动写的 token；
- * 否则取正文前几个中文字/词作 slug；为空则用 id 尾段。唯一性由调用方保证。
+ * 取「缺失的最小可用编号」字符串，用于备忘的 `ref`（如 1、2、3…）。
+ * 规则：编号从 1 开始递增，空缺号优先复用（删除中间一条后新建会补齐空缺，
+ * 不因删除漂移）。`taken` 为已占用的数字号集合。
  */
-export function deriveRef(content: string, tags: string[], id: string): string {
-  const explicit = /#([A-Za-z0-9_-]+)/.exec(content)
-  if (explicit !== null && explicit[1] !== '') return explicit[1].toLowerCase()
-  const base = content.trim().replace(/\s+/g, ' ').slice(0, 16)
-  if (base !== '') return base.toLowerCase()
-  return id.slice(-8)
+export function nextMemoNumber(taken: Set<number>): string {
+  let n = 1
+  while (taken.has(n)) n += 1
+  return String(n)
+}
+
+/** true 当 ref 是纯正整数（可作为编号）。 */
+export function isNumericRef(ref: string): boolean {
+  return /^\d+$/.test(ref) && String(Number(ref)) === ref
+}
+
+/**
+ * 把所有备忘规范化为「数字编号 ref」（1、2、3…，稳定不复用删除后的空缺，
+ * 按 createdAt 顺序分配）。返回是否发生了改动。
+ *
+ * 兼容迁移：早期版本的 ref 是正文 slug（如“移动端…”），这里统一重排为编号，
+ * 使会话输入框 `#N` 即可引用任意一条备忘。
+ */
+export function normalizeNumericRefs(
+  memos: Record<string, MemoItem>,
+): { next: string; changed: boolean } {
+  // 先把「编号唯一性」约束建立起来：收集已占用编号。
+  const taken = new Set<number>()
+  for (const m of Object.values(memos)) {
+    if (isNumericRef(m.ref)) taken.add(Number(m.ref))
+  }
+  // 给所有非数字 ref 的备忘按其创建顺序分配缺失编号。
+  let changed = false
+  const items = Object.values(memos).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  for (const m of items) {
+    if (isNumericRef(m.ref)) continue
+    const num = nextMemoNumber(taken)
+    m.ref = String(num)
+    taken.add(Number(num))
+    memos[m.id] = m
+    changed = true
+  }
+  return { next: nextMemoNumber(taken), changed }
 }
 
 export function createMemoStore(dataDir: string, ctx: Context): MemoStore {
@@ -53,9 +86,20 @@ export function createMemoStore(dataDir: string, ctx: Context): MemoStore {
   const s = (v: unknown): string | undefined => (v === undefined || v === null) ? undefined : String(v)
 
   return {
-    async readRegistry() { return store.read() },
+    async readRegistry() {
+      let reg = await store.read()
+      // 规范化：确保所有备忘为数字编号 ref（兼容旧版 slug ref 迁移）。
+      if (normalizeNumericRefs(reg.memos).changed) {
+        reg = await store.mutate((r) => {
+          normalizeNumericRefs(r.memos)
+          r.lastUpdated = nowIso()
+          return r
+        }, 'memos', undefined, 'normalize-refs')
+      }
+      return reg
+    },
     async listMemos() {
-      const reg = await store.read()
+      const reg = await this.readRegistry()
       return Object.values(reg.memos)
     },
     async getMemo(id) {
@@ -67,34 +111,27 @@ export function createMemoStore(dataDir: string, ctx: Context): MemoStore {
       const id = s(input.id) ?? childId('memo')
       let result: MemoItem | undefined
       await store.mutate((reg) => {
-        const existing = reg.memos[id] ?? { id, createdAt: now, ref: '', status: ('active' as MemoItem['status']) }
+        // 先规范化已有备忘的编号 ref（兼容旧 slug ref）。
+        const { next } = normalizeNumericRefs(reg.memos)
+        const existing = reg.memos[id]
         const rawContent = s(input.content)
         const tags = normalizeTags(input.tags)
-        const explicitRef = s(input.ref)?.toLowerCase()
-        const derivedRef = deriveRef(rawContent ?? '', tags, id)
-        // 新备忘（无 ref）→ 从正文推导引用码；已有 ref 保留（除非显式更新）。
-        let ref = explicitRef ?? (existing.ref !== '' ? existing.ref : derivedRef)
-        // 引用码唯一性：与其他备忘撞号时追加短序号。
-        if (explicitRef === undefined) {
-          const others = Object.values(reg.memos).filter((m) => m.id !== id && m.ref === ref)
-          if (others.length > 0) {
-            ref = `${ref}-${others.length + 1}`
-            // 极端：再撞则用 id 尾段。
-            if (Object.values(reg.memos).some((m) => m.id !== id && m.ref === ref)) ref = id.slice(-8)
-          }
-        }
-        const next: MemoItem = {
-          ...existing,
+        // 新备忘 → 取下一个编号；编辑已有 → 保留其编号。
+        const ref = existing !== undefined && existing.ref !== ''
+          ? existing.ref
+          : next
+        const nextItem: MemoItem = {
+          ...(existing ?? { id, createdAt: now, ref: '', status: ('active' as MemoItem['status']) }),
           id,
-          content: rawContent !== undefined ? rawContent : existing.content ?? '',
-          tags: input.tags !== undefined ? tags : existing.tags ?? [],
+          content: rawContent !== undefined ? rawContent : existing?.content ?? '',
+          tags: input.tags !== undefined ? tags : existing?.tags ?? [],
           ref,
-          status: (s(input.status) as MemoItem['status']) ?? existing.status ?? 'active',
+          status: (s(input.status) as MemoItem['status']) ?? existing?.status ?? 'active',
           updatedAt: now,
         }
-        reg.memos[id] = next
+        reg.memos[id] = nextItem
         reg.lastUpdated = now
-        result = next
+        result = nextItem
         return reg
       }, 'memos', undefined, 'upsert-memo')
       return result!

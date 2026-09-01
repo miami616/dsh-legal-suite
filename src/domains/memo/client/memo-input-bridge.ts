@@ -285,13 +285,17 @@ export function subscribeComposer(listener: (el: HTMLElement) => void): () => vo
     const el = findComposer()
     if (el) listener(el)
   }
-  document.addEventListener('input', handler, true)
-  document.addEventListener('selectionchange', () => {
+  const onSelectionChange = (): void => {
     const el = findComposer()
     if (el && el.contains(window.getSelection()?.anchorNode ?? null)) listener(el)
-  })
+  }
+  document.addEventListener('input', handler, true)
+  document.addEventListener('selectionchange', onSelectionChange)
   return () => {
     document.removeEventListener('input', handler, true)
+    // 关键：selectionchange 也必须移除，否则 memo 关闭后监听泄漏，
+    // 输入框光标一动仍会触发 # 补全重算（表现为"关了备忘开关 # 还乱"）。
+    document.removeEventListener('selectionchange', onSelectionChange)
   }
 }
 

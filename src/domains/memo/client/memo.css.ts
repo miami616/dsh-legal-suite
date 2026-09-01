@@ -294,35 +294,67 @@ html[data-color-scheme="dark"] [data-agentlex-memo-root] {
   to { opacity: 1; transform: translate(-50%, 0) }
 }
 
-/* ---- # 自动补全弹层 ---- */
+/* ---- # 自动补全弹层（与 DSH 原生 / 命令菜单同款：不透明实底、原生阴影、12px 圆角） ---- */
 .memo-suggest[data-agentlex-memo-root] {
   position: fixed; z-index: 2147483010;
-  min-width: 300px; max-width: 380px; max-height: 360px; overflow-y: auto;
-  padding: 6px;
-  border-radius: 14px;
-  background: var(--memo-bg-solid);
-  border: 1px solid var(--memo-border);
-  box-shadow: var(--memo-shadow);
-  display: flex; flex-direction: column; gap: 2px;
+  min-width: 300px; max-width: 380px; max-height: 320px; overflow-y: auto;
+  padding: 4px;
+  border-radius: 12px;
+  /* 与 / 命令菜单一致：不透明实色 + 原生投影，不依赖可能透明的主题变量 */
+  background: #ffffff;
+  box-shadow: rgba(0, 0, 0, 0.2) 0 0 1px 0, rgba(0, 0, 0, 0.02) 0 0 4px 0, rgba(0, 0, 0, 0.08) 0 12px 32px 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex; flex-direction: column; gap: 1px;
 }
-.memo-suggest__head { padding: 6px 10px 4px; font-size: 12px; font-weight: 700; color: var(--memo-fg-subtle); letter-spacing: 0.02em; }
+html[data-color-scheme="dark"] .memo-suggest[data-agentlex-memo-root] {
+  background: #1d1d20;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: rgba(0, 0, 0, 0.5) 0 0 1px 0, rgba(0, 0, 0, 0.4) 0 12px 32px 0;
+}
+.memo-suggest__head {
+  padding: 6px 10px 7px; font-size: 12px; font-weight: 700;
+  color: #6b6b74; letter-spacing: 0.04em;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08); margin-bottom: 2px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+html[data-color-scheme="dark"] .memo-suggest__head { color: #b6b6bf; border-bottom-color: rgba(255,255,255,0.1); }
+.memo-suggest__head .memo-suggest__hint { font-weight: 400; font-size: 11px; color: #9b9ba4; }
 .memo-suggest__item {
   display: flex; align-items: center; gap: 10px;
-  padding: 9px 11px; border-radius: 9px;
+  padding: 9px 11px; border-radius: 8px;
   cursor: pointer; transition: background 110ms ease;
-  border: 0; background: transparent; color: var(--memo-fg); text-align: left; width: 100%;
+  border: 0; background: transparent; color: #1c1c1e; text-align: left; width: 100%;
   font: inherit;
 }
-.memo-suggest__item:hover, .memo-suggest__item--sel { background: var(--memo-accent-soft); }
-.memo-suggest__ref {
-  flex: none; font-size: 13px; font-weight: 700; color: var(--memo-accent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; min-width: 56px;
+html[data-color-scheme="dark"] .memo-suggest__item { color: #f0f0f2; }
+.memo-suggest__item:hover, .memo-suggest__item--sel {
+  background: rgba(194, 109, 58, 0.13); /* 强调色 13% 的浅底，与原生 hover 一致 */
 }
-.memo-suggest__txt { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--memo-fg-muted); }
-.memo-suggest__tag { flex: none; font-size: 12px; color: var(--memo-fg-subtle); background: var(--memo-bg-inset-solid); border-radius: 5px; padding: 1px 6px; }
+html[data-color-scheme="dark"] .memo-suggest__item:hover,
+html[data-color-scheme="dark"] .memo-suggest__item--sel { background: rgba(255,255,255,0.09); }
+.memo-suggest__ref {
+  flex: none; font-size: 13px; font-weight: 800; color: #c26d3a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-width: 44px; text-align: center;
+  background: rgba(194, 109, 58, 0.12); border-radius: 6px; padding: 3px 8px;
+  letter-spacing: 0.02em;
+}
+html[data-color-scheme="dark"] .memo-suggest__ref { color: #e8a06a; background: rgba(232,160,106,0.16); }
+.memo-suggest__txt {
+  flex: 1; min-width: 0; font-size: 14px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #4a4a52; line-height: 1.4;
+}
+html[data-color-scheme="dark"] .memo-suggest__txt { color: #d6d6dc; }
+.memo-suggest__tag {
+  flex: none; font-size: 12px; color: var(--memo-fg-muted);
+  background: var(--memo-bg-inset-solid); border-radius: 5px;
+  padding: 1px 7px; border: 1px solid var(--memo-border);
+}
 .memo-suggest__new {
-  border-top: 1px solid var(--memo-border); margin-top: 4px; padding-top: 4px;
+  border-top: 1px solid var(--memo-border); margin-top: 6px; padding-top: 6px;
   color: var(--memo-accent); font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
 }
 
 /* ---- 移动端适配（窄屏）----

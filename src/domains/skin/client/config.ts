@@ -25,6 +25,8 @@ export interface AgentLexSkinConfig {
   workspaceSidebarEnabled: boolean
   /** 会话内文件/链接点击用侧边栏打开。 */
   openReferencesInSidebar: boolean
+  /** 备忘录（memo）开关。 */
+  memoEnabled: boolean
   /** 外观主题 key：见 themes.ts AGENTLEX_THEMES（warm/pure/jade/ink/wisteria/orange/codex/cinnabar/indigo/celadon/onyx） */
   theme: string
   /** 会话排版：AI 输出与用户消息两端对齐显示。 */
@@ -45,6 +47,7 @@ const DEFAULT_CONFIG: AgentLexSkinConfig = {
   skillsToolsEnabled: true,
   workspaceSidebarEnabled: true,
   openReferencesInSidebar: true,
+  memoEnabled: true,
   theme: DEFAULT_THEME_KEY,
   conversationJustify: true,
   conversationEnhance: true,
@@ -129,6 +132,7 @@ export function setSkinConfig(next: Partial<AgentLexSkinConfig>): void {
     skillsToolsEnabled: effective(config.skillsToolsEnabled),
     workspaceSidebarEnabled: effective(config.workspaceSidebarEnabled),
     openReferencesInSidebar: effective(config.openReferencesInSidebar),
+    memoEnabled: effective(config.memoEnabled),
   })
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('agentlex:toggles-changed', {
@@ -141,6 +145,7 @@ export function setSkinConfig(next: Partial<AgentLexSkinConfig>): void {
         skillsToolsEnabled: effective(config.skillsToolsEnabled),
         workspaceSidebarEnabled: effective(config.workspaceSidebarEnabled),
         openReferencesInSidebar: effective(config.openReferencesInSidebar),
+        memoEnabled: effective(config.memoEnabled),
         conversationJustify: config.conversationJustify,
         conversationEnhance: config.conversationEnhance,
       },

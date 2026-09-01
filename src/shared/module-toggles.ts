@@ -19,6 +19,8 @@ export interface ModuleToggles {
   workspaceSidebarEnabled: boolean
   /** 会话内文件/链接点击用侧边栏打开。 */
   openReferencesInSidebar: boolean
+  /** 备忘录（memo）开关。 */
+  memoEnabled: boolean
 }
 
 const DEFAULT_TOGGLES: ModuleToggles = {
@@ -29,6 +31,7 @@ const DEFAULT_TOGGLES: ModuleToggles = {
   skillsToolsEnabled: true,
   workspaceSidebarEnabled: true,
   openReferencesInSidebar: true,
+  memoEnabled: true,
 }
 
 let toggles: ModuleToggles = DEFAULT_TOGGLES

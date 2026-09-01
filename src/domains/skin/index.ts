@@ -30,6 +30,7 @@ export interface Config {
   skillsToolsEnabled?: boolean
   workspaceSidebarEnabled?: boolean
   openReferencesInSidebar?: boolean
+  memoEnabled?: boolean
   theme?: string
   /** 会话排版：AI 输出与用户消息两端对齐显示。 */
   conversationJustify?: boolean
@@ -50,6 +51,7 @@ export const Config: z<Config> = z.object({
   skillsToolsEnabled: z.boolean().default(true),
   workspaceSidebarEnabled: z.boolean().default(true),
   openReferencesInSidebar: z.boolean().default(true),
+  memoEnabled: z.boolean().default(true),
   theme: z.string().default('warm'),
   conversationJustify: z.boolean().default(true),
   conversationEnhance: z.boolean().default(true),
@@ -102,6 +104,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     skillsToolsEnabled: config.skillsToolsEnabled ?? true,
     workspaceSidebarEnabled: config.workspaceSidebarEnabled ?? true,
     openReferencesInSidebar: config.openReferencesInSidebar ?? true,
+    memoEnabled: config.memoEnabled ?? true,
     theme: config.theme ?? 'warm',
     conversationJustify: config.conversationJustify ?? true,
     conversationEnhance: config.conversationEnhance ?? true,
@@ -121,6 +124,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       skillsToolsEnabled: value.skillsToolsEnabled ?? true,
       workspaceSidebarEnabled: value.workspaceSidebarEnabled ?? true,
       openReferencesInSidebar: value.openReferencesInSidebar ?? true,
+      memoEnabled: value.memoEnabled ?? true,
       theme: value.theme ?? 'warm',
       conversationJustify: value.conversationJustify ?? true,
       conversationEnhance: value.conversationEnhance ?? true,

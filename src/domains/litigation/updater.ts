@@ -388,14 +388,65 @@ async function installViaPnpm(pkg: string, to: string, signal?: AbortSignal): Pr
 
   // 2. 交给 pnpm 安装（registry 拉取 + 完整性校验 + 清单/lockfile 同步）。
   setProgress({ phase: 'installing', pkg, to, message: `${packageLabel(pkg)} 通过 pnpm 安装 @${to}…` })
-  const result = await runPnpm(['add', '--config.node-linker=hoisted', `${pkg}@${to}`], profileDir(), signal)
+  let result = await runPnpm(['add', '--config.node-linker=hoisted', `${pkg}@${to}`], profileDir(), signal)
   if (signal?.aborted) throw new Error('更新已取消')
   if (!result.ok) {
+    // ③ 兜底：换 npm 安装（参考 dsh-bridge：npm 不经过 pnpm 的 minimumReleaseAge
+    // 发布冷却，可在刚发布即更新；也能绕开其它 pnpm 供应链策略拦截）。仍失败则
+    // 抛错（旧版本已备份）。
+    console.warn(`[agentlex-litigation] pnpm install failed for ${pkg}@${to}; retrying via npm: ${result.output.slice(0, 200)}`)
+    setProgress({ phase: 'installing', pkg, to, message: `${packageLabel(pkg)} pnpm 失败，改用 npm 安装 @${to}…` })
+    const npmOk = await runNpmInstall(pkg, to, signal)
+    if (npmOk) {
+      console.log(`[agentlex-litigation] updated ${pkg} → ${to} via npm`)
+      return
+    }
     throw new Error(
-      `pnpm 安装失败：${result.output || '命令异常退出'}（可能网络无法访问 npm registry；旧版本已备份于 ${backupRoot}）`,
+      `安装失败：pnpm 与 npm 均失败（${result.output || '命令异常退出'}；旧版本已备份于 ${backupRoot}）`,
     )
   }
   console.log(`[agentlex-litigation] updated ${pkg} → ${to} via pnpm`)
+}
+
+/**
+ * 用 npm 重试安装（`npm install <pkg>@<to> --save --save-exact --prefix <profileDir>`）。
+ * 主要用途：绕开 pnpm 的 minimumReleaseAge 发布冷却（刚发布的版本可立即更新）。
+ * 返回是否成功（npm 不写 profile 的 pnpm-workspace 策略，仅更新 node_modules 与
+ * package.json 依赖声明）。
+ */
+function runNpmInstall(pkg: string, to: string, signal?: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    const bin = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+    const child = spawn(bin, ['install', `${pkg}@${to}`, '--save', '--save-exact', '--prefix', profileDir()], {
+      cwd: profileDir(),
+      env: { ...process.env, CI: 'true', npm_config_audit: 'false', npm_config_fund: 'false' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false,
+    })
+    const chunks: Buffer[] = []
+    let lastOutputAt = Date.now()
+    const append = (chunk: Buffer): void => { chunks.push(chunk); lastOutputAt = Date.now() }
+    child.stdout?.on('data', append)
+    child.stderr?.on('data', append)
+    const timer = setTimeout(() => child.kill(), INSTALL_TIMEOUT_MS)
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastOutputAt > PNPM_SILENT_KILL_MS) child.kill()
+    }, 15_000)
+    const onAbort = (): void => { child.kill() }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    const settle = (ok: boolean): void => {
+      clearTimeout(timer)
+      clearInterval(watchdog)
+      signal?.removeEventListener('abort', onAbort)
+      resolve(ok)
+    }
+    child.on('error', () => settle(false))
+    child.on('close', (code) => {
+      const output = Buffer.concat(chunks).toString('utf8').trim().slice(0, 500)
+      if (output !== '') lastPnpmErrorOutput = output
+      settle(code === 0)
+    })
+  })
 }
 
 /**
@@ -684,4 +735,42 @@ export async function fixSupplyChainPolicy(): Promise<{ ok: boolean; added: stri
     return { ok: false, added: [], error: '未检测到供应链策略拦截（请先执行一次更新以复现）' }
   }
   return addMinimumReleaseAgeExcludes(offenders)
+}
+
+/* ───────────────────────── 宿主进程重启 ───────────────────────── */
+
+/**
+ * 重启 DSH 宿主进程（新版本宿主代码在启动时加载，必须重启才生效）。
+ *
+ * 参考 dsh-bridge 的 `restartDsh` 实现：
+ * - 守护进程 / PM2 托管（DSH_DAEMON / PM2_HOME 存在）：直接 process.exit(0)，
+ *   由守护进程自动拉起（本机 DSH 服务由 supervisor 托管，退出会自动重启）。
+ * - 常规 Node/CLI 模式：先 spawn 一个与当前进程相同参数（process.execPath +
+ *   process.argv.slice(1)）的 detached 后台子进程接管，再 process.exit(0)。
+ *
+ * 重启后浏览器需刷新以加载新版本界面；调用方（client）负责在重启后重连并
+ * `location.reload()`。
+ */
+export function restartDshProcess(): { ok: boolean; scheduled?: boolean } {
+  setTimeout(() => {
+    try {
+      if (process.env.DSH_DAEMON || process.env.PM2_HOME) {
+        // 由守护进程 / PM2 拉起。
+        process.exit(0)
+      } else {
+        // 常规模式：派生独立后台子进程后退出（自举接管）。
+        const child = spawn(process.execPath, process.argv.slice(1), {
+          cwd: process.cwd(),
+          env: process.env,
+          detached: true,
+          stdio: 'ignore',
+        })
+        child.unref()
+        process.exit(0)
+      }
+    } catch (error) {
+      console.warn(`[agentlex-litigation] restartDsh failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, 600)
+  return { ok: true, scheduled: true }
 }

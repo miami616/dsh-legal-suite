@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.20（2026-09-01）
+
+### P0 · 检查更新交互重构 + 排队消息横条修复
+
+- **检查更新交互**（参考 dsh-bridge）：
+  - 「插件版本与更新」块放回设置页底部（套件区）。
+  - 新版本刚发布被 pnpm `minimumReleaseAge` 拦截时，新增**「强制一键安装最新版」**按钮
+    （改用 npm 安装绕开发布冷却，刚发布即可更新）。
+  - 更新完成后提供**「重启 DSH（使新版本生效）」**（宿主自重启：守护/PM2 退出拉起、
+    常规模式派生子进程接管）与**「刷新页面」**两个按钮，不再只刷新浏览器。
+  - 新增宿主重启能力 `restartDshProcess()` + 端点 `POST /api/agentlex-case/plugin-restart`。
+- **排队消息横条（QueueDock）修复**：输入框上方带「编辑/删除/插话发送」按钮的排队横条，
+  被「会话排版增强」的 `[class$="_body"] ul,ol{margin:20px 0;padding-left:1.5em}` 命中
+  `<ul>` 列表，高度从 40px 撑到 80px（翻倍）；同时被两端对齐 `text-align:justify` +
+  负字距拉宽文字。修复=QueueDock 排除里把 ul/ol 的 margin/padding 还原为 0、文字还原为
+  左对齐 + 正常字距（均 `!important`）。验证：隔离测试 profile(3081) dockH 从 80px 恢复 40px。
+
 ## 0.1.19（2026-09-01）
 
 ### P0 · 备忘编号引用 + `#` 补全弹层重构 + 备忘录开关

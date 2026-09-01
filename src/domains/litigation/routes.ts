@@ -47,6 +47,8 @@ export interface RouteDeps {
     cancel(): Promise<unknown>
     /** 一键修复 pnpm 供应链策略（minimumReleaseAge）拦截。 */
     policyFix?(): Promise<unknown>
+    /** 重启 DSH 宿主进程（新版本宿主代码生效）。 */
+    restart?(): { ok: boolean; scheduled?: boolean }
   }
 }
 
@@ -523,6 +525,15 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (d.pluginUpdate === undefined) return fail(res, 'plugin updater not mounted', 501)
     if (d.pluginUpdate.policyFix === undefined) return fail(res, 'policy fix not mounted', 501)
     ok(res, await d.pluginUpdate.policyFix())
+  })
+
+  // POST /api/agentlex-case/plugin-restart —— 重启 DSH 宿主进程（新版本宿主代码
+  //   在启动时加载）。参考 dsh-bridge：守护进程退出后拉起 / 派生子进程接管。
+  route(`${API_PREFIX}/plugin-restart`, async (d, _b, res) => {
+    if (d.pluginUpdate === undefined || d.pluginUpdate.restart === undefined) {
+      return fail(res, 'plugin restart not mounted', 501)
+    }
+    ok(res, d.pluginUpdate.restart())
   })
 
   // 适配器消化：诉讼域 legacy 兼容面（/api/agentlex/*）与原生路由共用同一批 store。

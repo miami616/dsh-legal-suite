@@ -38,6 +38,7 @@ import {
   updateProgressSnapshot,
   cancelUpdate,
   fixSupplyChainPolicy,
+  restartDshProcess,
 } from './updater.ts'
 
 /** Stable cordis plugin name. */
@@ -374,6 +375,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         status: async () => updateProgressSnapshot(),
         cancel: async () => cancelUpdate(),
         policyFix: () => fixSupplyChainPolicy(),
+        restart: () => restartDshProcess(),
       },
       // Import from ~/.myagents/agentlex (or an explicit dir), read-only source.
       importFromAgentLex: async (sourceDir?: string) => {

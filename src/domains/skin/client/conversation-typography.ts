@@ -53,6 +53,26 @@ export const CONVERSATION_TYPOGRAPHY_CSS = `
   letter-spacing: -0.03em;
   overflow-wrap: break-word;
 }
+/* —— 排队/等待消息面板排除：输入框上方「排队中」的待处理消息（PendingSteering /
+ * PendingSubmission）用 data-pending-steering / data-submission-echo 标记，其
+ * 内容容器同样命中 [class$="_body"] / [class$="_bubble"]，会被上面的两端对齐/
+ * 负字距规则拉宽。这里还原为左对齐 + 正常字距，避免排队消息被拉成"拉宽版"。 —— */
+[data-slot="conversation"] [data-pending-steering] [class$="_body"] p,
+[data-slot="conversation"] [data-pending-steering] [class$="_body"] li,
+[data-slot="conversation"] [data-pending-steering] [class$="_body"] blockquote,
+[data-slot="conversation"] [data-pending-steering] [class$="_body"] dd,
+[data-slot="conversation"] [data-submission-echo] [class$="_body"] p,
+[data-slot="conversation"] [data-submission-echo] [class$="_body"] li,
+[data-slot="conversation"] [data-submission-echo] [class$="_body"] blockquote,
+[data-slot="conversation"] [data-submission-echo] [class$="_body"] dd,
+[data-slot="conversation"] [data-pending-steering] [class$="_bubble"],
+[data-slot="conversation"] [data-submission-echo] [class$="_bubble"] {
+  text-align: left;
+  text-align-last: start;
+  text-justify: auto;
+  letter-spacing: normal;
+  overflow-wrap: break-word;
+}
 /* —— 代码、表格、标题保持左对齐（不被两端拉伸） —— */
 [data-slot="conversation"] [class$="_body"] h1,
 [data-slot="conversation"] [class$="_body"] h2,
@@ -103,6 +123,27 @@ export const CONVERSATION_TYPOGRAPHY_CSS = `
 [data-slot="conversation"] [data-lexical-editor] p + p,
 [data-slot="conversation"] [data-lexical-editor] li + li {
   margin-top: 0;
+}
+/* —— 排队消息面板（QueueDock）排除：输入框上方的「排队中」横条会被
+ * [class$="_body"] 锚定的两端对齐（justify + 负字距）与增强规则命中，
+ * 导致排队消息文字被拉宽/错乱。这里用 !important 强制还原为左对齐 +
+ * 正常字距 + dock 自身排版，并随 composer 卡片宽度居中。 —— */
+[data-queue-dock],
+[data-queue-dock] p,
+[data-queue-dock] li,
+[data-queue-dock] blockquote,
+[data-queue-dock] dd,
+[data-queue-dock] span {
+  text-align: left !important;
+  text-align-last: start !important;
+  text-justify: auto !important;
+  letter-spacing: normal !important;
+  overflow-wrap: break-word !important;
+}
+[data-queue-dock] {
+  max-width: var(--dsh-composer-card-max-width, 720px);
+  margin-left: auto;
+  margin-right: auto;
 }
 `.trim()
 
@@ -345,6 +386,35 @@ html[data-ds-dark-theme] [data-slot="conversation"] [class$="_body"] table tr:nt
 [data-slot="conversation"] [data-lexical-editor] p + p,
 [data-slot="conversation"] [data-lexical-editor] li + li {
   margin-top: 0;
+}
+/* —— 排队消息面板（QueueDock）排除：它位于 composer 上方的 input.dock 槽位，
+ * 会被上面 [class$="_body"] 锚定的增强规则（16px/28px 字号行高、p 段距、正文
+ * 加深）命中，导致排队横条被拉宽/错乱。这里用 !important 强制还原为 dock
+ * 自身排版（尤其 line-height 28px 会把横条高度撑高一倍）。 —— */
+[data-queue-dock] {
+  font-size: 13px !important;
+  line-height: 20px !important;
+  text-align: left !important;
+  text-align-last: start !important;
+  text-justify: auto !important;
+  letter-spacing: normal !important;
+}
+[data-queue-dock] p,
+[data-queue-dock] li,
+[data-queue-dock] span {
+  margin: 0 !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+  color: inherit !important;
+  text-align: inherit !important;
+  letter-spacing: inherit !important;
+}
+/* —— QueueDock 的 <ul> 列表会被增强规则 ul/ol{margin:20px 0;padding-left:1.5em}
+ * 命中，把排队横条高度撑高一倍。这里还原为 dock 自身列表排版。 —— */
+[data-queue-dock] ul,
+[data-queue-dock] ol {
+  margin: 0 !important;
+  padding: 0 !important;
 }
 `.trim()
 

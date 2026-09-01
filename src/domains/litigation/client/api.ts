@@ -370,6 +370,11 @@ export function fixPluginPolicy(): Promise<PluginPolicyFixResult> {
   return call('plugin-policy-fix')
 }
 
+/** 重启 DSH 宿主进程（新版本宿主代码生效）。返回 { ok, scheduled }。 */
+export function restartDshPlugin(): Promise<{ ok: boolean; scheduled?: boolean }> {
+  return call('plugin-restart')
+}
+
 export function folderTree(path: string): Promise<FolderTreeResult> {
   return call('folder-tree', { path })
 }

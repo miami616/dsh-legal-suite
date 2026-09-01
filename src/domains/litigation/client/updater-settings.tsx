@@ -18,6 +18,7 @@ import {
   fixPluginPolicy,
   getSelfPluginVersion,
   getPluginUpdateStatus,
+  restartDshPlugin,
   runPluginUpdate,
   type PluginUpdateResult,
   type PluginVersionCheck,
@@ -136,7 +137,7 @@ function VersionRow({
 
 /** 「插件版本与更新」设置块（挂在 AgentLex 设置设置页内）。 */
 export function PluginUpdaterSettings(): React.JSX.Element {
-  const [phase, setPhase] = useState<'idle' | 'checking' | 'ready' | 'error' | 'updating' | 'done'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'checking' | 'ready' | 'error' | 'updating' | 'done' | 'restarting'>('idle')
   const [check, setCheck] = useState<PluginVersionCheck | null>(null)
   /** 运行中版本（self-version 接口；失败回退构建期常量）。 */
   const [selfVersion, setSelfVersion] = useState('')
@@ -151,13 +152,24 @@ export function PluginUpdaterSettings(): React.JSX.Element {
   const [fixing, setFixing] = useState(false)
   const [fixMsg, setFixMsg] = useState<string | null>(null)
 
-  /** 桌面环境：请求宿主重启 harness（新版本宿主代码生效）；网页环境仅能刷新。 */
+  /** 重启 DSH（新版本宿主代码生效）。桌面壳调用宿主重启；网页环境走宿主
+   *  `/api/agentlex-case/plugin-restart`。重启后刷新页面加载新版本界面。 */
   const restartDsh = async (): Promise<void> => {
+    setErrorText(null)
     try {
-      setErrorText(null)
-      await window.dshDesktopApp?.restartHarness()
+      if (window.dshDesktopApp?.restartHarness !== undefined) {
+        await window.dshDesktopApp.restartHarness()
+        return
+      }
+      // 网页环境：请求宿主自重启（守护/派生子进程），随后轮询恢复并刷新。
+      await restartDshPlugin()
+      // 宿主退出到重新拉起需要时间；延迟后刷新页面加载新版本。
+      setPhase('restarting')
+      await new Promise((resolve) => setTimeout(resolve, 2500))
+      window.location.reload()
     } catch (error) {
       setErrorText(`重启失败：${errorMessage(error)}`)
+      setPhase('done')
     }
   }
 
@@ -306,15 +318,20 @@ export function PluginUpdaterSettings(): React.JSX.Element {
           {isPolicyViolation(errorText ?? undefined) && (
             <div style={{ marginBottom: 12, padding: '8px 10px', borderRadius: 8, background: 'var(--dsw-alias-state-warning-tertiary)' }}>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--dsw-alias-state-warning-primary)', fontWeight: 600 }}>
-                pnpm 供应链策略（minimumReleaseAge）拦截了新发布的包。一键修复会把被拦的包加入
-                profile 的 minimumReleaseAgeExclude 放行清单（不关闭整个策略），然后自动重试更新。
+                新版本刚发布，被 pnpm 供应链策略（minimumReleaseAge）拦截。可「强制一键安装」直接装最新版
+                （改用 npm 安装，绕开发布冷却），或「一键修复」把版本加入放行清单后重试。
               </p>
               {fixMsg !== null && (
                 <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>{fixMsg}</p>
               )}
-              <button type="button" onClick={() => void handlePolicyFix()} disabled={fixing} style={{ ...ghostButton, marginTop: 8 }}>
-                {fixing ? '修复中…' : '一键修复并重试更新'}
-              </button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                <button type="button" onClick={() => void runUpdate()} style={button}>
+                  强制一键安装最新版
+                </button>
+                <button type="button" onClick={() => void handlePolicyFix()} disabled={fixing} style={ghostButton}>
+                  {fixing ? '修复中…' : '一键修复并重试更新'}
+                </button>
+              </div>
             </div>
           )}
           <button type="button" onClick={() => void runCheck()} style={ghostButton}>{tt('updater.retry')}</button>
@@ -466,18 +483,21 @@ export function PluginUpdaterSettings(): React.JSX.Element {
             {result.backupRoot !== undefined ? tt('updater.backup', { dir: result.backupRoot }) : ''}
           </p>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {typeof window !== 'undefined' && window.dshDesktopApp?.restartHarness !== undefined ? (
-              <button type="button" onClick={() => void restartDsh()} style={button}>重启 DSH（使新版本生效）</button>
-            ) : (
-              <button type="button" onClick={() => window.location.reload()} style={button}>刷新页面（加载新版本界面）</button>
-            )}
+            <button type="button" onClick={() => void restartDsh()} style={button}>重启 DSH（使新版本生效）</button>
+            <button type="button" onClick={() => window.location.reload()} style={ghostButton}>刷新页面</button>
             <button type="button" onClick={() => void runCheck()} style={ghostButton}>{tt('updater.recheck')}</button>
           </div>
-          {typeof window !== 'undefined' && window.dshDesktopApp?.restartHarness === undefined && (
-            <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>
-              当前为网页环境：刷新页面只更新浏览器界面，宿主代码需手动重启 DSH 服务后才生效。
-            </p>
-          )}
+          <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>
+            重启 DSH 会重新加载宿主代码（新版本完整生效）；刷新页面只更新浏览器界面。
+          </p>
+        </div>
+      )}
+
+      {phase === 'restarting' && (
+        <div style={{ marginBottom: 12 }}>
+          <p style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-state-warning-primary)' }}>
+            ⏻ 正在重启 DSH，请稍候…（即将加载新版本界面）
+          </p>
         </div>
       )}
 

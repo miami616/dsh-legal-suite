@@ -1,6 +1,26 @@
 # Changelog
 
-## 未发布（0.1.17 预览）
+## 0.1.18（2026-09-01）
+
+### P0 · 备忘交互与移动端适配 + settings 跨 API 兼容
+
+- **纯拖动浮动按钮不再误打开备忘面板**：原实现用 `dragging` 标志，在 `pointerup`
+  （早于 `click` 派发）就清掉，导致拖动结束的 `click` 仍触发 `togglePanel`。改为记录
+  按下起点 + 位移阈值（`DRAG_THRESHOLD=6px`），仅位移超过阈值才算拖动，`click` 时
+  位移未超阈才打开面板。Puppeteer 真实 Chrome 实测：拖动(移动 80,40px)后面板数=0
+  （未误开），点击后=1（正常打开）。
+- **移动端备忘输入框与条目文字过浅**：新增 `@media(max-width:640px)` 强制高对比
+  （浅色下主文字 `#1a1a1c`、深色下 `#f2f2f4`），面板几乎全宽不溢出、放大输入框字号。
+  390px iPhone 视口实测：输入框/条目/面板均为 `#1a1a1c`，panelWidth 366 < 390 无横向
+  溢出。
+- **AgentLex 设置页移动端适配**：根容器改 `width:100%` 防窄屏溢出。
+- **settings 跨 API 兼容（防御性加固）**：新增 `src/shared/settings-adapter.ts` 的
+  `installSettingsSection()`，按宿主实际 API 选 `register → installSection → 兜底 entry`，
+  绝不抛出；5 域（诉讼/非诉/任务/备忘/皮肤）统一改用，杜绝 settings 注册失败中断路由
+  注册（曾导致备忘/案件/非诉/任务路由 404）。兼容全局 alpha.2（`installSection` 存在，
+  内部转发 `register`），不影响其现有行为。
+
+## 0.1.17（2026-08-31）
 
 ### P1 · 新增「备忘录」域（随手记 / 标签 / 归档 / 会话 `#` 引用）
 

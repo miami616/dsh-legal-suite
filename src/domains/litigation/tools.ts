@@ -87,6 +87,7 @@ const PARAMETERS = {
   taskId: { type: 'string', description: '任务 id（upsert_subtask/delete_subtask/toggle_check/upsert_check 必填；upsert_task 可选——省略则新建任务并自动生成 id）' },
   taskTitle: { type: 'string', description: '任务标题（upsert_task 新建时必填）' },
   deadline: { type: 'string', description: '任务截止日期 YYYY-MM-DD' },
+  time: { type: 'string', description: '任务具体时间 HH:MM（可选，如 15:10；与 deadline 分开存）' },
   priority: { type: 'string', description: '优先级：low/medium/high' },
   toGroupId: { type: 'string', description: 'move_task 目标任务组 id' },
   enabled: { type: 'boolean', description: 'set_task_keydate 是否启用任务的关键日期提醒（true=生成/解除关键日期，双向联动；任务须已有 deadline）' },
@@ -354,6 +355,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           if (args.taskId !== undefined) task.id = String(args.taskId)
           if (args.taskTitle !== undefined) task.title = String(args.taskTitle)
           if (args.deadline !== undefined) task.deadline = String(args.deadline)
+          if (args.time !== undefined) task.time = String(args.time)
           if (args.priority !== undefined) task.priority = String(args.priority)
           if (args.status !== undefined) task.status = String(args.status)
           const record = await cs.upsertTask(args.caseId as string, args.groupId as string, task)

@@ -215,6 +215,7 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
       if (action === 'upsert_task') {
         if (args.taskTitle !== undefined) body.title = s(args.taskTitle)
         if (args.deadline !== undefined) body.deadline = s(args.deadline)
+        if (args.time !== undefined) body.time = s(args.time)
         if (args.priority !== undefined) body.priority = s(args.priority)
         if (args.status !== undefined) body.status = s(args.status)
       }
@@ -308,6 +309,7 @@ export function registerNonLitigationHttpTool(ctx: Context): () => void {
       taskId: { type: 'string', description: '任务 id（upsert_subtask/delete_subtask/add_checklist/toggle_check/delete_checklist 必填）' },
       taskTitle: { type: 'string', description: '任务标题' },
       deadline: { type: 'string', description: '任务截止日期 YYYY-MM-DD' },
+      time: { type: 'string', description: '任务具体时间 HH:MM（可选，如 15:10；与 deadline 分开存）' },
       priority: { type: 'string', description: '优先级：low/medium/high' },
       toGroupId: { type: 'string', description: 'move_task 目标任务组 id' },
       index: { type: 'number', description: 'move_task 目标位置索引（可选）' },

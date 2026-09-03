@@ -257,7 +257,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
       if (t.deadline && t.status !== 'done') {
         push(t.deadline, {
           key: `t:${t.key}`, label: t.title, caseName: t.caseName,
-          kind: 'task', badge: '任务', dot: 'var(--ink-faint)',
+          time: t.time, kind: 'task', badge: '任务', dot: 'var(--ink-faint)',
         });
       }
     }

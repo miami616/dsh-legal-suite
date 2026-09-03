@@ -123,10 +123,10 @@ const TaskRow = memo(function TaskRow({ caseId, task, isProject }: { caseId: str
         </button>
         <input value={titleDraft} onChange={titleOnChange} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={titleOnCompositionEnd} onBlur={titleOnBlur}
           className={`flex-1 min-w-0 bg-transparent outline-none text-sm font-medium text-[var(--ink)] placeholder:text-[var(--ink-subtle)] ${task.status === 'done' ? 'line-through opacity-50' : ''}`} placeholder="任务名称" />
-        {/* Always visible: deadline */}
-        {task.deadline && (
-          <span className={`text-xs font-mono shrink-0 ${isOverdue(task.deadline) ? 'text-red-500' : daysUntil(task.deadline) <= 3 ? 'text-amber-600' : 'text-[var(--ink-muted)]'}`}>
-            {task.deadline}
+        {/* Always visible: deadline + time */}
+        {(task.deadline || task.time) && (
+          <span className={`text-xs font-mono shrink-0 ${isOverdue(task.deadline ?? '') ? 'text-red-500' : daysUntil(task.deadline ?? '') <= 3 ? 'text-amber-600' : 'text-[var(--ink-muted)]'}`}>
+            {task.deadline}{task.time ? ` ${task.time}` : ''}
           </span>
         )}
         {/* Overflow menu */}
@@ -139,8 +139,12 @@ const TaskRow = memo(function TaskRow({ caseId, task, isProject }: { caseId: str
             <div className="absolute right-0 top-full mt-1 w-44 bg-[var(--paper-elevated)] border border-[var(--paper-inset)] rounded-xl shadow-xl z-50 py-1">
               <div className="px-2 py-1.5 space-y-2">
                 <label className="block text-xs text-[var(--ink-muted)]">截止日期</label>
-                <input type="date" value={task.deadline ?? ''} onChange={e => uTask(caseId, task.id, { deadline: e.target.value || undefined })}
-                  className="w-full px-2 py-1 rounded text-xs bg-[var(--paper-inset)] outline-none text-[var(--ink)]" />
+                <div className="flex gap-1.5">
+                  <input type="date" value={task.deadline ?? ''} onChange={e => uTask(caseId, task.id, { deadline: e.target.value || undefined })}
+                    className="w-full px-2 py-1 rounded text-xs bg-[var(--paper-inset)] outline-none text-[var(--ink)]" />
+                  <input type="time" value={task.time ?? ''} onChange={e => uTask(caseId, task.id, { time: e.target.value || undefined })}
+                    className="w-24 px-2 py-1 rounded text-xs bg-[var(--paper-inset)] outline-none text-[var(--ink)]" />
+                </div>
               </div>
               <div className="px-2 py-1.5 flex items-center justify-between">
                 <span className="text-xs text-[var(--ink-muted)]">优先级</span>

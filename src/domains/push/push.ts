@@ -1,12 +1,13 @@
 /**
- * Push core: read deadlines → filter to the reminder window (1 day + today)
+ * Push core: read deadlines → filter to those whose reminder time has arrived
  * → format the FIXED template → send via dsh-im proactive delivery → record
  * the dedupe ledger.
  *
  * Design decisions (confirmed 2026-09-03):
- *  - Reminder window is FIXED to daysLeft ∈ {0, 1} (today / tomorrow). Far
- *    ahead reminders are covered by the daily/weekly reports, so this module
- *    only does "imminent" precision reminders.
+ *  - Reminder timing is PRECISE per deadline: a deadline with a concrete time
+ *    (e.g. 开庭 09:00) is reminded exactly 24h before (yesterday 09:00); a
+ *    deadline with no concrete time is reminded 1 day ahead at 08:00 (a
+ *    reasonable morning hour, not midnight — a 0:00 push would be ignored).
  *  - The push text uses a FIXED template (a code constant) — field-complete
  *    but compact, identical across channels and times, never varying with
  *    content.
@@ -22,8 +23,10 @@ import { createCaseStore } from '../litigation/store/case-store.ts'
 import { createTimelineStore } from '../litigation/store/timeline-store.ts'
 import { ledgerKey, type PushConfig, type PushStore } from './store/push-config.ts'
 
-/** Reminder window: daysLeft ∈ {0, 1} (today / tomorrow). */
-export const WINDOW_DAYS = [0, 1] as const
+/** 无具体时间的期限：提前 1 天，早上 8:00 提醒（避免 0 点被忽略）。 */
+export const DEFAULT_REMIND_HOUR = 8
+/** 提前量：24 小时（有具体时间的期限按此精确提醒）。 */
+export const REMIND_LEAD_HOURS = 24
 
 /** The dsh-im delivery service face (ctx.get('dshIm') or an HTTP client). */
 export interface DshImService {
@@ -130,7 +133,7 @@ export function formatPush(rows: DeadlineItem[], titlePrefix?: string): string {
 
 /** Result of one push run. */
 export interface PushRunResult {
-  /** Number of deadline rows in the window (before dedupe). */
+  /** Number of deadline rows whose reminder time has arrived (before dedupe). */
   due: number
   /** Number actually pushed (fresh, after dedupe). */
   pushed: number
@@ -141,6 +144,38 @@ export interface PushRunResult {
 }
 
 /**
+ * Compute a deadline's reminder time (ms epoch).
+ *
+ * - With a concrete time (e.g. "09:00"): reminder = deadline date+time − 24h
+ *   (precise to the minute — 明天 09:00 开庭 → 今天 09:00 提醒).
+ * - Without a concrete time: reminder = deadline date − 1 day at 08:00
+ *   (a reasonable morning hour, not midnight).
+ *
+ * Returns undefined when the deadline date is unparseable.
+ */
+export function reminderTimeMs(item: DeadlineItem): number | undefined {
+  const date = new Date(`${item.date}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return undefined
+  let remind: Date
+  if (item.time !== undefined && item.time !== '') {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(item.time.trim())
+    if (m !== null) {
+      remind = new Date(date.getTime())
+      remind.setHours(Number(m[1]), Number(m[2]), 0, 0)
+      remind = new Date(remind.getTime() - REMIND_LEAD_HOURS * 3600_000)
+    } else {
+      // 无法解析的时间 → 按无时间处理。
+      remind = new Date(date.getTime() - 24 * 3600_000)
+      remind.setHours(DEFAULT_REMIND_HOUR, 0, 0, 0)
+    }
+  } else {
+    remind = new Date(date.getTime() - 24 * 3600_000)
+    remind.setHours(DEFAULT_REMIND_HOUR, 0, 0, 0)
+  }
+  return remind.getTime()
+}
+
+/**
  * Run one deadline-push pass.
  *
  * @param dataDir - the litigation data directory (reads case-registry.json /
@@ -148,6 +183,7 @@ export interface PushRunResult {
  * @param cfg - the resolved push config.
  * @param store - the push store (config + ledger).
  * @param dshIm - the dsh-im delivery service.
+ * @param now - current time (ms epoch); injectable for tests.
  * @returns the run result.
  */
 export async function runDeadlinePush(
@@ -155,6 +191,7 @@ export async function runDeadlinePush(
   cfg: PushConfig,
   store: PushStore,
   dshIm: DshImService,
+  now: number = Date.now(),
 ): Promise<PushRunResult> {
   if (!cfg.enabled) return { due: 0, pushed: 0, attempted: false }
   if (cfg.botId === '' || cfg.targetId === '') return { due: 0, pushed: 0, attempted: false }
@@ -165,8 +202,12 @@ export async function runDeadlinePush(
   const [registry, events] = await Promise.all([caseStore.readRegistry(), timelineStore.listEvents()])
   const items = computeDeadlines(registry, events)
 
-  // 2. Filter to the reminder window (today / tomorrow).
-  const due = items.filter((item) => (WINDOW_DAYS as readonly number[]).includes(item.daysLeft))
+  // 2. Filter to deadlines whose reminder time has arrived (and not overdue).
+  const due = items.filter((item) => {
+    if (item.daysLeft < 0) return false
+    const remind = reminderTimeMs(item)
+    return remind !== undefined && remind <= now
+  })
 
   // 3. Dedupe against the ledger.
   const fresh = []

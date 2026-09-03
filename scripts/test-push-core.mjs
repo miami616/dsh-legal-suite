@@ -13,7 +13,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createPushStore } from '../lib/domains/push/store/push-config.js'
-import { runDeadlinePush, formatPush, remainingLabel } from '../lib/domains/push/push.js'
+import { runDeadlinePush, formatPush, remainingLabel, reminderTimeMs, DEFAULT_REMIND_HOUR } from '../lib/domains/push/push.js'
 
 const today = new Date().toISOString().slice(0, 10)
 const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
@@ -54,6 +54,19 @@ check('today → 今天', remainingLabel(0) === '今天')
 check('tomorrow → 明天', remainingLabel(1) === '明天')
 check('overdue → 已逾期 2 天', remainingLabel(-2) === '已逾期 2 天')
 
+console.log('== reminderTimeMs (precise 24h lead) ==')
+// 明天 09:00 开庭 → 提醒 = 今天 09:00
+const hearing = { caseId: 'c1', caseName: 'x', date: tomorrow, label: '开庭', kind: 'hearing', daysLeft: 1, urgent: true, overdue: false, source: 'keydate', time: '09:00' }
+const hearingRemind = reminderTimeMs(hearing)
+const expectedHearing = new Date(`${tomorrow}T09:00:00`).getTime() - 24 * 3600_000
+check('有 time 09:00 → 提前 24h 精确到分钟', hearingRemind === expectedHearing, `got ${hearingRemind} expected ${expectedHearing}`)
+// 无 time → 提前 1 天早上 8 点
+const noTime = { caseId: 'c1', caseName: 'x', date: tomorrow, label: '举证期限', kind: 'deadline', daysLeft: 1, urgent: true, overdue: false, source: 'keydate' }
+const noTimeRemind = reminderTimeMs(noTime)
+const expectedNoTime = new Date(`${tomorrow}T00:00:00`)
+expectedNoTime.setHours(DEFAULT_REMIND_HOUR, 0, 0, 0)
+check('无 time → 提前 1 天早上 8 点', noTimeRemind === expectedNoTime.getTime() - 24 * 3600_000, `got ${noTimeRemind} expected ${expectedNoTime.getTime() - 24 * 3600_000}`)
+
 console.log('== formatPush (fixed template) ==')
 const text = formatPush([
   { caseId: 'c1', caseName: '张三诉李四合同纠纷', caseNumber: '(2026)鲁0102民初10195号', court: '济南市历下区人民法院', time: '14:45', detail: '速裁审判法庭第一庭', date: tomorrow, label: '开庭', kind: 'hearing', daysLeft: 1, urgent: true, overdue: false, source: 'keydate' },
@@ -68,25 +81,27 @@ check('has 时间', text.includes('时间：14:45'))
 check('has 法庭', text.includes('速裁审判法庭第一庭'))
 check('no 3-day row', !text.includes('远期节点'))
 
-console.log('== runDeadlinePush (window filter + dedupe) ==')
+console.log('== runDeadlinePush (reminder-time filter + dedupe) ==')
 const cfg = { enabled: true, botId: 'bot_test', targetId: 'tgt_test' }
-const r1 = await runDeadlinePush(dir, cfg, store, mockDshIm)
+// now = 今天 12:00（已过无 time 期限的早上 8 点提醒，且未到 3 天后的提醒）
+const now = new Date(`${today}T12:00:00`).getTime()
+const r1 = await runDeadlinePush(dir, cfg, store, mockDshIm, now)
 check('pushed 2 (today+tomorrow, not 3-day)', r1.pushed === 2, `got ${r1.pushed}`)
 check('due = 2', r1.due === 2)
 check('sent 1 message', sent.length === 1)
 check('message has both rows', sent[0].text.includes('开庭') && sent[0].text.includes('举证期限'))
 
 // Second run: dedupe should skip both.
-const r2 = await runDeadlinePush(dir, cfg, store, mockDshIm)
+const r2 = await runDeadlinePush(dir, cfg, store, mockDshIm, now)
 check('second run pushes 0 (dedupe)', r2.pushed === 0, `got ${r2.pushed}`)
 check('still 1 message total', sent.length === 1)
 
 // Disabled config → no push.
-const r3 = await runDeadlinePush(dir, { ...cfg, enabled: false }, store, mockDshIm)
+const r3 = await runDeadlinePush(dir, { ...cfg, enabled: false }, store, mockDshIm, now)
 check('disabled → no push', r3.pushed === 0 && r3.attempted === false)
 
 // Empty botId/targetId → no push.
-const r4 = await runDeadlinePush(dir, { ...cfg, targetId: '' }, store, mockDshIm)
+const r4 = await runDeadlinePush(dir, { ...cfg, targetId: '' }, store, mockDshIm, now)
 check('empty target → no push', r4.pushed === 0 && r4.attempted === false)
 
 rmSync(dir, { recursive: true, force: true })

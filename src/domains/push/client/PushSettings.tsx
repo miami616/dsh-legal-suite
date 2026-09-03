@@ -13,8 +13,8 @@ import {
   type DeliveryTarget, type PushConfigView,
 } from './api.ts'
 
-/** 固定提醒窗口说明（决策 2）。 */
-const WINDOW_HINT = '提醒窗口固定为「提前 1 天 + 当天」；远期提醒由日报/周报承担。'
+/** 提醒时机说明（决策 2 更新）。 */
+const WINDOW_HINT = '提醒时机：有具体时间的期限（如开庭 09:00）提前 24 小时提醒；无具体时间的期限提前 1 天早上 8 点提醒。'
 
 /** 固定推送模板预览（决策 3）。 */
 const TEMPLATE_PREVIEW = `📌 重要日程提醒 · 2 项待办

@@ -21,6 +21,14 @@ const TODAY = (): string => new Date().toISOString().slice(0, 10)
 export interface DeadlineItem {
   caseId: string
   caseName: string
+  /** 案号（可能为「尚未立案」等占位）。 */
+  caseNumber?: string
+  /** 法院。 */
+  court?: string
+  /** 具体时间（如 09:30，来自 timeline 事件 time 字段）。 */
+  time?: string
+  /** 附加详情（如法庭/审判庭、时间地点等，来自 timeline 事件 detail）。 */
+  detail?: string
   date: string
   label: string
   kind: 'hearing' | 'deadline' | 'keydate' | 'task'
@@ -97,7 +105,7 @@ export function computeDeadlines(
     task: 1,
   }
 
-  const push = (date: string, label: string, kind: DeadlineItem['kind'], source: string, rec: CaseRecord): void => {
+  const push = (date: string, label: string, kind: DeadlineItem['kind'], source: string, rec: CaseRecord, extra?: { time?: string; detail?: string }): void => {
     if (!date) return
     const normLabel = String(label ?? '').trim()
     if (normLabel === '') return
@@ -105,6 +113,10 @@ export function computeDeadlines(
     const item: DeadlineItem = {
       caseId: rec.caseId,
       caseName: rec.name,
+      caseNumber: rec.caseNumber,
+      court: rec.court,
+      time: extra?.time !== undefined && extra.time.trim() !== '' ? extra.time.trim() : undefined,
+      detail: extra?.detail !== undefined && extra.detail.trim() !== '' ? extra.detail.trim() : undefined,
       date,
       label: normLabel,
       kind,
@@ -116,7 +128,16 @@ export function computeDeadlines(
     const key = `${rec.caseId}|${date}|${normLabel}`
     const existing = byKey.get(key)
     if (existing === undefined || KIND_PRIORITY[kind] > KIND_PRIORITY[existing.kind]) {
-      byKey.set(key, item)
+      // 合并缺失字段：高优先级项（如 keyDate）若缺 time/detail，从低优先级项
+      // （如 timeline 事件，通常带时间/法庭）继承，避免开庭信息丢失。
+      const merged: DeadlineItem = { ...item }
+      if (existing !== undefined) {
+        if (merged.time === undefined) merged.time = existing.time
+        if (merged.detail === undefined) merged.detail = existing.detail
+        if (merged.caseNumber === undefined) merged.caseNumber = existing.caseNumber
+        if (merged.court === undefined) merged.court = existing.court
+      }
+      byKey.set(key, merged)
     }
   }
 
@@ -135,7 +156,7 @@ export function computeDeadlines(
       if (e.caseId !== rec.caseId) continue
       if (e.status === 'done' || e.status === 'cancelled') continue
       if (!e.date) continue
-      push(e.date, e.title || eventTypeLabel(e.type), eventKind(e.type), e.type, rec)
+      push(e.date, e.title || eventTypeLabel(e.type), eventKind(e.type), e.type, rec, { time: e.time, detail: e.detail })
     }
 
     // task deadlines not done
@@ -150,7 +171,16 @@ export function computeDeadlines(
     // key dates not done
     for (const kd of rec.keyDates ?? []) {
       if (kd.done || !kd.date) continue
-      push(kd.date, kd.label, 'keydate', 'keydate', rec)
+      // 继承同案同日的 timeline 事件的时间/法庭（即使该事件已 done——开庭的
+      // 时间/法庭常记在已完成的 hearing 事件里，而 keyDate 只记日期）。
+      let time: string | undefined
+      let detail: string | undefined
+      for (const e of events) {
+        if (e.caseId !== rec.caseId || e.date !== kd.date) continue
+        if (e.time !== undefined && e.time !== '') time = e.time
+        if (e.detail !== undefined && e.detail !== '') detail = e.detail
+      }
+      push(kd.date, kd.label, 'keydate', 'keydate', rec, { time, detail })
     }
   }
 

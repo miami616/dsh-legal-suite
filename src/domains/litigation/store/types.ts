@@ -158,6 +158,8 @@ export interface TimelineEvent {
   type: TimelineEventType | string
   title: string
   detail?: string
+  /** 具体时间（如 09:30）。 */
+  time?: string
   date: string
   status: 'pending' | 'done' | 'cancelled'
   source?: string

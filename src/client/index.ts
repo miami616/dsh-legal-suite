@@ -22,6 +22,7 @@ import { apply as applySkin } from '../domains/skin/client/index.ts'
 import { apply as applyWorkspaceSidebar } from '../domains/workspace-sidebar/client/index.tsx'
 import { apply as applySkillsTools } from '../domains/skills-tools/client/index.tsx'
 import { apply as applyMemo } from '../domains/memo/client/index.tsx'
+import { apply as applyPush } from '../domains/push/client/index.ts'
 
 export const name = 'dsh-legal-suite'
 
@@ -41,4 +42,5 @@ export function apply(ctx: ClientContext): void {
   applyWorkspaceSidebar(ctx)
   applySkillsTools(ctx)
   applyMemo(ctx)
+  applyPush(ctx)
 }

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.22（2026-09-03）
+
+### P0 · 期限 IM 推送（关键日期快到期 → dsh-im 主动投递）
+
+- **新增 push 域**（`src/domains/push/`）：关键日期快到期（**提前 1 天 + 当天**）时，向用户
+  配置的 dsh-im 投递目标推送固定模板提醒。
+- **定时复用 dsh-timer-agent**：自动注册一个 command 任务「期限IM推送」（`*/5 * * * *`），
+  每次触发扫描所有案件期限；**按固定标题幂等**（timer-agent 不接受客户端 id，按标题查找更新，
+  并清理历史重复任务），面板永远只占一行。
+- **推送复用 @xmanrui/dsh-im 主动投递**：优先进程内 `ctx.get('dshIm')`，不可见时回退 HTTP
+  `POST /api/dsh-im/delivery/messages`（实测 cordis 服务作用域隔离，HTTP 是可靠路径）。
+- **固定推送模板**（决策 3）：`📌 重要日程提醒 · {N} 项待办`，每条含案件名/案号/法院/
+  **时间（几点几分）**/**法庭（地点）**/日期，emoji + 结构化字段，任何渠道/时间格式一致，
+  不含当事人隐私细节。
+- **时间/法庭继承**：开庭的时间/法庭常记在已完成的 timeline 事件里，keyDate 只记日期；
+  现在 keyDate 自动继承同案同日的 timeline 事件的时间/法庭，不再丢失。
+- **去重台账**：`push-ledger.json` 记录已推 key（caseId|date|label），同一日期只推一次；
+  推送失败不记录，下次 tick 重试。
+- **设置 UI**：AgentLex 设置页新增「IM 推送」块（`agentlex.workbench.item` 槽位）——总开关 +
+  Bot ID/Target ID（下拉枚举或手动粘贴）+ 标题前缀 + 模板预览 + 保存/测试/立即执行。
+- **粘贴修复**：Bot ID/Target ID 输入框加 `onPaste` 强制文本粘贴，防御全局 paste 处理器
+  把文本粘贴替换成图片路径。
+- **依赖声明**（决策 4）：不声明 peer 依赖，README/设置页说明需安装 dsh-im 与 dsh-timer-agent，
+  缺席时降级提示不崩溃。
+
 ## 0.1.21（2026-09-01）
 
 ### P0 · 会话轨迹导航（TurnNavigator）Codex 风格美化 + 数据源

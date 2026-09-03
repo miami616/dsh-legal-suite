@@ -44,6 +44,7 @@ export interface PushConfigView {
   enabled: boolean
   botId: string
   targetId: string
+  channel?: string
   titlePrefix?: string
   testOnSave?: boolean
   updatedAt?: string

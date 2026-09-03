@@ -26,6 +26,10 @@ export interface PushRouteDeps {
   dshIm?: DshImService
   /** The litigation data directory (reads case-registry.json / case-timeline.json). */
   litigationDataDir: string
+  /** The nonlitigation data directory (reads project-registry.json). */
+  nonlitigationDataDir: string
+  /** The task data directory (reads standalone-tasks.json). */
+  tasksDataDir: string
 }
 
 /** Parse the request body as a JSON object (untrusted → {} on failure). */
@@ -97,8 +101,16 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
     if (typeof b.enabled === 'boolean') next.enabled = b.enabled
     if (typeof b.botId === 'string') next.botId = b.botId.trim()
     if (typeof b.targetId === 'string') next.targetId = b.targetId.trim()
+    if (typeof b.channel === 'string') next.channel = b.channel.trim()
     if (typeof b.titlePrefix === 'string') next.titlePrefix = b.titlePrefix.trim()
     if (typeof b.testOnSave === 'boolean') next.testOnSave = b.testOnSave
+    // 若未显式传 channel，尝试从 dsh-im 查询投递目标所属渠道。
+    if (next.channel === undefined && next.botId !== '' && d.dshIm?.listTargets !== undefined) {
+      try {
+        const result = await d.dshIm.listTargets(next.botId)
+        if (result?.channel !== undefined) next.channel = result.channel
+      } catch { /* 查询失败则保持 undefined */ }
+    }
     ok(res, await d.store.writeConfig(next))
   })
 
@@ -156,7 +168,10 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
     if (typeof b.enabled === 'boolean') cfg.enabled = b.enabled
     if (typeof b.botId === 'string') cfg.botId = b.botId.trim()
     if (typeof b.targetId === 'string') cfg.targetId = b.targetId.trim()
-    const result = await runDeadlinePush(d.litigationDataDir, cfg, d.store, d.dshIm)
+    const result = await runDeadlinePush(
+      { litigation: d.litigationDataDir, nonlitigation: d.nonlitigationDataDir, tasks: d.tasksDataDir },
+      cfg, d.store, d.dshIm,
+    )
     ok(res, result)
   })
 

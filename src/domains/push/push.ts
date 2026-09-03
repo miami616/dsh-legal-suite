@@ -21,6 +21,9 @@
 import { computeDeadlines, type DeadlineItem } from '../litigation/deadlines.ts'
 import { createCaseStore } from '../litigation/store/case-store.ts'
 import { createTimelineStore } from '../litigation/store/timeline-store.ts'
+import { createProjectStore } from '../nonlitigation/store/project-store.ts'
+import { createTaskStore } from '../task/store/task-store.ts'
+import { sendFeishuCard } from './feishu-card.ts'
 import { ledgerKey, type PushConfig, type PushStore } from './store/push-config.ts'
 
 /** 无具体时间的期限：提前 1 天，早上 8:00 提醒（避免 0 点被忽略）。 */
@@ -69,19 +72,8 @@ export function remainingLabel(daysLeft: number): string {
   return `${daysLeft} 天后`
 }
 
-/** Emoji per deadline kind. */
-export function kindEmoji(kind: DeadlineItem['kind']): string {
-  switch (kind) {
-    case 'hearing': return '⚖️'
-    case 'deadline': return '⏰'
-    case 'keydate': return '📌'
-    case 'task': return '✅'
-    default: return '📌'
-  }
-}
-
-/** One deadline row's detail lines (case number / court / time / courtroom). */
-function rowDetail(row: DeadlineItem): string[] {
+/** One deadline row's meta lines (case number / court / courtroom), each on its own line. */
+function rowMetaLines(row: DeadlineItem): string[] {
   const lines: string[] = []
   if (row.caseNumber !== undefined && row.caseNumber !== '' && row.caseNumber !== '【尚未立案】') {
     lines.push(`案号：${row.caseNumber}`)
@@ -89,13 +81,8 @@ function rowDetail(row: DeadlineItem): string[] {
   if (row.court !== undefined && row.court !== '' && row.court !== '【尚未分配】') {
     lines.push(`法院：${row.court}`)
   }
-  // 时间（几点几分）
-  if (row.time !== undefined && row.time !== '') {
-    lines.push(`时间：${row.time}`)
-  }
-  // 法庭/审判庭（来自 timeline 事件 detail，通常含「某某法庭」）
   if (row.detail !== undefined && row.detail !== '') {
-    lines.push(`地点：${row.detail}`)
+    lines.push(`法庭：${row.detail}`)
   }
   return lines
 }
@@ -104,31 +91,51 @@ function rowDetail(row: DeadlineItem): string[] {
  * Build the FIXED push text from the fresh deadline rows.
  *
  * Template (a constant — never varies with content), designed to render well
- * in plain text (feishu / weixin) with emoji + line breaks + structured info:
+ * in plain text (feishu / weixin) with a clean, scannable hierarchy:
  *
- *   {prefix}📌 期限提醒 · {N} 项待办
+ *   {prefix}📌 重要日程提醒
  *
- *   ⚖️ 开庭 · 明天
- *   案件：张三诉李四合同纠纷
- *   案号：(2026)鲁0102民初10195号
- *   法院：济南市历下区人民法院
- *   时间：14:45
- *   地点：速裁审判法庭第一庭
- *   日期：2026-09-04
+ *   ⚖️ 开庭 · 明天 09:00
+ *   广播发展中心与有人旅游广告合同纠纷
+ *   (2026)鲁0102民初7013号 · 济南市历下区人民法院 · 速裁审判法庭第一庭
  *
- *   ⏰ 举证期限 · 今天
- *   案件：王五诉赵六
- *   日期：2026-09-03
+ *   ✅ 20案件沟通会 · 明天 16:30
+ *   山东广播电视台
+ *
+ * Each block: a title line (emoji + 事项 + 剩余 + 时间), then the case name,
+ * then an optional meta line (案号 · 法院 · 法庭) joined with ·.
  */
 export function formatPush(rows: DeadlineItem[], titlePrefix?: string): string {
   const prefix = titlePrefix !== undefined && titlePrefix.trim() !== '' ? `${titlePrefix.trim()} ` : ''
-  const header = `${prefix}📌 重要日程提醒 · ${rows.length} 项待办`
+  const header = `${prefix}重要日程提醒`
   const blocks = rows.map((row) => {
-    const title = `${kindEmoji(row.kind)} ${row.label} · ${remainingLabel(row.daysLeft)}`
-    const lines = [`案件：${row.caseName}`, ...rowDetail(row), `日期：${row.date}`]
+    const time = row.time !== undefined && row.time !== '' ? ` ${row.time}` : ''
+    const title = `${row.label} · ${remainingLabel(row.daysLeft)}${time}`
+    // 独立任务 caseName === label 时不重复显示案件名。
+    const lines = row.caseName === row.label ? [] : [row.caseName]
+    lines.push(...rowMetaLines(row))
     return `${title}\n${lines.join('\n')}`
   })
   return `${header}\n\n${blocks.join('\n\n')}`
+}
+
+/**
+ * Build the FIXED push text as Feishu-card markdown (for the feishu channel).
+ * Each deadline becomes a `## ` section (bold heading + large text), so the
+ * Feishu card renders clean sectioned blocks with hr separators.
+ */
+export function formatPushMarkdown(rows: DeadlineItem[], titlePrefix?: string): string {
+  const prefix = titlePrefix !== undefined && titlePrefix.trim() !== '' ? `${titlePrefix.trim()} ` : ''
+  const header = `${prefix}重要日程提醒`
+  const sections = rows.map((row) => {
+    const time = row.time !== undefined && row.time !== '' ? ` ${row.time}` : ''
+    const title = `${row.label} · ${remainingLabel(row.daysLeft)}${time}`
+    // 独立任务 caseName === label 时不重复显示案件名。
+    const lines = row.caseName === row.label ? [] : [row.caseName]
+    lines.push(...rowMetaLines(row))
+    return `## ${title}\n${lines.join('\n')}`
+  })
+  return `# ${header}\n\n${sections.join('\n\n')}`
 }
 
 /** Result of one push run. */
@@ -175,11 +182,191 @@ export function reminderTimeMs(item: DeadlineItem): number | undefined {
   return remind.getTime()
 }
 
+/** 从日期字符串提取日期部分（YYYY-MM-DD）。 */
+function datePart(value: string): string {
+  return value.slice(0, 10)
+}
+
+/** 从日期字符串提取时间部分（HH:MM），无则 undefined。 */
+function timePart(value: string): string | undefined {
+  const m = /T(\d{1,2}:\d{2})/.exec(value)
+  return m !== null ? m[1] : undefined
+}
+
+/**
+ * 从自然语言 detail 提取具体时间（HH:MM），无则 undefined。
+ *
+ * 独立任务/非诉任务的 deadline 只存纯日期（界面 type="date"），具体时间点
+ * 写在 detail 字段（如「9月4日下午3点10分开会」）。本函数解析常见中文/数字
+ * 时间格式，使非诉/独立任务与诉讼（timeline 的 time 字段）统一按具体时间
+ * 提前 24 小时提醒。
+ *
+ * 支持格式：
+ *  - HH:MM / H:MM（如 09:00、14:45）
+ *  - 下午X点Y分 / 上午X点Y分 / X点Y分 / X点 / X时
+ *  - 下午X:Y / X:Y
+ */
+export function extractTimeFromDetail(detail: string | undefined): string | undefined {
+  if (detail === undefined || detail === '') return undefined
+  const text = detail.trim()
+
+  // 1. HH:MM / H:MM（24 小时制）
+  const colon = /(?:^|[^0-9])(\d{1,2}):(\d{2})(?:[^0-9]|$)/.exec(text)
+  if (colon !== null) {
+    const h = Number(colon[1])
+    const min = Number(colon[2])
+    if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+    }
+  }
+
+  // 2. 中文时间：下午/上午 X点Y分 / X点Y分 / X点 / X时 / X点半
+  const cn = /(?:下午|晚上|上午|早上|凌晨)?(\d{1,2})\s*[点时]\s*((?:\d{1,2}\s*分?)|半)?/.exec(text)
+  if (cn !== null) {
+    let h = Number(cn[1])
+    let min = 0
+    if (cn[2] !== undefined && cn[2] !== '') {
+      if (cn[2] === '半') min = 30
+      else {
+        const minNum = Number(cn[2].replace(/分/g, '').trim())
+        if (!Number.isNaN(minNum)) min = minNum
+      }
+    }
+    if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+      // 下午/晚上/凌晨 12 小时制 → 24 小时制
+      if (/下午|晚上/.test(text) && h < 12) h += 12
+      if (/凌晨/.test(text) && h === 12) h = 0
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+    }
+  }
+
+  return undefined
+}
+
+/** 计算 daysLeft（相对今天）。 */
+function daysLeftOf(date: string): number {
+  const today = new Date().toISOString().slice(0, 10)
+  return Math.round((new Date(`${date}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86_400_000)
+}
+
+/** 构造一个 DeadlineItem（统一字段）。 */
+function makeItem(partial: {
+  caseId: string
+  caseName: string
+  date: string
+  label: string
+  kind: DeadlineItem['kind']
+  source: string
+  time?: string
+  detail?: string
+  caseNumber?: string
+  court?: string
+}): DeadlineItem {
+  const daysLeft = daysLeftOf(partial.date)
+  return {
+    caseId: partial.caseId,
+    caseName: partial.caseName,
+    caseNumber: partial.caseNumber,
+    court: partial.court,
+    time: partial.time,
+    detail: partial.detail,
+    date: partial.date,
+    label: partial.label,
+    kind: partial.kind,
+    daysLeft,
+    urgent: daysLeft >= 0 && daysLeft <= 1,
+    overdue: daysLeft < 0,
+    source: partial.source,
+  }
+}
+
+/**
+ * 聚合所有数据源的期限：诉讼（case-registry + case-timeline）、非诉
+ * （project-registry）、独立任务（standalone-tasks）。统一成 DeadlineItem[]。
+ *
+ * @param litigationDir - 诉讼数据目录。
+ * @param nonlitigationDir - 非诉数据目录。
+ * @param tasksDir - 任务数据目录。
+ */
+export async function collectAllDeadlines(
+  litigationDir: string,
+  nonlitigationDir: string,
+  tasksDir: string,
+): Promise<DeadlineItem[]> {
+  const items: DeadlineItem[] = []
+
+  // 1. 诉讼：复用 computeDeadlines（含 keyDates + timeline + 任务 deadline）。
+  const caseStore = createCaseStore(litigationDir)
+  const timelineStore = createTimelineStore(litigationDir)
+  const [registry, events] = await Promise.all([caseStore.readRegistry(), timelineStore.listEvents()])
+  items.push(...computeDeadlines(registry, events))
+
+  // 2. 非诉：keyDates + 任务 deadline。
+  try {
+    const projectStore = createProjectStore(nonlitigationDir, undefined as never)
+    const projectRegistry = await projectStore.readRegistry()
+    for (const rec of Object.values(projectRegistry.projects)) {
+      if (rec.status === 'archived' || rec.status === 'done') continue
+      for (const kd of rec.keyDates ?? []) {
+        if (kd.done || !kd.date) continue
+        items.push(makeItem({
+          caseId: rec.projectId,
+          caseName: rec.name,
+          date: datePart(kd.date),
+          label: kd.label,
+          kind: 'keydate',
+          source: 'nonlitigation',
+          time: timePart(kd.date),
+        }))
+      }
+      for (const group of rec.taskGroups ?? []) {
+        for (const task of group.tasks) {
+          if (task.status === 'done' || !task.deadline) continue
+          items.push(makeItem({
+            caseId: rec.projectId,
+            caseName: rec.name,
+            date: datePart(task.deadline),
+            label: task.title,
+            kind: 'task',
+            source: 'nonlitigation',
+            // deadline 只存纯日期，具体时间在 detail 里。
+            time: timePart(task.deadline) ?? extractTimeFromDetail(task.detail),
+          }))
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('[agentlex-push] 非诉期限读取失败:', error instanceof Error ? error.message : String(error))
+  }
+
+  // 3. 独立任务（standalone）：deadline 含具体时分。
+  try {
+    const taskStore = createTaskStore(tasksDir, undefined as never)
+    const taskRegistry = await taskStore.readRegistry()
+    for (const task of Object.values(taskRegistry.tasks)) {
+      if (task.status === 'done' || !task.deadline) continue
+      items.push(makeItem({
+        caseId: task.id,
+        caseName: task.title,
+        date: datePart(task.deadline),
+        label: task.title,
+        kind: 'task',
+        source: 'standalone',
+        // deadline 只存纯日期，具体时间在 detail 里。
+        time: timePart(task.deadline) ?? extractTimeFromDetail(task.detail),
+      }))
+    }
+  } catch (error) {
+    console.warn('[agentlex-push] 独立任务期限读取失败:', error instanceof Error ? error.message : String(error))
+  }
+
+  return items
+}
+
 /**
  * Run one deadline-push pass.
  *
- * @param dataDir - the litigation data directory (reads case-registry.json /
- *   case-timeline.json) — the push store lives under the same root.
+ * @param dirs - the data directories for all sources.
  * @param cfg - the resolved push config.
  * @param store - the push store (config + ledger).
  * @param dshIm - the dsh-im delivery service.
@@ -187,7 +374,7 @@ export function reminderTimeMs(item: DeadlineItem): number | undefined {
  * @returns the run result.
  */
 export async function runDeadlinePush(
-  dataDir: string,
+  dirs: { litigation: string; nonlitigation: string; tasks: string },
   cfg: PushConfig,
   store: PushStore,
   dshIm: DshImService,
@@ -196,11 +383,8 @@ export async function runDeadlinePush(
   if (!cfg.enabled) return { due: 0, pushed: 0, attempted: false }
   if (cfg.botId === '' || cfg.targetId === '') return { due: 0, pushed: 0, attempted: false }
 
-  // 1. Read the deadline engine (all cases, exclude overdue history).
-  const caseStore = createCaseStore(dataDir)
-  const timelineStore = createTimelineStore(dataDir)
-  const [registry, events] = await Promise.all([caseStore.readRegistry(), timelineStore.listEvents()])
-  const items = computeDeadlines(registry, events)
+  // 1. Aggregate deadlines from all data sources (litigation + nonlitigation + standalone tasks).
+  const items = await collectAllDeadlines(dirs.litigation, dirs.nonlitigation, dirs.tasks)
 
   // 2. Filter to deadlines whose reminder time has arrived (and not overdue).
   const due = items.filter((item) => {
@@ -217,12 +401,17 @@ export async function runDeadlinePush(
   }
   if (fresh.length === 0) return { due: due.length, pushed: 0, attempted: false }
 
-  // 4. Format the fixed template.
-  const text = formatPush(fresh, cfg.titlePrefix)
+  // 4. Format the fixed template (feishu → card markdown; others → plain text).
+  const isFeishu = cfg.channel === 'feishu'
+  const text = isFeishu ? formatPushMarkdown(fresh, cfg.titlePrefix) : formatPush(fresh, cfg.titlePrefix)
 
-  // 5. Send via dsh-im proactive delivery.
+  // 5. Send: feishu renders a structured card; others use dsh-im plain text.
   try {
-    await dshIm.send(cfg.botId, cfg.targetId, text)
+    if (isFeishu) {
+      await sendFeishuCard(text)
+    } else {
+      await dshIm.send(cfg.botId, cfg.targetId, text)
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return { due: due.length, pushed: 0, attempted: true, error: message }

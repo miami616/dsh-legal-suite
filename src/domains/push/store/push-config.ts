@@ -23,6 +23,8 @@ export interface PushConfig {
   botId: string
   /** dsh-im delivery target (copied/selected from the dsh-im settings page). */
   targetId: string
+  /** Delivery channel (e.g. 'feishu', 'weixin') — feishu renders a card. */
+  channel?: string
   /** Optional title prefix prepended to the fixed template. */
   titlePrefix?: string
   /** Send a test message on save. */

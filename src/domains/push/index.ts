@@ -73,6 +73,24 @@ export function litigationDataDir(): string {
   return `${userHome}/.dsh/agentlex/litigation`
 }
 
+/** Resolve the nonlitigation data directory (project-registry.json). */
+export function nonlitigationDataDir(): string {
+  const home = process.env.DSH_HOME ?? ''
+  if (home !== '') return `${home}/agentlex/nonlitigation`
+  const os = process.platform === 'win32' ? 'USERPROFILE' : 'HOME'
+  const userHome = process.env[os] ?? '.'
+  return `${userHome}/.dsh/agentlex/nonlitigation`
+}
+
+/** Resolve the task data directory (standalone-tasks.json). */
+export function tasksDataDir(): string {
+  const home = process.env.DSH_HOME ?? ''
+  if (home !== '') return `${home}/agentlex/tasks`
+  const os = process.platform === 'win32' ? 'USERPROFILE' : 'HOME'
+  const userHome = process.env[os] ?? '.'
+  return `${userHome}/.dsh/agentlex/tasks`
+}
+
 /** The dsh web base URL (for the command job to reach the host). */
 export function webBaseUrl(): string {
   return (process.env.DSH_WEB_URL ?? 'http://127.0.0.1:3080').replace(/\/+$/, '')
@@ -142,7 +160,8 @@ export async function syncTimerJob(enabled: boolean): Promise<void> {
       const updateRes = await fetch(`${url}?id=${encodeURIComponent(existing.id)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ cron: PUSH_JOB_CRON, scheduleEnabled: enabled }),
+        // 同时校正 command/args 指向本实例的 push-cli（共享台账时避免残留旧路径）。
+        body: JSON.stringify({ cron: PUSH_JOB_CRON, scheduleEnabled: enabled, command: process.execPath, args: `"${pushCliPath()}"` }),
       })
       if (!updateRes.ok) {
         console.warn(`[agentlex-push] timer-agent update failed (${updateRes.status})`)
@@ -204,16 +223,22 @@ export function apply(ctx: Context, config: Config = {}): void {
         ? { listTargets: (botId: string) => inProcess!.listTargets!(botId) }
         : {}),
     }
-    // dsh-im is considered available when the in-process service is present
-    // (the HTTP fallback alone cannot enumerate targets for the dropdown).
-    const dshImAvailable = inProcessUsable
-
     const disposers: Array<() => void> = []
-    disposers.push(makeRoutes(ctx, { store, dshIm, litigationDataDir: litigationDataDir() }))
+    disposers.push(makeRoutes(ctx, {
+      store,
+      dshIm,
+      litigationDataDir: litigationDataDir(),
+      nonlitigationDataDir: nonlitigationDataDir(),
+      tasksDataDir: tasksDataDir(),
+    }))
 
-    // Sync the timer-agent command job (best-effort).
+    // Sync the timer-agent command job (best-effort). Enable/disable purely
+    // on the user's master switch — the HTTP delivery fallback pushes without
+    // the in-process dsh-im service, so dshImAvailable must NOT gate this
+    // (it is false on nested-plugin scopes where dsh-im's ctx isn't visible,
+    // which would wrongly disable the scheduled job).
     void store.readConfig().then((cfg) => {
-      void syncTimerJob(cfg.enabled === true && dshImAvailable)
+      void syncTimerJob(cfg.enabled === true)
     })
 
     pushSurface = {

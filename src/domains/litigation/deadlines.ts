@@ -164,7 +164,7 @@ export function computeDeadlines(
       for (const task of group.tasks) {
         if (task.status === 'done' || !task.deadline) continue
         if (taskHasLinkedKeyDate(task, rec)) continue
-        push(task.deadline, task.title, 'task', 'task', rec)
+        push(task.deadline, task.title, 'task', 'task', rec, { time: task.time, detail: task.detail })
       }
     }
 

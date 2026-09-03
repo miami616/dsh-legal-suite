@@ -39,6 +39,7 @@ export function createTaskStore(dataDir: string, ctx: Context): TaskStore {
           status: (s(input.status) as TaskItem['status']) ?? existing.status ?? 'todo',
           priority: (s(input.priority) as TaskItem['priority']) ?? existing.priority,
           deadline: s(input.deadline) ?? existing.deadline,
+          time: s(input.time) ?? existing.time,
           source: (s(input.source) as TaskItem['source']) ?? existing.source ?? 'standalone',
           sourceId: s(input.sourceId) ?? existing.sourceId,
           sourceName: s(input.sourceName) ?? existing.sourceName,

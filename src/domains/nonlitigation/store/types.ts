@@ -6,6 +6,8 @@ export interface ProjectTask {
   title: string
   detail?: string
   deadline?: string
+  /** 具体时间（HH:mm），与 deadline（纯日期）分开存。 */
+  time?: string
   priority?: 'low' | 'medium' | 'high'
   status: 'todo' | 'doing' | 'done'
   subtasks?: Array<{ id: string; title: string; done: boolean; [k: string]: unknown }>

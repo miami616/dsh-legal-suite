@@ -51,8 +51,10 @@ html[data-color-scheme="dark"] [data-agentlex-memo-root] {
   cursor: pointer;
   position: fixed; z-index: 2147483005;
   color: var(--memo-fg-muted);           /* 图标默认灰 */
-  background: transparent;               /* 默认透明 */
-  box-shadow: none;
+  /* 默认给一层半透明底，保证在浅色/深色背景上都可见（#7：纯透明在部分
+     背景上几乎看不见，用户以为按钮"消失"了）。 */
+  background: color-mix(in srgb, var(--memo-fg-muted) 8%, transparent);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 0 0 1px rgb(0 0 0 / 0.05) inset;
   transition: color 180ms ease, background 180ms ease, transform 160ms ease, box-shadow 180ms ease;
   touch-action: none;
 }
@@ -98,6 +100,26 @@ html[data-color-scheme="dark"] [data-agentlex-memo-root] {
 .memo-panel__header {
   display: flex; align-items: center; gap: 12px;
   padding: 18px 22px 12px;
+}
+
+/* ---- 顶部大 tab：备忘录 / 任务（并列，#6）---- */
+.memo-section-tabs {
+  display: flex; align-items: center; gap: 4px;
+  flex: 1; min-width: 0;
+}
+.memo-section-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 40px; padding: 0 16px;
+  border: 0; border-radius: 10px;
+  background: transparent; color: var(--memo-fg-muted);
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+  white-space: nowrap;
+}
+.memo-section-tab:hover { color: var(--memo-fg); background: var(--memo-bg-inset-solid); }
+.memo-section-tab--on {
+  color: var(--memo-accent);
+  background: var(--memo-accent-soft);
 }
 .memo-panel__title {
   display: flex; align-items: center; gap: 8px;
@@ -356,6 +378,66 @@ html[data-color-scheme="dark"] .memo-suggest__txt { color: #d6d6dc; }
   color: var(--memo-accent); font-weight: 600;
   display: flex; align-items: center; gap: 8px;
 }
+
+/* ---- 任务 tab 表单（#6：备忘录/任务并列 tab 的任务正文）---- */
+.memo-task[data-agentlex-memo-root] {
+  flex: 1; overflow-y: auto; overscroll-behavior: contain;
+  padding: 14px 22px 18px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.memo-task__source {
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+.memo-task__source-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 32px; padding: 0 14px;
+  border-radius: 16px; border: 1px solid var(--memo-border);
+  background: var(--memo-bg-inset-solid); color: var(--memo-fg-muted);
+  font-size: 13.5px; font-weight: 600; cursor: pointer;
+  transition: all 140ms ease;
+}
+.memo-task__source-btn:hover { color: var(--memo-fg); border-color: var(--memo-border); }
+.memo-task__source-btn--on { background: var(--memo-accent); color: #fff; border-color: var(--memo-accent); }
+.memo-task__field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.memo-task__field--grow { flex: 1; }
+.memo-task__label { font-size: 12.5px; font-weight: 600; color: var(--memo-fg-muted); }
+.memo-task__input, .memo-task__select, .memo-task__textarea {
+  width: 100%; padding: 9px 12px;
+  border: 1.5px solid var(--memo-border); border-radius: 10px;
+  background: var(--memo-bg-inset-solid); color: var(--memo-fg);
+  font-size: 14.5px; outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.memo-task__input:focus, .memo-task__select:focus, .memo-task__textarea:focus {
+  border-color: var(--memo-accent); box-shadow: 0 0 0 3px var(--memo-accent-soft); background: var(--memo-bg-solid);
+}
+.memo-task__textarea { resize: vertical; min-height: 56px; line-height: 1.55; }
+.memo-task__row { display: flex; gap: 10px; flex-wrap: wrap; }
+.memo-task__datetime { display: flex; align-items: center; gap: 6px; }
+.memo-task__datetime .memo-task__input[type="date"] { flex: 1; min-width: 0; padding: 9px 10px; }
+.memo-task__datetime .memo-task__time { flex: 0 0 92px; text-align: center; padding: 9px 4px; }
+.memo-task__subadd { display: flex; gap: 6px; }
+.memo-task__add {
+  flex: none; width: 38px; height: 38px;
+  border: 0; border-radius: 10px;
+  background: var(--memo-accent); color: #fff; font-size: 18px; cursor: pointer;
+}
+.memo-task__add:hover { filter: brightness(1.05); }
+.memo-task__subs { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.memo-task__sub {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: 8px;
+  background: var(--memo-bg-inset-solid); color: var(--memo-fg);
+  font-size: 13.5px;
+}
+.memo-task__sub-del {
+  flex: none; margin-left: auto;
+  width: 22px; height: 22px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--memo-fg-subtle); cursor: pointer;
+}
+.memo-task__sub-del:hover { background: color-mix(in srgb, var(--memo-danger) 12%, transparent); color: var(--memo-danger); }
+.memo-task__error { font-size: 12.5px; color: var(--memo-danger); }
+.memo-task__actions { display: flex; justify-content: flex-end; margin-top: 2px; }
 
 /* ---- 移动端适配（窄屏）----
  * 移动端（如手机 / 窄屏 Web App wrapper）主题变量可能解析出过浅的灰阶文字，

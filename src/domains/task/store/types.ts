@@ -7,6 +7,8 @@ export interface TaskItem {
   status: 'todo' | 'doing' | 'done'
   priority?: 'low' | 'medium' | 'high'
   deadline?: string
+  /** 具体时间（HH:mm），与 deadline（纯日期 yyyy-MM-dd）分开存。 */
+  time?: string
   source?: 'standalone' | 'litigation' | 'nonlitigation'
   sourceId?: string
   sourceName?: string

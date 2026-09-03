@@ -56,6 +56,8 @@ export interface CaseTask {
   title: string
   detail?: string
   deadline?: string
+  /** 具体时间（HH:mm），与 deadline（纯日期）分开存。 */
+  time?: string
   priority?: 'low' | 'medium' | 'high'
   status: 'todo' | 'doing' | 'done'
   subtasks?: Subtask[]

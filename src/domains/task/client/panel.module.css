@@ -270,6 +270,26 @@ html[data-dsh-task-active]:not([data-dsh-litigation-active]):not([data-dsh-nonli
 
 .input::placeholder { color: var(--lit-ink-subtle); }
 
+/* 新建任务行的日期 / 时间输入（紧凑小宽度）。 */
+.addDate, .addTime {
+  height: 32px;
+  font-size: 12px;
+  font-family: var(--lit-font);
+  color: var(--lit-ink);
+  background: var(--dsw-alias-bg-base, var(--lit-paper));
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-sm);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  padding: 0 6px;
+}
+.addDate { flex: 0 0 132px; width: 132px; }
+.addTime { flex: 0 0 88px; width: 88px; text-align: center; }
+.addDate:focus, .addTime:focus {
+  border-color: var(--lit-accent);
+  box-shadow: 0 0 0 2px var(--lit-accent-subtle);
+}
+
 .primaryBtn {
   display: inline-flex;
   align-items: center;
@@ -507,7 +527,9 @@ html[data-dsh-task-active]:not([data-dsh-litigation-active]):not([data-dsh-nonli
 .sourceNonlitigation { background: var(--lit-accent-subtle); color: var(--lit-accent-cool); }
 .sourceStandalone { background: var(--lit-paper-inset); color: var(--lit-ink-muted); }
 
-.deadline { flex: none; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+.deadline { flex: none; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px; display: inline-flex; align-items: baseline; gap: 5px; }
+.deadlineCount { font-size: 10.5px; font-weight: 500; opacity: 0.78; }
+.deadlineTime { font-size: 11px; font-weight: 700; }
 .deadlineUrgent { background: var(--lit-error-bg); color: var(--lit-error); }
 .deadlineSoon { background: var(--lit-warning-bg); color: var(--lit-warning); }
 .deadlineNeutral { background: var(--lit-paper-inset); color: var(--lit-ink-muted); }

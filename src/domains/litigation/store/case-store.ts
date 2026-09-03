@@ -446,6 +446,7 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
             // BUG-2: persist an explicit deadline and a caller-supplied status
             // instead of silently dropping them / forcing 'todo'.
             deadline: task.deadline === undefined ? undefined : String(task.deadline),
+            time: task.time === undefined ? undefined : String(task.time),
             status: (task.status as CaseTask['status']) ?? 'todo',
             priority: (task.priority as CaseTask['priority']) ?? 'medium',
             // 新建分支此前未透传 detail —— 建案时写的任务说明被静默丢弃

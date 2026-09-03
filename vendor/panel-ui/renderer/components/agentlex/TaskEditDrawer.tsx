@@ -20,6 +20,7 @@ import type { UnifiedTask } from '@/utils/taskAggregation';
 export interface TaskDrawerPatch {
   title: string;
   deadline?: string;
+  time?: string;
   priority: TaskPriority;
   status: TaskStatus;
   /** case/project 任务的备注（映射 Task.detail）；standalone 无此字段。 */
@@ -54,6 +55,7 @@ const inputCls =
 export default memo(function TaskEditDrawer({ task, onClose, onSave, onDelete }: TaskEditDrawerProps) {
   const [title, setTitle] = useState('');
   const [deadline, setDeadline] = useState('');
+  const [time, setTime] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [status, setStatus] = useState<TaskStatus>('todo');
   const [detail, setDetail] = useState('');
@@ -70,6 +72,7 @@ export default memo(function TaskEditDrawer({ task, onClose, onSave, onDelete }:
     if (task) {
       setTitle(task.title ?? '');
       setDeadline(task.deadline ?? '');
+      setTime(task.time ?? '');
       setPriority(task.priority ?? 'medium');
       setStatus(task.status ?? 'todo');
       setDetail(task.detail ?? '');
@@ -89,6 +92,7 @@ export default memo(function TaskEditDrawer({ task, onClose, onSave, onDelete }:
     const patch: TaskDrawerPatch = {
       title: title.trim() || task.title,
       deadline: deadline || undefined,
+      time: time.trim() || undefined,
       priority,
       status,
       ...(isStandalone ? { stage: stage.trim() } : { detail: detail.trim() }),
@@ -159,7 +163,10 @@ export default memo(function TaskEditDrawer({ task, onClose, onSave, onDelete }:
 
         <div className="mb-4">
           <label className="mb-1.5 block text-xs font-semibold tracking-wide text-[var(--ink-subtle)]">截止日期</label>
-          <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className={inputCls} />
+          <div className="flex gap-2">
+            <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className={`${inputCls} flex-1`} />
+            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={`${inputCls} w-28`} />
+          </div>
         </div>
 
         <div className="mb-4">

@@ -114,28 +114,36 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (source === 'litigation' || source === 'nonlitigation') {
       const sourceId = input.sourceId === undefined ? undefined : String(input.sourceId)
       const groupId = input.groupId === undefined ? undefined : String(input.groupId)
+      // id 可缺省：未传 id = 新建任务，由来源 store 生成 id；传了 id = 更新。
       const rawId = input.id === undefined ? undefined : String(input.id)
-      if (sourceId === undefined || groupId === undefined || rawId === undefined) {
-        return fail(res, 'source write-through requires sourceId/groupId/id')
+      if (sourceId === undefined || groupId === undefined) {
+        return fail(res, 'source write-through requires sourceId/groupId')
       }
       // The unified view spells the id as `<src>-<sourceId>-<taskId>`; strip the
       // prefix to recover the real task id in the source store.
       const prefix = `${source === 'litigation' ? 'lit' : 'nl'}-${sourceId}-`
-      const taskIdToEdit = rawId.startsWith(prefix) ? rawId.slice(prefix.length) : rawId
+      const taskIdToEdit = rawId !== undefined && rawId.startsWith(prefix) ? rawId.slice(prefix.length) : rawId
       const patch: Record<string, unknown> = {}
+      if (rawId !== undefined) patch.id = taskIdToEdit
       if (input.status !== undefined) patch.status = String(input.status)
       if (input.title !== undefined) patch.title = String(input.title)
       if (input.deadline !== undefined) patch.deadline = String(input.deadline)
+      if (input.time !== undefined) patch.time = String(input.time)
       if (input.priority !== undefined) patch.priority = String(input.priority)
       if (input.detail !== undefined) patch.detail = String(input.detail)
+      let newId: string
       if (source === 'litigation') {
         const caseStore = createCaseStore(d.litigationDir, ctx)
-        const record = await caseStore.upsertTask(sourceId, groupId, { id: taskIdToEdit, ...patch })
-        return ok(res, { id: taskIdToEdit, source, sourceId, ok: true, updatedAt: record.updatedAt })
+        const record = await caseStore.upsertTask(sourceId, groupId, patch)
+        const created = (record.taskGroups ?? []).find((g) => g.id === groupId)?.tasks.at(-1)
+        newId = rawId ?? created?.id ?? ''
+        return ok(res, { id: newId, source, sourceId, ok: true, updatedAt: record.updatedAt })
       }
       const projectStore = createProjectStore(d.nonlitigationDir, ctx)
-      const record = await projectStore.upsertTask(sourceId, groupId, { id: taskIdToEdit, ...patch })
-      return ok(res, { id: taskIdToEdit, source, sourceId, ok: true, updatedAt: record.updatedAt })
+      const record = await projectStore.upsertTask(sourceId, groupId, patch)
+      const created = (record.taskGroups ?? []).find((g) => g.id === groupId)?.tasks.at(-1)
+      newId = rawId ?? created?.id ?? ''
+      return ok(res, { id: newId, source, sourceId, ok: true, updatedAt: record.updatedAt })
     }
 
     ok(res, await d.taskStore.upsertTask(input))

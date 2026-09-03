@@ -41,6 +41,7 @@ export interface UnifiedTask {
   status: TaskStatus;
   priority: TaskPriority;
   deadline?: string;       // YYYY-MM-DD
+  time?: string;           // HH:mm — 具体时间，与 deadline 分开存
   owner?: string;
   subtasks: SubTask[];
   checklist: ChecklistItem[];
@@ -126,6 +127,7 @@ function caseTaskItems(cases: CaseEntry[]): UnifiedTask[] {
           status: t.status,
           priority: t.priority,
           deadline: t.deadline,
+          time: t.time,
           subtasks: t.subtasks ?? [],
           checklist: t.checklist ?? [],
           origin: 'case-task',
@@ -158,6 +160,7 @@ function projectTaskItems(projects: ProjectEntry[]): UnifiedTask[] {
           status: t.status,
           priority: t.priority,
           deadline: t.deadline,
+          time: t.time,
           subtasks: t.subtasks ?? [],
           checklist: t.checklist ?? [],
           origin: 'project-task',
@@ -185,6 +188,7 @@ function caselessTaskItems(tasks: AgentLexStandaloneTask[]): UnifiedTask[] {
       status: t.status,
       priority: t.priority,
       deadline: t.deadline,
+      time: t.time,
       owner: t.owner || undefined,
       subtasks: t.subtasks ?? [],
       checklist: t.checklist ?? [],

@@ -69,17 +69,32 @@ export function mountMemo(ctx: unknown): () => void {
     const raw = readStorage(STORAGE_POS, '')
     if (raw !== '') {
       const [x, y] = raw.split(',').map(Number)
-      if (Number.isFinite(x) && Number.isFinite(y)) return { x, y }
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        // 把保存的位置钳制回当前视口内（#7：Chrome 重启/重开后若窗口尺寸或
+        // 屏幕分辨率变化，旧坐标可能落在视口外，按钮就"消失"了）。
+        const size = 46
+        const cx = Math.min(Math.max(0, x), Math.max(0, window.innerWidth - size))
+        const cy = Math.min(Math.max(0, y), Math.max(0, window.innerHeight - size))
+        return { x: cx, y: cy }
+      }
     }
     return { x: window.innerWidth - 76, y: window.innerHeight - 84 }
   }
 
   const renderFloat = (): void => {
-    if (floatBtn) {
-      const pos = readPos()
-      floatBtn.style.left = `${pos.x}px`
-      floatBtn.style.top = `${pos.y}px`
+    // #7：若按钮已被外部从 DOM 移除（如 harness 重渲染清空 body），重建它，
+    // 否则按钮会"消失"且永不回来。
+    if (floatBtn !== null && !floatBtn.isConnected) {
+      floatBtn.remove()
+      floatBtn = null
     }
+    if (floatBtn === null) {
+      buildFloat()
+      return
+    }
+    const pos = readPos()
+    floatBtn.style.left = `${pos.x}px`
+    floatBtn.style.top = `${pos.y}px`
   }
 
   const buildFloat = (): void => {

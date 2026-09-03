@@ -8,6 +8,7 @@
 import React from 'react'
 import { memoApi, subscribeMemos } from './memo-api.ts'
 import { appendReferenceToComposer } from './memo-input-bridge.ts'
+import { MemoTaskTab } from './MemoTaskTab.tsx'
 import type { MemoItem } from '../store/types.ts'
 
 interface MemoPanelProps {
@@ -20,6 +21,8 @@ interface MemoPanelProps {
 }
 
 type Tab = 'active' | 'archived'
+/** 面板顶部大 tab：备忘录 / 任务（任务与备忘录同级并列，#6）。 */
+type SectionTab = 'memo' | 'task'
 
 /** toast 反馈。 */
 interface Toast {
@@ -30,6 +33,7 @@ interface Toast {
 const TOAST_MS = 2600
 
 export function MemoPanel({ onClose, initialTab = 'active', requestCloseRef }: MemoPanelProps): React.ReactElement {
+  const [sectionTab, setSectionTab] = React.useState<SectionTab>('memo')
   const [tab, setTab] = React.useState<Tab>(initialTab)
   const [memos, setMemos] = React.useState<MemoItem[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -198,15 +202,49 @@ export function MemoPanel({ onClose, initialTab = 'active', requestCloseRef }: M
   const saveDisabled = busy || draft.trim() === ''
 
   return (
-    <div className="memo-panel" data-agentlex-memo-root role="dialog" aria-modal="true" aria-label="备忘录">
-      {/* 头部 */}
+    <div className="memo-panel" data-agentlex-memo-root role="dialog" aria-modal="true" aria-label="备忘录 / 任务">
+      {/* 顶部：备忘录 / 任务 两个并列大 tab + 关闭 */}
+      <div className="memo-panel__header">
+        <div className="memo-section-tabs">
+          <button
+            type="button"
+            className={`memo-section-tab${sectionTab === 'memo' ? ' memo-section-tab--on' : ''}`}
+            onClick={() => setSectionTab('memo')}
+          >
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+            备忘录
+          </button>
+          <button
+            type="button"
+            className={`memo-section-tab${sectionTab === 'task' ? ' memo-section-tab--on' : ''}`}
+            onClick={() => setSectionTab('task')}
+          >
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+            任务
+          </button>
+        </div>
+        <button type="button" className="memo-icon-btn" aria-label="关闭" title="关闭（Esc）" onClick={() => void requestClose()}>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+        </button>
+      </div>
+
+      {/* 任务 tab（与备忘录同级并列，#6） */}
+      {sectionTab === 'task' && (
+        <MemoTaskTab onSaved={(text) => showToast(text, 'ok')} />
+      )}
+
+      {/* 备忘录正文（仅当 sectionTab === 'memo'） */}
+      {sectionTab === 'memo' && (
+      <>
+      {/* 搜索栏 */}
       <div className="memo-panel__header">
         <div className="memo-panel__title">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-          </svg>
           <span>备忘录</span>
-          <span className="memo-panel__count">{visible.length}</span>
+          <span className="memo-panel__count">{memos.filter((m) => m.status === 'active').length}</span>
         </div>
         <input
           ref={searchRef}
@@ -215,9 +253,6 @@ export function MemoPanel({ onClose, initialTab = 'active', requestCloseRef }: M
           onChange={(e) => setQuery(e.target.value)}
           placeholder="搜索备忘…（⌘K）"
         />
-        <button type="button" className="memo-icon-btn" aria-label="关闭" title="关闭（Esc）" onClick={() => void requestClose()}>
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-        </button>
       </div>
 
       {/* 新建/编辑框 */}
@@ -347,6 +382,8 @@ export function MemoPanel({ onClose, initialTab = 'active', requestCloseRef }: M
       <div className="memo-footer">
         <span>Enter 换行 · ⌘/Ctrl+Enter 保存 · Esc 关闭（草稿自动保存）</span>
       </div>
+      </>
+      )}
 
       {/* toast 反馈 */}
       {toast !== null && (

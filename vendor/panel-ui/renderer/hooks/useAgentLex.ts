@@ -65,6 +65,7 @@ export interface Task {
   detail?: string;
   folder?: string;         // task-level bound folder (absolute path)
   deadline?: string;       // YYYY-MM-DD
+  time?: string;           // HH:mm — 具体时间，与 deadline 分开存
   priority: TaskPriority;
   status: TaskStatus;
   subtasks: SubTask[];
@@ -278,6 +279,7 @@ export interface AgentLexStandaloneTask {
   status: StandaloneTaskStatus;
   priority: TaskPriority;
   deadline?: string;          // YYYY-MM-DD
+  time?: string;              // HH:mm — 具体时间，与 deadline 分开存
   owner: string;
   creator: string;
   stage: string;
@@ -517,7 +519,7 @@ export interface DiskBoundSession { sessionId?: string; label?: string; createdA
 export interface DiskChecklistItem { id?: string; text?: string; done?: boolean }
 export interface DiskSubTask { id?: string; title?: string; deadline?: string; priority?: string; status?: string; createdAt?: string; updatedAt?: string }
 export interface DiskTask {
-  id?: string; title?: string; detail?: string; folder?: string; deadline?: string;
+  id?: string; title?: string; detail?: string; folder?: string; deadline?: string; time?: string;
   priority?: string; status?: string; subtasks?: DiskSubTask[]; checklist?: DiskChecklistItem[];
   createdAt?: string; updatedAt?: string;
 }
@@ -573,6 +575,7 @@ function normalizeTaskGroup(dg: DiskTaskGroup, idx: number): TaskGroup {
       detail: dt.detail,
       folder: dt.folder,
       deadline: dt.deadline,
+      time: dt.time,
       priority: (dt.priority as TaskPriority) ?? 'medium',
       status: (dt.status as TaskStatus) ?? 'todo',
       subtasks: (dt.subtasks ?? []).map((ds, si) => ({
@@ -626,6 +629,10 @@ function normalizeParties(raw: DiskCase['parties']): CaseEntry['parties'] {
 export function normalizeCase(id: string, dc: DiskCase): CaseEntry {
   const now = new Date().toISOString();
   const type = normalizeCaseType(dc.type ?? dc.caseType ?? '', `${dc.cause ?? ''} ${dc.name ?? ''}`);
+  // 审级必须先于状态归一：状态阶梯按审级分套，normalizeStatus 必须带上 level，
+  // 否则二审/执行案的状态会被按一审套误归一（如「上诉立案」被改成「庭前准备」，
+  // 且用户改完状态一刷新又变回去）。
+  const level = normalizeLevel(dc.level ?? dc.instances?.[0]?.level ?? '', type);
   return {
     caseId: dc.caseId ?? id,
     caseNumber: dc.caseNumber ?? '',
@@ -633,7 +640,7 @@ export function normalizeCase(id: string, dc: DiskCase): CaseEntry {
     alias: dc.alias ?? [],
     type,
     cause: dc.cause ?? '',
-    status: normalizeStatus(dc.status ?? 'intake'),
+    status: normalizeStatus(dc.status ?? 'intake', level),
     folder: dc.folder ?? '',
     judge: dc.judge ?? '',
     claimAmount: dc.claimAmount ?? '',
@@ -641,7 +648,7 @@ export function normalizeCase(id: string, dc: DiskCase): CaseEntry {
     retainerUnit: typeof dc.retainerUnit === 'string' ? dc.retainerUnit : '',
     filingDate: dc.filingDate ?? '',
     summary: dc.summary ?? '',
-    level: normalizeLevel(dc.level ?? dc.instances?.[0]?.level ?? '', type),
+    level,
     instances: (dc.instances ?? []).map(inst => ({
       ...inst,
       level: normalizeLevel(inst.level, type),
@@ -731,7 +738,7 @@ export interface DiskStandaloneTask {
   groupTitle?: string; groupOrder?: number;
   title?: string; status?: string; priority?: string;
   deadline?: string; owner?: string; creator?: string;
-  stage?: string; blockedReason?: string;
+  stage?: string; blockedReason?: string; time?: string;
   subtasks?: SubTask[]; checklist?: ChecklistItem[];
   createdAt?: string; updatedAt?: string;
 }
@@ -807,6 +814,7 @@ export function normalizeStandaloneTask(raw: DiskStandaloneTask): AgentLexStanda
     status: (raw.status as StandaloneTaskStatus) ?? 'todo',
     priority: (raw.priority as TaskPriority) ?? 'medium',
     deadline: raw.deadline,
+    time: raw.time,
     owner: raw.owner ?? '',
     creator: raw.creator ?? '诉讼管家',
     stage: raw.stage ?? '',
@@ -1232,8 +1240,8 @@ const deleteProjectTaskGroup = (projectId: string, groupId: string) =>
 const reorderProjectTaskGroups = (projectId: string, orderedIds: string[]) =>
   taskMutate('cmd_agentlex_reorder_project_task_groups', { projectId, orderedIds });
 
-const addProjectTask = (projectId: string, groupId: string, title: string, opts?: { detail?: string; deadline?: string; priority?: TaskPriority; folder?: string }) =>
-  taskMutate('cmd_agentlex_add_project_task', { projectId, groupId, title, detail: opts?.detail, deadline: opts?.deadline, priority: opts?.priority, folder: opts?.folder });
+const addProjectTask = (projectId: string, groupId: string, title: string, opts?: { detail?: string; deadline?: string; time?: string; priority?: TaskPriority; folder?: string }) =>
+  taskMutate('cmd_agentlex_add_project_task', { projectId, groupId, title, detail: opts?.detail, deadline: opts?.deadline, time: opts?.time, priority: opts?.priority, folder: opts?.folder });
 const updateProjectTask = (projectId: string, taskId: string, patch: Partial<Task>) =>
   taskMutate('cmd_agentlex_update_project_task', { projectId, taskId, patch });
 const deleteProjectTask = (projectId: string, taskId: string) =>
@@ -1454,7 +1462,7 @@ async function toggleTimelineEvent(id: string): Promise<void> {
 async function addStandaloneTask(task: AgentLexStandaloneTask): Promise<void> {
   await mutateDisk('cmd_agentlex_add_standalone_task', {
     title: task.title, caseId: task.caseId || null, caseName: task.caseName || null,
-    deadline: task.deadline ?? null, priority: task.priority,
+    deadline: task.deadline ?? null, time: task.time ?? null, priority: task.priority,
     owner: task.owner || null, stage: task.stage || null, groupTitle: task.groupTitle || null,
   }, prev => ({ ...prev, standaloneTasks: [...prev.standaloneTasks, task] }));
 }
@@ -1610,8 +1618,8 @@ const deleteTaskGroup = (caseId: string, groupId: string) =>
 const reorderTaskGroups = (caseId: string, orderedIds: string[]) =>
   taskMutate('cmd_agentlex_reorder_task_groups', { caseId, orderedIds });
 
-const addTask = (caseId: string, groupId: string, title: string, opts?: { detail?: string; deadline?: string; priority?: TaskPriority; folder?: string }) =>
-  taskMutate('cmd_agentlex_add_task', { caseId, groupId, title, detail: opts?.detail, deadline: opts?.deadline, priority: opts?.priority, folder: opts?.folder });
+const addTask = (caseId: string, groupId: string, title: string, opts?: { detail?: string; deadline?: string; time?: string; priority?: TaskPriority; folder?: string }) =>
+  taskMutate('cmd_agentlex_add_task', { caseId, groupId, title, detail: opts?.detail, deadline: opts?.deadline, time: opts?.time, priority: opts?.priority, folder: opts?.folder });
 const updateTask = (caseId: string, taskId: string, patch: Partial<Task>) =>
   taskMutate('cmd_agentlex_update_task', { caseId, taskId, patch });
 const deleteTask = (caseId: string, taskId: string) =>

@@ -28,6 +28,7 @@ export function TaskDetailDrawer({ task, onClose, onChange }: TaskDetailDrawerPr
   const [detail, setDetail] = useState(task.detail ?? '')
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>(task.priority ?? 'medium')
   const [deadline, setDeadline] = useState(task.deadline ?? '')
+  const [time, setTime] = useState(task.time ?? '')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
@@ -44,6 +45,7 @@ export function TaskDetailDrawer({ task, onClose, onChange }: TaskDetailDrawerPr
         detail: detail.trim() === '' ? undefined : detail.trim(),
         priority,
         deadline: deadline === '' ? undefined : deadline,
+        time: time.trim() === '' ? undefined : time.trim(),
       })
       onChange()
       onClose()
@@ -133,6 +135,11 @@ export function TaskDetailDrawer({ task, onClose, onChange }: TaskDetailDrawerPr
             <label className={mobileCss.taskField}>
               <span className={mobileCss.taskFieldLabel}>{tt('mobile.task.deadline')}</span>
               <input className={mobileCss.taskInput} type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} disabled={!editable} />
+            </label>
+
+            <label className={mobileCss.taskField}>
+              <span className={mobileCss.taskFieldLabel}>时间</span>
+              <input className={mobileCss.taskInput} type="time" value={time} onChange={(e) => setTime(e.target.value)} disabled={!editable} />
             </label>
 
             {error !== '' && <p className={mobileCss.taskError}>{error}</p>}

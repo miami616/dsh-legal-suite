@@ -195,6 +195,7 @@ export function createProjectStore(dataDir: string, ctx: Context): ProjectStore 
           title: s(task.title) ?? existing.title,
           status: (s(task.status) as ProjectTask['status']) ?? existing.status,
           deadline: s(task.deadline) ?? existing.deadline,
+          time: s(task.time) ?? existing.time,
           priority: (s(task.priority) as ProjectTask['priority']) ?? existing.priority,
           // detail / templateTitle 此前完全未透传——建项目时写的任务说明被
           // 静默丢弃（更新时同样丢弃）。此处新建与更新一并补上。

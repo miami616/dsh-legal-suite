@@ -174,17 +174,25 @@ export function sortByStatus(aId: string, bId: string): number {
 export function normalizeStatus(raw: string, level?: string | null): string {
   const t = raw.trim();
   const options = getStatusOptions(level);
+  // 已是本审级阶梯的规范 id → 原样返回（防止正则贪婪误匹配 id 内部子串）。
   if (options.some(s => s.id === t)) return t;
+  // 委托/接案/收案 → intake（各套通用）。
   if (/委托|接案|收案|intake/.test(t)) return 'intake';
-  if (/诉前|准备起诉|起草诉状|证据收集|pre_filing/.test(t)) return 'pretrial';
-  if (/立案|受理|filing|上诉|appeal/.test(t)) return level === '二审' ? 'appeal_filed' : 'pretrial';
+  // 诉前准备 → 一审套的 pre_filing；其它套无此档则回退 pretrial。
+  if (/诉前|准备起诉|起草诉状|证据收集|pre_filing/.test(t)) return options.some(s => s.id === 'pre_filing') ? 'pre_filing' : 'pretrial';
+  // 立案/受理：一审套有 filing（立案中）；二审套有 appeal_filed（上诉立案）。
+  if (/立案|受理|filing|上诉|appeal/.test(t)) {
+    if (options.some(s => s.id === 'appeal_filed')) return 'appeal_filed';
+    if (options.some(s => s.id === 'filing')) return 'filing';
+    return 'pretrial';
+  }
   if (/查控|冻结|查封|investigation/.test(t)) return options.some(s => s.id === 'investigation') ? 'investigation' : 'post_trial';
   if (/处置|拍卖|变卖|disposal/.test(t)) return options.some(s => s.id === 'disposal') ? 'disposal' : 'post_trial';
   if (/分配|发还|distribution/.test(t)) return options.some(s => s.id === 'distribution') ? 'distribution' : 'post_trial';
   if (/开庭|等待开庭|排期|awaiting_hearing/.test(t)) return 'awaiting_trial';
   if (/审理|庭审|质证|辩论|举证/.test(t)) return 'post_trial';
-  if (/待判|等待判决|合议|judged|二审判决|post_judgment/.test(t)) return level === '二审' ? 'post_judgment' : 'post_trial';
-  if (/执行|execution/.test(t)) return 'post_trial';
+  if (/待判|等待判决|合议|judged|二审判决|post_judgment/.test(t)) return options.some(s => s.id === 'post_judgment') ? 'post_judgment' : 'post_trial';
+  if (/执行|execution/.test(t)) return options.some(s => s.id === 'execution') ? 'execution' : 'post_trial';
   if (/撤诉|撤回|withdrawn/.test(t)) return 'closed';
   if (/结案|驳回起诉|调解|和解|closed/.test(t)) return 'closed';
   if (/仲裁/.test(t)) return 'pretrial';

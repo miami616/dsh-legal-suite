@@ -32,21 +32,36 @@ function isTextarea(el: HTMLElement): el is HTMLTextAreaElement {
 }
 
 const INPUT_SELECTORS: readonly string[] = [
-  // Lexical 富文本：记忆中的稳定锚点 data-lexical-editor
-  '[data-pane="conversation"] [contenteditable="true"][data-lexical-editor="true"]',
-  '[data-pane="conversation"] [data-lexical-editor="true"]',
-  '[data-pane="conversation"] [class*="composer"] [contenteditable="true"]',
+  // ---- 锚定 [data-pane="conversation"] ----
   '[data-pane="conversation"] textarea[class*="composer"]',
   '[data-pane="conversation"] [class*="composer"] textarea',
+  '[data-pane="conversation"] textarea[role="textbox"]',
   '[data-pane="conversation"] [contenteditable="true"][role="textbox"]',
-  '[data-conversation-scroll] [contenteditable="true"][data-lexical-editor="true"]',
-  '[data-conversation-scroll] [class*="composer"] [contenteditable="true"]',
+  '[data-pane="conversation"] [contenteditable="true"][data-lexical-editor="true"]',
+  '[data-pane="conversation"] [data-lexical-editor="true"]',
+  '[data-pane="conversation"] [class*="chatInput"] textarea',
+  '[data-pane="conversation"] [class*="chatInput"] [contenteditable="true"]',
+  '[data-pane="conversation"] [class*="inputArea"] textarea',
+  '[data-pane="conversation"] [class*="inputArea"] [contenteditable="true"]',
+  // ---- 锚定 [data-conversation-scroll]（滚动容器同区域的 composer）----
   '[data-conversation-scroll] textarea[class*="composer"]',
   '[data-conversation-scroll] [class*="composer"] textarea',
-  '[contenteditable="true"][data-lexical-editor="true"]',
-  '[class*="composer"] [contenteditable="true"]',
+  '[data-conversation-scroll] textarea[role="textbox"]',
+  '[data-conversation-scroll] [contenteditable="true"][role="textbox"]',
+  '[data-conversation-scroll] [contenteditable="true"][data-lexical-editor="true"]',
+  '[data-conversation-scroll] [class*="chatInput"] textarea',
+  '[data-conversation-scroll] [class*="inputArea"] textarea',
+  // ---- document 全量回退 ----
   'textarea[class*="composer"]',
-  '[role="textbox"][contenteditable="true"]',
+  '[class*="composer"] textarea',
+  'textarea[role="textbox"]',
+  '[class*="chatInput"] textarea',
+  '[class*="inputArea"] textarea',
+  'textarea[autocomplete="off"]',
+  '[contenteditable="true"][role="textbox"]',
+  '[contenteditable="true"][data-lexical-editor="true"]',
+  '[class*="chatInput"] [contenteditable="true"]',
+  '[class*="inputArea"] [contenteditable="true"]',
 ]
 
 function probeInRoot(root: Document | ShadowRoot): HTMLElement | null {

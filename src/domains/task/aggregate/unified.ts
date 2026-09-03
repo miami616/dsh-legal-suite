@@ -24,6 +24,7 @@ interface LitigationRegistryLike {
         status?: string
         priority?: string
         deadline?: string
+        time?: string
         detail?: string
       }>
     }>
@@ -43,6 +44,7 @@ interface NonLitigationRegistryLike {
         status?: string
         priority?: string
         deadline?: string
+        time?: string
         detail?: string
       }>
     }>
@@ -71,6 +73,7 @@ export async function aggregateUnifiedTasks(
           status: (t.status as TaskItem['status']) ?? 'todo',
           priority: (t.priority as TaskItem['priority']) ?? 'medium',
           deadline: t.deadline,
+          time: t.time,
           source: 'litigation',
           sourceId: c.caseId,
           sourceName: c.name,
@@ -91,6 +94,7 @@ export async function aggregateUnifiedTasks(
           status: (t.status as TaskItem['status']) ?? 'todo',
           priority: (t.priority as TaskItem['priority']) ?? 'medium',
           deadline: t.deadline,
+          time: t.time,
           source: 'nonlitigation',
           sourceId: p.projectId,
           sourceName: p.name,

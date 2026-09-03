@@ -329,8 +329,8 @@ export async function collectAllDeadlines(
             label: task.title,
             kind: 'task',
             source: 'nonlitigation',
-            // deadline 只存纯日期，具体时间在 detail 里。
-            time: timePart(task.deadline) ?? extractTimeFromDetail(task.detail),
+            // deadline 只存纯日期，具体时间单独存 time 字段（兜底再从 detail 提取）。
+            time: timePart(task.deadline) ?? task.time ?? extractTimeFromDetail(task.detail),
           }))
         }
       }

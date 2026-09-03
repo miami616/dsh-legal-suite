@@ -51,8 +51,65 @@ function nextStatus(s: TaskItem['status']): TaskItem['status'] {
 function daysUntil(date: string | undefined): number {
   if (!date) return Infinity
   const now = new Date()
-  const target = new Date(`${date}T00:00:00`)
+  // 兼容纯日期与带时分（`YYYY-MM-DD HH:mm` / `YYYY-MM-DDTHH:mm`）两种形态，
+  // 只取日期部分做倒计时，避免带时分时 new Date 解析失败返回 NaN。
+  const m = String(date).trim().match(/^(\d{4}-\d{2}-\d{2})/)
+  const dateOnly = m ? m[1] : String(date)
+  const target = new Date(`${dateOnly}T00:00:00`)
   return Math.round((target.getTime() - now.getTime()) / 86400000)
+}
+
+/**
+ * 把 deadline 渲染成「具体时间点」：纯日期显示为 MM-DD，带时分（如
+ * `2026-09-10T15:10` 或 `2026-09-10 15:10`）则显示 MM-DD HH:mm。
+ * 这是 #8 的核心：非诉/独立任务即便设了 deadline，也要像诉讼任务一样
+ * 看到具体时间点，而不是只看到「X d」倒计时。
+ */
+function formatDeadline(date: string | undefined): string {
+  if (!date) return ''
+  const t = date.trim()
+  // 兼容 `YYYY-MM-DD HH:mm` 与 `YYYY-MM-DDTHH:mm` 两种带时分形态。
+  const m = t.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}))?/)
+  if (!m) return t
+  const [, , mm, dd, hh, mi] = m
+  const datePart = `${mm}-${dd}`
+  return hh !== undefined ? `${datePart} ${hh}:${mi}` : datePart
+}
+
+/**
+ * 从 detail 自然语言里提取具体时间（HH:MM），无则 undefined。
+ * 与 push 域 extractTimeFromDetail 同规则：非诉/独立任务的 deadline 只存
+ * 纯日期，具体时间点写在 detail（如「9月4日下午3点10分开会」）。
+ */
+function extractTimeFromDetail(detail: string | undefined): string | undefined {
+  if (detail === undefined || detail === '') return undefined
+  const text = detail.trim()
+  const colon = /(?:^|[^0-9])(\d{1,2}):(\d{2})(?:[^0-9]|$)/.exec(text)
+  if (colon !== null) {
+    const h = Number(colon[1])
+    const min = Number(colon[2])
+    if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+    }
+  }
+  const cn = /(?:下午|晚上|上午|早上|凌晨)?(\d{1,2})\s*[点时]\s*((?:\d{1,2}\s*分?)|半)?/.exec(text)
+  if (cn !== null) {
+    let h = Number(cn[1])
+    let min = 0
+    if (cn[2] !== undefined && cn[2] !== '') {
+      if (cn[2] === '半') min = 30
+      else {
+        const minNum = Number(cn[2].replace(/分/g, '').trim())
+        if (!Number.isNaN(minNum)) min = minNum
+      }
+    }
+    if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+      if (/下午|晚上/.test(text) && h < 12) h += 12
+      if (/凌晨/.test(text) && h === 12) h = 0
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+    }
+  }
+  return undefined
 }
 
 function todayStr(): string {
@@ -68,6 +125,8 @@ export function TaskPanel({ controller }: TaskPanelProps): React.JSX.Element {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [newTitle, setNewTitle] = useState('')
+  const [newDeadline, setNewDeadline] = useState('')
+  const [newTime, setNewTime] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [sourceFilter, setSourceFilter] = useState<TaskItem['source'] | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<TaskItem['status'] | 'all'>('all')
@@ -114,8 +173,14 @@ export function TaskPanel({ controller }: TaskPanelProps): React.JSX.Element {
     const title = newTitle.trim()
     if (title === '') return
     try {
-      await api.upsertTask({ title })
+      await api.upsertTask({
+        title,
+        deadline: newDeadline === '' ? undefined : newDeadline,
+        time: newTime.trim() === '' ? undefined : newTime.trim(),
+      })
       setNewTitle('')
+      setNewDeadline('')
+      setNewTime('')
       await refresh()
     } catch (err) {
       setError(errorMessage(err))
@@ -195,6 +260,18 @@ export function TaskPanel({ controller }: TaskPanelProps): React.JSX.Element {
             placeholder={tt('add.placeholder')}
             onChange={(e) => setNewTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void addTask() }} />
+          <input
+            className={css.addDate}
+            type="date"
+            value={newDeadline}
+            onChange={(e) => setNewDeadline(e.target.value)}
+            title="截止日期" />
+          <input
+            className={css.addTime}
+            type="time"
+            value={newTime}
+            onChange={(e) => setNewTime(e.target.value)}
+            title="具体时间" />
           <button className={css.primaryBtn} type="button" onClick={() => void addTask()}>{tt('add.btn')}</button>
         </div>
 
@@ -342,6 +419,11 @@ function TaskRow({ task, onToggle, onDelete, onOpen }: { task: TaskItem; onToggl
   const deadline = task.deadline ? daysUntil(task.deadline) : null
   const deadlineCls = deadline === null ? css.deadlineNeutral : done ? css.deadlineNeutral : deadline < 0 ? css.deadlineUrgent : deadline <= 3 ? css.deadlineUrgent : deadline <= 7 ? css.deadlineSoon : css.deadlineNeutral
   const deadlineText = deadline === null ? '' : deadline < 0 ? `逾期 ${-deadline}d` : deadline === 0 ? tt('detail.today') : `${deadline}d`
+  // 具体时间点：显示实际日期 + 具体时间。优先取独立的 time 字段，无则从
+  // detail 里提取（如「下午3点10分」），让非诉/独立任务也能看到时间点。
+  const deadlineDate = formatDeadline(task.deadline)
+  const detailTime = task.time?.trim() ?? extractTimeFromDetail(task.detail)
+  const showTime = detailTime !== undefined && detailTime !== '' && !/:\d{2}$/.test(deadlineDate)
   const source = (task.source ?? 'standalone') as Exclude<TaskItem['source'], undefined>
   const sourceCls = source === 'litigation' ? css.sourceLitigation : source === 'nonlitigation' ? css.sourceNonlitigation : css.sourceStandalone
 
@@ -369,7 +451,13 @@ function TaskRow({ task, onToggle, onDelete, onOpen }: { task: TaskItem; onToggl
       </div>
       <div className={css.taskMeta}>
         {task.priority && task.priority !== 'medium' && <span className={`${css.priority} ${css[`priority${cap(task.priority)}`]}`}>{task.priority}</span>}
-        {deadline !== null && <span className={`${css.deadline} ${deadlineCls}`}>{deadlineText}</span>}
+        {deadline !== null && (
+          <span className={`${css.deadline} ${deadlineCls}`} title={task.deadline}>
+            {deadlineDate}
+            {showTime && <span className={css.deadlineTime}>{detailTime}</span>}
+            <span className={css.deadlineCount}>{deadlineText}</span>
+          </span>
+        )}
         {onOpen !== undefined && <span className={css.rowChevron} aria-hidden>›</span>}
         <button className={css.deleteBtn} type="button" aria-label="删除" disabled={!deletable} onClick={(e) => { e.stopPropagation(); onDelete() }}>✕</button>
       </div>

@@ -177,6 +177,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
   const [newCaseId, setNewCaseId] = useState('');
   const [newGroupId, setNewGroupId] = useState('');
   const [newDeadline, setNewDeadline] = useState('');
+  const [newTime, setNewTime] = useState('');
   const [newPriority, setNewPriority] = useState<TaskPriority>('medium');
 
   // ── Derived data ──
@@ -340,6 +341,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
         const taskPatch = {
           title: patch.title,
           deadline: patch.deadline ?? null,
+          time: patch.time ?? null,
           priority: patch.priority,
           status: patch.status,
           detail: patch.detail,
@@ -349,6 +351,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
         const taskPatch = {
           title: patch.title,
           deadline: patch.deadline ?? null,
+          time: patch.time ?? null,
           priority: patch.priority,
           status: patch.status,
           detail: patch.detail,
@@ -359,6 +362,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
           ...s,
           title: patch.title,
           deadline: patch.deadline,
+          time: patch.time,
           priority: patch.priority,
           status: patch.status,
           stage: patch.stage ?? s.stage,
@@ -389,36 +393,38 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
   const handleAdd = useCallback(() => {
     if (!newTitle.trim()) return;
     const now = new Date().toISOString();
+    const timeOrUndef = newTime.trim() || undefined;
     if (newCaseId && newGroupId) {
-      void addCaseTask(newCaseId, newGroupId, newTitle.trim(), { deadline: newDeadline || undefined, priority: newPriority });
+      void addCaseTask(newCaseId, newGroupId, newTitle.trim(), { deadline: newDeadline || undefined, time: timeOrUndef, priority: newPriority });
     } else {
       void addStandaloneTask({
         id: `task-${Date.now()}`, caseId: '', caseName: '', groupTitle: '', groupOrder: 0,
-        title: newTitle.trim(), status: 'todo', priority: newPriority, deadline: newDeadline || undefined,
+        title: newTitle.trim(), status: 'todo', priority: newPriority, deadline: newDeadline || undefined, time: timeOrUndef,
         owner: '', creator: '我', stage: '', subtasks: [], checklist: [],
         createdAt: now, updatedAt: now,
       });
     }
-    setNewTitle(''); setNewCaseId(''); setNewGroupId(''); setNewDeadline(''); setNewPriority('medium'); setShowAdd(false);
-  }, [newTitle, newCaseId, newGroupId, newDeadline, newPriority, addCaseTask, addStandaloneTask]);
+    setNewTitle(''); setNewCaseId(''); setNewGroupId(''); setNewDeadline(''); setNewTime(''); setNewPriority('medium'); setShowAdd(false);
+  }, [newTitle, newCaseId, newGroupId, newDeadline, newTime, newPriority, addCaseTask, addStandaloneTask]);
 
   const openAddPrefill = useCallback((deadline?: string) => {
     setNewDeadline(deadline ?? '');
-    setNewTitle(''); setNewCaseId(''); setNewGroupId(''); setNewPriority('medium');
+    setNewTitle(''); setNewCaseId(''); setNewGroupId(''); setNewTime(''); setNewPriority('medium');
     setShowAdd(true);
   }, []);
 
   // ── 行内渲染小工具 ──
   const dueMeta = useCallback((t: UnifiedTask): { text: string; cls: string } | null => {
     if (!t.deadline) return null;
+    const timeSuffix = t.time ? ` ${t.time}` : '';
     const dd = daysUntil(t.deadline);
     if (t.status !== 'done') {
-      if (dd < 0) return { text: `逾期 ${-dd} 天`, cls: 'bg-[var(--error-bg)] text-[var(--error)]' };
-      if (dd === 0) return { text: '今天', cls: 'bg-[var(--accent-warm-subtle)] text-[var(--accent-warm)]' };
-      if (dd === 1) return { text: '明天', cls: 'bg-[var(--warning-bg)] text-[var(--warning)]' };
-      return { text: fmtMD(t.deadline), cls: 'bg-[var(--paper-inset)] text-[var(--ink-muted)]' };
+      if (dd < 0) return { text: `逾期 ${-dd} 天${timeSuffix}`, cls: 'bg-[var(--error-bg)] text-[var(--error)]' };
+      if (dd === 0) return { text: `今天${timeSuffix}`, cls: 'bg-[var(--accent-warm-subtle)] text-[var(--accent-warm)]' };
+      if (dd === 1) return { text: `明天${timeSuffix}`, cls: 'bg-[var(--warning-bg)] text-[var(--warning)]' };
+      return { text: `${fmtMD(t.deadline)}${timeSuffix}`, cls: 'bg-[var(--paper-inset)] text-[var(--ink-muted)]' };
     }
-    return { text: fmtMD(t.deadline), cls: 'bg-[var(--paper-inset)] text-[var(--ink-muted)]' };
+    return { text: `${fmtMD(t.deadline)}${timeSuffix}`, cls: 'bg-[var(--paper-inset)] text-[var(--ink-muted)]' };
   }, []);
 
   const prioDotClass = useCallback((p: TaskPriority) =>
@@ -912,6 +918,15 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                   type="date"
                   value={newDeadline}
                   onChange={(e) => setNewDeadline(e.target.value)}
+                  className="w-full rounded-lg bg-[var(--paper)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none ring-1 ring-inset ring-[var(--line)] focus:ring-2 focus:ring-[var(--accent-warm)]/30"
+                />
+              </div>
+              <div className="w-28">
+                <label className="mb-1.5 block text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">时间</label>
+                <input
+                  type="time"
+                  value={newTime}
+                  onChange={(e) => setNewTime(e.target.value)}
                   className="w-full rounded-lg bg-[var(--paper)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none ring-1 ring-inset ring-[var(--line)] focus:ring-2 focus:ring-[var(--accent-warm)]/30"
                 />
               </div>

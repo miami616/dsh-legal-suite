@@ -19,21 +19,25 @@ const today = new Date().toISOString().slice(0, 10)
 const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
 const in3days = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10)
 
-// Temp data dir with a sample case registry + timeline.
-const dir = mkdtempSync(join(tmpdir(), 'push-test-'))
+// Temp data dirs: litigation 数据 + 兄弟目录 items（与生产一致：items 在
+// $DSH_HOME/agentlex/items = litigationDir 的父目录 + /items）。
+const base = mkdtempSync(join(tmpdir(), 'push-test-'))
+const dir = join(base, 'litigation')
 mkdirSync(dir, { recursive: true })
+mkdirSync(join(base, 'items'), { recursive: true })
 writeFileSync(join(dir, 'case-registry.json'), JSON.stringify({
   registryVersion: '1.0',
   cases: {
-    c1: {
-      caseId: 'c1', name: '张三诉李四合同纠纷', type: 'civil',
-      keyDates: [
-        { id: 'kd1', label: '开庭', date: tomorrow },
-        { id: 'kd2', label: '举证期限', date: today },
-        { id: 'kd3', label: '远期节点', date: in3days },
-      ],
-    },
+    c1: { caseId: 'c1', name: '张三诉李四合同纠纷', type: 'civil', caseNumber: '(2026)鲁0102民初10195号', court: '济南市历下区人民法院', status: 'awaiting_trial' },
   },
+}))
+writeFileSync(join(base, 'items', 'items.json'), JSON.stringify({
+  registryVersion: '1.0',
+  items: [
+    { id: 'kd1', ownerId: 'c1', ownerName: '张三诉李四合同纠纷', type: 'both', title: '开庭', date: tomorrow, time: '09:00', status: 'pending', detail: '速裁审判法庭第一庭', subtasks: [], checklist: [] },
+    { id: 'kd2', ownerId: 'c1', ownerName: '张三诉李四合同纠纷', type: 'both', title: '举证期限', date: today, status: 'pending', subtasks: [], checklist: [] },
+    { id: 'kd3', ownerId: 'c1', ownerName: '张三诉李四合同纠纷', type: 'event', title: '远期节点', date: in3days, status: 'pending', subtasks: [], checklist: [] },
+  ],
 }))
 writeFileSync(join(dir, 'case-timeline.json'), JSON.stringify({ registryVersion: '1.0', events: [] }))
 
@@ -107,6 +111,6 @@ check('disabled → no push', r3.pushed === 0 && r3.attempted === false)
 const r4 = await runDeadlinePush(dirs, { ...cfg, targetId: '' }, store, mockDshIm, now)
 check('empty target → no push', r4.pushed === 0 && r4.attempted === false)
 
-rmSync(dir, { recursive: true, force: true })
+rmSync(base, { recursive: true, force: true })
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

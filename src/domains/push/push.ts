@@ -21,7 +21,6 @@
 import { computeDeadlines, type DeadlineItem } from '../litigation/deadlines.ts'
 import { createCaseStore } from '../litigation/store/case-store.ts'
 import { createTimelineStore } from '../litigation/store/timeline-store.ts'
-import { createProjectStore } from '../nonlitigation/store/project-store.ts'
 import { createTaskStore } from '../task/store/task-store.ts'
 import { createItemStore } from '../item/store/item-store.ts'
 import { sendFeishuCard } from './feishu-card.ts'
@@ -98,11 +97,11 @@ function rowMetaLines(row: DeadlineItem): string[] {
  *   {prefix}📌 重要日程提醒
  *
  *   ⚖️ 开庭 · 明天 09:00
- *   广播发展中心与有人旅游广告合同纠纷
- *   (2026)鲁0102民初7013号 · 济南市历下区人民法院 · 速裁审判法庭第一庭
+ *   甲方与乙方买卖合同纠纷
+ *   （2026）X民初XXXX号 · XX市XX区人民法院 · 第X法庭
  *
- *   ✅ 20案件沟通会 · 明天 16:30
- *   山东广播电视台
+ *   ✅ 案件沟通会 · 明天 16:30
+ *   某顾问单位
  *
  * Each block: a title line (emoji + 事项 + 剩余 + 时间), then the case name,
  * then an optional meta line (案号 · 法院 · 法庭) joined with ·.
@@ -299,6 +298,16 @@ export async function collectAllDeadlines(
 
   // 统一事项：从 items.json 读所有事项（event/task/both），自动分流。
   // 一个事项一次登记，type 决定它进日程/时间轴还是任务树。
+  // 补充 owner 元信息（案号/法院）来自 case/project registry——push 文本需要。
+  const ownerMeta = new Map<string, { caseNumber?: string; court?: string }>()
+  try {
+    const caseStore = createCaseStore(litigationDir)
+    const reg = await caseStore.readRegistry()
+    for (const c of Object.values(reg.cases)) {
+      ownerMeta.set(c.caseId, { caseNumber: c.caseNumber, court: c.court })
+    }
+  } catch { /* best-effort */ }
+
   try {
     const itemStore = createItemStore(join(litigationDir, '..', 'items'))
     const all = await itemStore.listItems()
@@ -306,8 +315,12 @@ export async function collectAllDeadlines(
       if (it.status === 'done' || it.status === 'cancelled' || !it.date) continue
       const ownerId = it.ownerId ?? ''
       const ownerName = it.ownerName ?? ''
+      // ownerType 区分同号案件/项目/独立（2026-09-04）；缺省按历史（案件/独立）。
+      const ownerType = it.ownerType ?? (ownerId === '' ? 'standalone' : 'litigation')
+      const meta = ownerId === '' ? undefined : ownerMeta.get(ownerId)
       const isEvent = it.type === 'event' || it.type === 'both'
       const isTask = it.type === 'task' || it.type === 'both'
+      const source = ownerType === 'standalone' ? 'standalone' : ownerType === 'nonlitigation' ? 'nonlitigation' : 'litigation'
       // 事件 → 关键日程/时间轴（kind 按类型）。
       if (isEvent) {
         items.push(makeItem({
@@ -316,9 +329,11 @@ export async function collectAllDeadlines(
           date: datePart(it.date),
           label: it.title,
           kind: it.type === 'both' ? 'hearing' : 'keydate',
-          source: ownerId === '' ? 'standalone' : 'litigation',
+          source,
           time: timePart(it.date) ?? it.time,
           detail: it.detail,
+          caseNumber: meta?.caseNumber,
+          court: meta?.court,
         }))
       }
       // 任务 → 任务 deadline。both 事项只作为事件进一次（同一 deadline 不重复）。
@@ -329,9 +344,11 @@ export async function collectAllDeadlines(
           date: datePart(it.date),
           label: it.title,
           kind: 'task',
-          source: ownerId === '' ? 'standalone' : 'litigation',
+          source,
           time: timePart(it.date) ?? it.time ?? extractTimeFromDetail(it.detail),
           detail: it.detail,
+          caseNumber: meta?.caseNumber,
+          court: meta?.court,
         }))
       }
     }
@@ -381,7 +398,16 @@ export async function runDeadlinePush(
   if (fresh.length === 0) return { due: due.length, pushed: 0, attempted: false }
 
   // 4. Format the fixed template (feishu → card markdown; others → plain text).
-  const isFeishu = cfg.channel === 'feishu'
+  // 渠道实时解析：配置可能没存 channel（旧版保存时 dsh-im listTargets 不可用），
+  // 推送前用 botId 现查投递目标渠道——避免「配了飞书却发普通文字」。
+  let channel = cfg.channel
+  if (channel === undefined && dshIm.listTargets !== undefined) {
+    try {
+      const result = await dshIm.listTargets(cfg.botId)
+      if (result?.channel !== undefined && result.channel !== '') channel = result.channel
+    } catch { /* 查询失败则保持 undefined → 走普通文字 */ }
+  }
+  const isFeishu = channel === 'feishu'
   const text = isFeishu ? formatPushMarkdown(fresh, cfg.titlePrefix) : formatPush(fresh, cfg.titlePrefix)
 
   // 5. Send: feishu renders a structured card; others use dsh-im plain text.

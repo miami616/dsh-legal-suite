@@ -111,11 +111,12 @@ try {
   check('按完整度升序', scores.every((v, i) => i === 0 || scores[i - 1] <= v), scores.join(','))
 
   /* ══════════════ 6. 内置参考案例的体检结果合理 ══════════════ */
-  const prefiling = Object.values((await caseStore.readRegistry()).cases)
-    .find((c) => c.status === 'pre_filing')
-  check('内置参考案例含诉前案', prefiling !== undefined)
-  const hSeed = await computeCaseHealth(prefiling)
-  check('诉前参考案例未被「未立案」拖累', hSeed.completeness.score >= 60,
+  // 注：内置参考案例现为 待开庭 + 执行 两条（备忘录 #3 起诉讼/非诉各 2 个）。
+  const seededAwaiting = Object.values((await caseStore.readRegistry()).cases)
+    .find((c) => c.status === 'awaiting_trial')
+  check('内置参考案例含待开庭案', seededAwaiting !== undefined)
+  const hSeed = await computeCaseHealth(seededAwaiting)
+  check('待开庭参考案例完整度较高', hSeed.completeness.score >= 55,
     `score=${hSeed.completeness.score} gaps=${gapFields(hSeed).join(',')}`)
 
   const seededExecution = Object.values((await caseStore.readRegistry()).cases)

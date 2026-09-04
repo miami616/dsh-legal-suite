@@ -4,7 +4,7 @@
  * Design: 减法。陶土橙只服务「动作 + 今日焦点」，语义色只在「截止紧迫 /
  * 状态 / 类型」出现，其余中性；统一 4pt 留白节奏；行内三区对齐。
  *   1  Header — 标题 + 日期/逾期/今日进度副标 + 新建任务
- *   2  Hero   — 「今日指挥卡」：今日待办+进度 / 今日日程 / 时间桶分布(下钻)
+ *   2  Hero   — 「今日指挥卡」：今日待办+进度 / 今日事项(事件+任务) / 时间桶分布(下钻)
  *               （替代 v4 的「今日开庭横幅 + 统计 chips」三层堆叠）
  *   3  Ledger — 台账：已逾期/今天/明天/未来/未排程/已完成 分组
  *   4  Calendar — 右栏暖色日历(圆点按类型着色,点空白日建任务) + 关键日程
@@ -228,16 +228,40 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
     return { total: tt.length, done: dn };
   }, [allTasks]);
   const overdueCount = bucketCounts.overdue ?? 0;
-  const todayHearings = useMemo(
-    () =>
-      timelineEvents.filter(
-        e =>
-          e.date === todayStr &&
-          e.status !== 'cancelled' &&
-          (e.type === 'hearing' || e.type === 'arbitration' || e.type === 'meeting'),
-      ),
-    [timelineEvents],
-  );
+  // ── 今日事项（事件 + 到期任务）：备忘录 #4「今日日程」→「今日事项」 ──
+  const todayItems = useMemo(() => {
+    const items: Array<{
+      key: string; kind: 'event' | 'task'; time?: string; label: string;
+      sub?: string; urgent?: boolean; status?: string;
+    }> = [];
+    // 事件：今天发生的未取消节点（开庭/举证/会议/立案…都算）。
+    for (const e of timelineEvents) {
+      if (e.date !== todayStr || e.status === 'cancelled' || e.status === 'completed') continue;
+      items.push({
+        key: `ev:${e.id}`,
+        kind: 'event',
+        time: e.time,
+        label: e.label || e.title || '',
+        sub: e.caseName,
+        urgent: e.type === 'hearing' || e.type === 'arbitration',
+      });
+    }
+    // 任务：今天到期的未完成任务（案件/项目/独立）。
+    for (const t of allTasks) {
+      if (t.deadline !== todayStr || t.status === 'done') continue;
+      items.push({
+        key: `task:${t.key}`,
+        kind: 'task',
+        time: t.time,
+        label: t.title,
+        sub: t.caseName || t.stage,
+        urgent: t.priority === 'high',
+        status: t.status,
+      });
+    }
+    items.sort((a, b) => (a.time ?? '99:99').localeCompare(b.time ?? '99:99'));
+    return items;
+  }, [timelineEvents, allTasks]);
 
   // ── 日历同源数据（事件 + 案件/项目/独立任务截止） ──
   const calByDate = useMemo(() => {
@@ -398,6 +422,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
     // 统一事项：登记一个事项（type: event/task/both），自动分流到日程/时间轴/任务树。
     void addItem({
       ownerId: newCaseId || '',
+      ownerType: newCaseId ? 'litigation' : 'standalone',
       ownerName: newCaseId ? cases.find(c => c.caseId === newCaseId)?.name : undefined,
       type: newType,
       title: newTitle.trim(),
@@ -554,25 +579,29 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
               </div>
             </div>
 
-            {/* 今日日程 */}
+            {/* 今日事项（事件 + 任务；备忘录 #4） */}
             <div className="px-6 py-5">
-              <div className="text-[0.6875rem] font-bold uppercase tracking-[.08em] text-[var(--ink-muted)]">今日日程</div>
+              <div className="text-[0.6875rem] font-bold uppercase tracking-[.08em] text-[var(--ink-muted)]">今日事项</div>
               <div className="mt-2.5 flex flex-col gap-0.5">
-                {todayHearings.length === 0 ? (
+                {todayItems.length === 0 ? (
                   <div className="flex items-center gap-2.5 px-2.5 py-2 text-sm text-[var(--ink-muted)]">
                     <span className="h-[7px] w-[7px] rounded-full bg-[var(--ink-faint)]" />
-                    今日无开庭与会议
+                    今日暂无事件与到期任务
                   </div>
-                ) : todayHearings.map(e => (
-                  <div key={e.id} className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 transition-colors hover:bg-[var(--hover-bg)]">
-                    <span className="w-[40px] shrink-0 font-mono text-xs font-semibold text-[var(--ink-secondary)]">{e.time ?? '全天'}</span>
+                ) : todayItems.map(item => (
+                  <div key={item.key} className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 transition-colors hover:bg-[var(--hover-bg)]">
+                    <span className="w-[40px] shrink-0 font-mono text-xs font-semibold text-[var(--ink-secondary)]">{item.time ?? '全天'}</span>
                     <span
                       className="h-[7px] w-[7px] shrink-0 rounded-full"
-                      style={{ background: e.type === 'hearing' || e.type === 'arbitration' ? 'var(--error)' : 'var(--accent-cool)' }}
+                      style={{ background: item.urgent ? 'var(--error)' : item.kind === 'event' ? 'var(--accent-cool)' : 'var(--accent-warm)' }}
+                      title={item.kind === 'event' ? '事件' : '任务'}
                     />
                     <span className="min-w-0">
-                      <span className="block text-sm font-semibold leading-tight text-[var(--ink)]">{e.label}</span>
-                      <span className="block truncate text-xs text-[var(--ink-muted)]">{e.caseName}</span>
+                      <span className="block text-sm font-semibold leading-tight text-[var(--ink)]">
+                        {item.kind === 'task' && <span className="mr-1 text-xs font-normal text-[var(--ink-muted)]">[任务]</span>}
+                        {item.label}
+                      </span>
+                      <span className="block truncate text-xs text-[var(--ink-muted)]">{item.sub}</span>
                     </span>
                   </div>
                 ))}

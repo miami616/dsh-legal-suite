@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.2.1（2026-09-04）
+
+0.2.0 统一事项模型的收尾修复批次（备忘录 5 项 + 分叉根治 + 当事人模型重构）。
+
+### 当事人「我方」模型重构（多次返工后定稿）
+
+- **「我方」= 律所实际代理的具体当事人主体**（可多人），绝不由 ourSide（程序地位/
+  原告系·被告系）推断；同侧多个主体（如劳动仲裁多个被申请人）只有显式标记的才是
+  我方。数据字段：`parties.ourClientName` + `details[].ourClient: true`。
+- **服务端 party-vocab.ts**：规范角色词表（含序数变体 canonical 识别）、写入时同名
+  主体去重合并（role 并集进 roles[]，不重复列当事人）、ourSide 中文化归一。
+- **详情页**：当事人信息右上角一个紧凑下拉选我方（选项=下方当事人，角色·名字）；
+  行内 myClient 高亮「我方」；顶部原「我方诉讼地位」下拉移除。
+- **新建案件**：废弃孤立「我方立场」下拉 →「我方当事人/对方当事人」两组动态行
+  （角色下拉含序数变体 + 姓名，可增删）；我方组填的人自动 ourClient:true，ourSide
+  由我方首行角色自动推导。
+- **修复浏览器端丢标记**：useAgentLex normalizeParties 此前丢弃 ourClient/ourClientName
+  → UI 永远拿不到我方指认（"一个我方都没有"）；已透传并补类型。
+- **修复读取重复补行**：normalizeParties 的 legacy auto-populate 此前用精确字符串
+  判定，把「申请人/第一被申请人」误判为缺原告/被告而补行 → 003 变 5 行；改为
+  details 非空不补 + canonical 侧判定 + 顿号串（多人旧写法）不补。
+- 卡片/详情「我方·对方」按阵营展示（我方多人逐行列出），角色编辑下拉固定规范词表。
+
+### 备忘录其余项
+
+- 审级自动追加节点回填案件已有信息（caseNo/court/judge/filedAt/我方当事人）。
+- 推送设置模板预览改中性示例（去掉真实案号/当事人）；push 运行时实时解析投递渠道，
+  不再因配置缺 channel 而把飞书走成普通文字。
+- 内置 seed 演示减为诉讼/非诉各 2 个 + 磁盘播种标记（删光演示重启不复活）。
+- 删除案件/项目级联清理 items/task-groups/legacy timeline/schedules（删除彻底）。
+- 任务管理 hero「今日日程」→「今日事项」（事件 + 到期任务合并展示）。
+
+### 统一事项模型收尾（split-brain 根治）
+
+- 读路径 / 检查项 / 子任务 / 任务组 / 事件 toggle-delete 全部切 items.json，与写
+  路径同源（list_events/deadlines/upsert_check/upsert_subtask/delete_event…）；
+- items ownerType（litigation/nonlitigation/standalone）区分同号案件/项目，避免
+  诉讼 2026-001 与非诉 2026-001 事项互串（suite 聚合按 ownerType 归属）。
+
+---
 ## 0.2.0（2026-09-04）
 
 ### P0 · 统一事项模型重构（事件/任务统一为一个 Item）

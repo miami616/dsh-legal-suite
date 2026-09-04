@@ -2,8 +2,8 @@
  * Standalone verification of the built-in reference seeding + task write-through.
  *
  * Exercises:
- *  1. seedLitigationSample / seedNonLitigationSample create three reference
- *     cases and three reference projects covering DIFFERENT stages, and are
+ *  1. seedLitigationSample / seedNonLitigationSample create two reference
+ *     cases and two reference projects covering DIFFERENT stages, and are
  *     no-ops on a non-empty registry.
  *  2. Seeded rows are **terminologically canonical**: every case status, task
  *     title and key-date label must come from the shared playbook. This is the
@@ -58,21 +58,21 @@ try {
   const serviceStore = createServiceStore(dataDir)
 
   // ============ 1. seed litigation ============
-  const caseId = await seedLitigationSample(caseStore, timelineStore, scheduleStore)
+  const caseId = await seedLitigationSample(caseStore, timelineStore, scheduleStore, undefined, dataDir)
   check('seedLitigationSample returns caseId', caseId !== undefined, String(caseId))
   const caseRec = await caseStore.readCase(caseId)
   check('primary case name', caseRec?.name === '某科技公司与某贸易公司买卖合同纠纷', caseRec?.name)
   check('primary case has parties', caseRec?.parties?.plaintiff === '某科技公司', JSON.stringify(caseRec?.parties))
 
-  // ---- 三组案例，三种不同状态 ----
+  // ---- 两组案例，两种不同状态 ----
   const registry = await caseStore.readRegistry()
   const cases = Object.values(registry.cases)
-  check('seeded 3 litigation cases', cases.length === 3, `count=${cases.length}`)
+  check('seeded 2 litigation cases', cases.length === 2, `count=${cases.length}`)
   const statuses = cases.map((c) => c.status)
-  check('3 distinct case statuses', new Set(statuses).size === 3, statuses.join(','))
+  check('2 distinct case statuses', new Set(statuses).size === 2, statuses.join(','))
   check(
-    'statuses cover 诉前/待开庭/财产查控',
-    ['pre_filing', 'awaiting_trial', 'investigation'].every((s) => statuses.includes(s)),
+    'statuses cover 待开庭/财产查控',
+    ['awaiting_trial', 'investigation'].every((s) => statuses.includes(s)),
     statuses.join(','),
   )
 
@@ -116,11 +116,11 @@ try {
   check('execution case has stage-unique tasks', execTitles.includes('提供被执行人财产线索'), execTitles.join(','))
 
   // seeding is idempotent (no-op on non-empty registry)
-  const again = await seedLitigationSample(caseStore, timelineStore, scheduleStore)
+  const again = await seedLitigationSample(caseStore, timelineStore, scheduleStore, undefined, dataDir)
   check('seedLitigationSample no-op on non-empty', again === undefined, String(again))
 
   // ============ 2. seed non-litigation ============
-  const projectId = await seedNonLitigationSample(projectStore, serviceStore)
+  const projectId = await seedNonLitigationSample(projectStore, serviceStore, undefined, dataDir)
   check('seedNonLitigationSample returns projectId', projectId !== undefined, String(projectId))
   check('projectId is numeric YYYY-NNN', /^\d{4}-\d{3}$/.test(projectId ?? ''), String(projectId))
   const proj = await projectStore.readProject(projectId)
@@ -128,12 +128,12 @@ try {
 
   const pRegistry = await projectStore.readRegistry()
   const projects = Object.values(pRegistry.projects)
-  check('seeded 3 projects', projects.length === 3, `count=${projects.length}`)
+  check('seeded 2 projects', projects.length === 2, `count=${projects.length}`)
   const pStatuses = projects.map((p) => p.status)
-  check('3 distinct project statuses', new Set(pStatuses).size === 3, pStatuses.join(','))
+  check('2 distinct project statuses', new Set(pStatuses).size === 2, pStatuses.join(','))
   check(
-    'project statuses cover 已签约/进行中/已完成',
-    ['retained', 'active', 'completed'].every((s) => pStatuses.includes(s)),
+    'project statuses cover 进行中常法/已完成专项',
+    ['active', 'completed'].every((s) => pStatuses.includes(s)),
     pStatuses.join(','),
   )
 
@@ -155,7 +155,7 @@ try {
   const services = await serviceStore.listServices()
   check('seeded service records', services.length >= 6, `services=${services.length}`)
 
-  const again2 = await seedNonLitigationSample(projectStore, serviceStore)
+  const again2 = await seedNonLitigationSample(projectStore, serviceStore, undefined, dataDir)
   check('seedNonLitigationSample no-op on non-empty', again2 === undefined, String(again2))
 
   // ============ 3. task write-through (litigation) ============
@@ -171,6 +171,24 @@ try {
   const nlUpdated = await projectStore.upsertTask(projectId, nlGroup.id, { id: nlTask.id, status: 'done' })
   const nlUpdatedTask = nlUpdated.taskGroups[0].tasks.find((t) => t.id === nlTask.id)
   check('non-litigation write-through updates status', nlUpdatedTask?.status === 'done', nlUpdatedTask?.status)
+
+  // ============ 5. 磁盘标记：删光演示后重启不复活（备忘录 #3 深层修复） ============
+  // 已写 .agentlex-seeded-litigation 标记；清空 registry 模拟「用户删光演示」。
+  const emptied = await mkdtemp(join(tmpdir(), 'ls-seed-empty-'))
+  try {
+    const cs2 = createCaseStore(emptied)
+    const tl2 = createTimelineStore(emptied)
+    const sch2 = createScheduleStore(emptied)
+    // 把播种标记复制到"新"目录 → 模拟同一数据目录曾播过、现用户清空
+    const { copyFileSync } = await import('node:fs')
+    copyFileSync(join(dataDir, '.agentlex-seeded-litigation'), join(emptied, '.agentlex-seeded-litigation'))
+    const respawn = await seedLitigationSample(cs2, tl2, sch2, undefined, emptied)
+    check('删光演示 + 有标记 → 不复活（不重新播种）', respawn === undefined, String(respawn))
+    const respawnReg = await cs2.readRegistry()
+    check('删光演示后 registry 保持空', Object.keys(respawnReg.cases).length === 0, String(Object.keys(respawnReg.cases).length))
+  } finally {
+    await rm(emptied, { recursive: true, force: true })
+  }
 
   console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`)
   process.exit(failures === 0 ? 0 : 1)

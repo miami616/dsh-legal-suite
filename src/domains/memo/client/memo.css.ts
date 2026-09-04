@@ -401,6 +401,7 @@ html[data-color-scheme="dark"] .memo-suggest__txt { color: #d6d6dc; }
 .memo-task__field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .memo-task__field--grow { flex: 1; }
 .memo-task__label { font-size: 12.5px; font-weight: 600; color: var(--memo-fg-muted); }
+.memo-task__label--inline { align-self: center; flex: none; }
 .memo-task__input, .memo-task__select, .memo-task__textarea {
   width: 100%; padding: 9px 12px;
   border: 1.5px solid var(--memo-border); border-radius: 10px;

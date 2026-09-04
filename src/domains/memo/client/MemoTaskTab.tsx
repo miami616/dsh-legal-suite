@@ -42,6 +42,7 @@ const SOURCE_LABEL: Record<TaskSource, string> = {
 
 export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
   const [source, setSource] = React.useState<TaskSource>('standalone')
+  const [itemType, setItemType] = React.useState<'event' | 'task' | 'both'>('task')
   const [title, setTitle] = React.useState('')
   const [detail, setDetail] = React.useState('')
   const [deadline, setDeadline] = React.useState('')
@@ -98,67 +99,35 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
       const deadlineDate = /^\d{4}-\d{2}-\d{2}/.test(deadline) ? deadline.slice(0, 10) : deadline
       const hasTime = deadlineTime.trim() !== '' && deadline !== ''
       const baseDetail = detail.trim()
-      const base: Record<string, unknown> = {
+      // 统一事项模型：写 /api/agentlex-item/item，type 分流（event/task/both）。
+      const ownerId = source === 'litigation' ? caseId : source === 'nonlitigation' ? projectId : ''
+      const ownerName = source === 'litigation'
+        ? cases.find((c) => c.id === caseId)?.name
+        : source === 'nonlitigation'
+          ? projects.find((p) => p.id === projectId)?.name
+          : undefined
+      // 子项拼进 subtasks（统一事项原生支持）。
+      const subItems = subtasks.map((s) => ({ id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: s, done: false }))
+      await post('/api/agentlex-item/item', {
+        ownerId,
+        ownerName,
+        type: itemType,
         title: t,
-        detail: baseDetail === '' ? undefined : baseDetail,
-        deadline: deadlineDate === '' ? undefined : deadlineDate,
+        date: deadlineDate === '' ? undefined : deadlineDate,
         time: hasTime ? deadlineTime.trim() : undefined,
+        detail: baseDetail === '' ? undefined : baseDetail,
         priority,
-      }
-      if (source === 'standalone') {
-        // 独立任务：子项拼进 detail（task store 无原生子项）。
-        const subText = subtasks.length > 0 ? `\n子项：\n${subtasks.map((s) => `- ${s}`).join('\n')}` : ''
-        await post('/api/agentlex-task/task', { ...base, detail: `${base.detail ?? ''}${subText}`.trim() || undefined })
-      } else if (source === 'litigation') {
-        const groupId = await ensureLitigationGroup(caseId)
-        const created = await post<{ id: string }>('/api/agentlex-task/task', {
-          ...base, source: 'litigation', sourceId: caseId, groupId,
-        })
-        const taskId = created?.id
-        if (taskId) {
-          for (const st of subtasks) {
-            await post('/api/agentlex-case/subtask', { caseId, groupId, taskId, title: st })
-          }
-        }
-      } else {
-        const groupId = await ensureProjectGroup(projectId)
-        const created = await post<{ id: string }>('/api/agentlex-task/task', {
-          ...base, source: 'nonlitigation', sourceId: projectId, groupId,
-        })
-        const taskId = created?.id
-        if (taskId) {
-          for (const st of subtasks) {
-            await post('/api/agentlex-nonlitigation/subtask', { projectId, groupId, taskId, title: st })
-          }
-        }
-      }
+        subtasks: subItems.length > 0 ? subItems : undefined,
+      })
       // 重置表单。
       setTitle(''); setDetail(''); setDeadline(''); setDeadlineTime('09:00'); setPriority('medium')
-      setSubtasks([]); setSubtaskInput('')
+      setSubtasks([]); setSubtaskInput(''); setItemType('task')
       onSaved?.(`已新增${SOURCE_LABEL[source]}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
-  }
-
-  /** 取案件第一个任务组；无则建一个「待办」组。 */
-  const ensureLitigationGroup = async (cid: string): Promise<string> => {
-    const rec = await post<{ taskGroups?: Array<{ id: string; name: string }> }>('/api/agentlex-case/read-case', { caseId: cid })
-    const groups = rec?.taskGroups ?? []
-    if (groups.length > 0) return groups[0].id
-    const created = await post<{ taskGroups?: Array<{ id: string; name: string }> }>('/api/agentlex-case/group', { caseId: cid, name: '待办' })
-    return created?.taskGroups?.[created.taskGroups.length - 1]?.id ?? ''
-  }
-
-  /** 取项目第一个任务组；无则建一个「待办」组。 */
-  const ensureProjectGroup = async (pid: string): Promise<string> => {
-    const rec = await post<{ taskGroups?: Array<{ id: string; name: string }> }>('/api/agentlex-nonlitigation/project', { projectId: pid })
-    const groups = rec?.taskGroups ?? []
-    if (groups.length > 0) return groups[0].id
-    const created = await post<{ taskGroups?: Array<{ id: string; name: string }> }>('/api/agentlex-nonlitigation/group', { projectId: pid, name: '待办' })
-    return created?.taskGroups?.[created.taskGroups.length - 1]?.id ?? ''
   }
 
   return (
@@ -173,6 +142,21 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
             onClick={() => setSource(s)}
           >
             {SOURCE_LABEL[s]}
+          </button>
+        ))}
+      </div>
+
+      {/* 事项类型（统一事项模型） */}
+      <div className="memo-task__source">
+        <span className="memo-task__label memo-task__label--inline">类型</span>
+        {(['task', 'event', 'both'] as Array<'event' | 'task' | 'both'>).map((tp) => (
+          <button
+            key={tp}
+            type="button"
+            className={`memo-task__source-btn${itemType === tp ? ' memo-task__source-btn--on' : ''}`}
+            onClick={() => setItemType(tp)}
+          >
+            {tp === 'task' ? '任务' : tp === 'event' ? '事件' : '事件+任务'}
           </button>
         ))}
       </div>

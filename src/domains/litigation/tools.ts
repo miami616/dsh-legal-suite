@@ -74,7 +74,8 @@ const PARAMETERS = {
   status: { type: 'string', description: `进度，取值须与审级 level 匹配的规范阶梯：${LADDER_LABELS}。level 未指明时按一审阶梯校验` },
   court: { type: 'string', description: '受理法院' },
   judge: { type: 'string', description: '承办法官' },
-  level: { type: 'string', description: '审级：一审/二审/再审/劳动仲裁/商事仲裁/首次执行/恢复执行' },
+  level: { type: 'string', description: '审级：一审/二审/再审/劳动仲裁/商事仲裁/首次执行/恢复执行。update_case 设 level 时自动追加到审级历程（instances）' },
+  instances: { type: 'json', description: '审级历程数组（可选，update_case 传则整体覆盖）：[{ level, status?, caseNo?, court?, plaintiff?, defendant?, result? }]，按时间先后排列。通常不传，靠 level 自动同步' },
   claimAmount: { type: 'string', description: '标的额，如 84000 或 8.4万' },
   filingDate: { type: 'string', description: '立案日期 YYYY-MM-DD' },
   ourSide: { type: 'string', description: '我方身份：plaintiff/defendant/applicant/respondent/appellant/appellee/executionApplicant/executionRespondent' },
@@ -593,6 +594,7 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
         if (value !== undefined) body[key] = value
       }
       if (args.parties !== undefined) body.parties = clean(normalizeParties(args.parties))
+      if (args.instances !== undefined) body.instances = clean(JSON.parse(String(args.instances)) as unknown)
       return body
     case 'get_case': case 'update_case': case 'delete_case':
     case 'add_keydate': case 'toggle_keydate':
@@ -606,6 +608,9 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
           if (value !== undefined) body[key] = value
         }
         if (args.parties !== undefined) body.parties = clean(normalizeParties(args.parties))
+        if (args.instances !== undefined) {
+          try { body.instances = clean(JSON.parse(String(args.instances)) as unknown) } catch { body.instances = clean(args.instances) }
+        }
       }
       return body
     case 'upsert_group': case 'delete_group':

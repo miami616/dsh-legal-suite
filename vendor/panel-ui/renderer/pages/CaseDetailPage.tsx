@@ -947,7 +947,9 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
                   <div className="relative pl-5">
                     <span className="absolute left-1 top-2 bottom-2 w-[2px] bg-[var(--paper-inset)]" aria-hidden />
                     {[...entry.instances].reverse().map((inst, i, arr) => {
-                      const last = i === arr.length - 1;
+                      // 倒序数组第一个 = 原数组最后一个 = 当前审级（最新）。
+                      // 修复：此前 `i === arr.length - 1` 把「当前」标记在最早审级上。
+                      const last = i === 0;
                       const realIdx = entry.instances!.length - 1 - i;
                       const color = getProcedureDot(inst.level);
                       const cls = getProcedureColor(inst.level);

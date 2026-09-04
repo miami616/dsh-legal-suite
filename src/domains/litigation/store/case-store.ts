@@ -304,6 +304,18 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
         const next = clone(reg)
         const merged = { ...clone(current), ...clone(patch), caseId, updatedAt: nowIso() }
         normalizeKeyDates(merged)
+        // 审级历程自动同步：patch 携带 level 时，若该审级不在 instances 历程里，
+        // 自动追加节点。让管家只需设 level（如 一审→二审），审级历程面板自动补全。
+        const levelValue = patch.level === undefined ? undefined : String(patch.level).trim()
+        if (levelValue !== undefined && levelValue !== '') {
+          const instances = merged.instances ?? []
+          const has = instances.some((inst) => String(inst.level ?? '').trim() === levelValue)
+          if (!has) {
+            const node: Record<string, unknown> = { level: levelValue }
+            if (patch.status !== undefined) node.status = patch.status
+            merged.instances = [...instances, node]
+          }
+        }
         next.cases[caseId] = merged
         next.lastUpdated = merged.updatedAt
         record = clone(merged)

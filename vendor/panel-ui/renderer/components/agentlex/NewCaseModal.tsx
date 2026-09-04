@@ -15,7 +15,6 @@ import TagInput from '@/components/agentlex/TagInput';
 import type { CaseEntry } from '@/hooks/useAgentLex';
 import { CASE_TYPES, CASE_CAUSES } from '@/utils/caseTypes';
 import { TAG_PRESETS } from '@/utils/caseTags';
-import { partyRoleForOurSide } from '@/utils/caseFormat';
 
 interface NewCaseModalProps {
   isOpen: boolean;
@@ -25,7 +24,6 @@ interface NewCaseModalProps {
   existingCases?: CaseEntry[];
 }
 
-export type OurSide = 'plaintiff' | 'applicant' | 'defendant' | 'respondent' | 'appellant' | 'appellee' | 'executionApplicant' | 'executionRespondent' | 'unknown';
 
 export interface CaseFormData {
   caseId: string;
@@ -34,28 +32,20 @@ export interface CaseFormData {
   type: string;
   cause: string;
   folder: string;
-  plaintiff: string;
-  defendant: string;
-  appellant: string;
-  appellee: string;
-  ourSide: OurSide;
+  /** 当事人：我方/对方分组动态行（含角色，提交时组装 parties + 推导 ourSide）。 */
+  partyRows: Array<{ side: 'our' | 'their'; role: string; name: string }>;
   tags: string[];
 }
 
-const TYPE_LABELS = CASE_TYPES.filter(t => t.key !== '__all').map(t => t.key);
+/** 当事人角色可选（编辑/新建共用：规范角色 + 常用序数变体）。 */
+const PARTY_ROLE_OPTIONS = [
+  '原告', '被告', '申请人', '被申请人', '上诉人', '被上诉人', '申请执行人', '被执行人', '第三人',
+  '第一被申请人', '第二被申请人', '第三被申请人',
+  '第一被告', '第二被告', '第三被告',
+  '第一原告', '第二原告',
+] as const;
 
-/** 我方立场下拉选项（原告/申请人、被告/被申请人 各自独立列，含执行程序主体）。 */
-const OUR_SIDE_OPTIONS: { value: OurSide; label: string }[] = [
-  { value: 'plaintiff', label: '原告' },
-  { value: 'applicant', label: '申请人' },
-  { value: 'defendant', label: '被告' },
-  { value: 'respondent', label: '被申请人' },
-  { value: 'appellant', label: '上诉人' },
-  { value: 'appellee', label: '被上诉人' },
-  { value: 'executionApplicant', label: '申请执行人' },
-  { value: 'executionRespondent', label: '被执行人' },
-  { value: 'unknown', label: '待确认' },
-];
+const TYPE_LABELS = CASE_TYPES.filter(t => t.key !== '__all').map(t => t.key);
 
 function generateCaseId(existingCases: CaseEntry[]): string {
   const year = String(new Date().getFullYear());
@@ -75,7 +65,11 @@ export default memo(function NewCaseModal({
 }: NewCaseModalProps) {
   const [form, setForm] = useState<CaseFormData>({
     caseId: '', caseNumber: '', name: '', type: '民商', cause: '', folder: '',
-    plaintiff: '', defendant: '', appellant: '', appellee: '', ourSide: 'unknown', tags: [],
+    partyRows: [
+      { side: 'our', role: '', name: '' },
+      { side: 'their', role: '', name: '' },
+    ],
+    tags: [],
   });
 
   // Aggregate tag pool from existing cases for autocomplete.
@@ -216,37 +210,63 @@ export default memo(function NewCaseModal({
               </div>
             </div>
 
-            {/* Parties — 含上诉人/被上诉人 */}
-            <div>
-              <label className="block text-xs font-medium text-[var(--ink-muted)] mb-1">当事人</label>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <input type="text" value={form.plaintiff} onChange={e => update('plaintiff', e.target.value)}
-                    placeholder={partyRoleForOurSide(form.ourSide).first} className={inputCls} />
-                </div>
-                <div>
-                  <input type="text" value={form.defendant} onChange={e => update('defendant', e.target.value)}
-                    placeholder={partyRoleForOurSide(form.ourSide).second} className={inputCls} />
-                </div>
-                <div>
-                  <input type="text" value={form.appellant} onChange={e => update('appellant', e.target.value)}
-                    placeholder="上诉人" className={inputCls} />
-                </div>
-                <div>
-                  <input type="text" value={form.appellee} onChange={e => update('appellee', e.target.value)}
-                    placeholder="被上诉人" className={inputCls} />
-                </div>
-              </div>
-            </div>
-
-            {/* Our side — 下拉 */}
-            <div>
-              <label className="block text-xs font-medium text-[var(--ink-muted)] mb-1">我方立场</label>
-              <CustomSelect
-                value={form.ourSide}
-                options={OUR_SIDE_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
-                onChange={(value) => update('ourSide', value)}
-              />
+            {/* 当事人：我方 / 对方 两组动态行（角色下拉 + 姓名，可增删） */}
+            <div className="space-y-3">
+              {([
+                { side: 'our' as const, title: '我方当事人' },
+                { side: 'their' as const, title: '对方当事人' },
+              ]).map(group => {
+                const rows = form.partyRows.filter(r => r.side === group.side);
+                const setRow = (localIdx: number, patch: Partial<{ role: string; name: string }>) => {
+                  const globalStart = form.partyRows.findIndex(r => r.side === group.side);
+                  setForm(prev => {
+                    const next = [...prev.partyRows];
+                    const gi = globalStart + localIdx;
+                    next[gi] = { ...next[gi], ...patch };
+                    return { ...prev, partyRows: next };
+                  });
+                };
+                const addRow = () => {
+                  setForm(prev => ({ ...prev, partyRows: [...prev.partyRows, { side: group.side, role: '', name: '' }] }));
+                };
+                const removeRow = (localIdx: number) => {
+                  if (rows.length <= 1) return; // 至少保留一行
+                  const globalStart = form.partyRows.findIndex(r => r.side === group.side);
+                  setForm(prev => ({ ...prev, partyRows: prev.partyRows.filter((_, gi) => gi !== globalStart + localIdx) }));
+                };
+                return (
+                  <div key={group.side}>
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-medium text-[var(--ink-muted)]">{group.title}</label>
+                      <button type="button" onClick={addRow}
+                        className="text-xs text-[var(--ink-muted)] hover:text-[var(--ink)] px-1 py-0.5">＋ 添加当事人</button>
+                    </div>
+                    <div className="space-y-1.5 mt-1">
+                      {rows.map((row, ri) => (
+                        <div key={`${group.side}-${ri}`} className="flex items-center gap-2">
+                          <CustomSelect
+                            value={row.role}
+                            placeholder="角色"
+                            options={PARTY_ROLE_OPTIONS.map(o => ({ value: o, label: o }))}
+                            onChange={v => setRow(ri, { role: v })}
+                            size="sm"
+                            className="w-[160px] shrink-0"
+                          />
+                          <input type="text" value={row.name} onChange={e => setRow(ri, { name: e.target.value })}
+                            placeholder={group.side === 'our' ? '我方当事人名称' : '对方名称'}
+                            className={`flex-1 min-w-0 ${inputCls}`} />
+                          {rows.length > 1 && (
+                            <button type="button" onClick={() => removeRow(ri)}
+                              className="shrink-0 p-1 rounded text-[var(--ink-subtle)] hover:text-red-500" title="删除">
+                              <X size={13} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Folder */}

@@ -16,7 +16,7 @@ import StatusBadge from '@/components/agentlex/StatusBadge';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import CaseBoard from '@/components/agentlex/CaseBoard';
 import { normalizeStatus, normalizeLevel, getStatusDef, getProcedureShort, PROCEDURE_LEVELS, getProcedureDot } from '@/utils/caseStatus';
-import { formatAmount, parseAmountValue, daysUntil, todayStr, timeAgo } from '@/utils/caseFormat';
+import { formatAmount, parseAmountValue, daysUntil, todayStr, timeAgo, ourPartyList, theirPartyList } from '@/utils/caseFormat';
 import { CASE_TYPES, getCaseTypeDot } from '@/utils/caseTypes';
 import { TAG_CATEGORIES, tagCategoryOf, getTagCategoryLabel } from '@/utils/caseTags';
 
@@ -228,45 +228,6 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
     }
     return n;
   }, [visibleCases]);
-
-  /** 对方当事人：返回其角色 + 名称 + 律所（角色取 ourSide 的对立面，避免把对方误标成我方角色）。 */
-  const counterpartyOf = useCallback((c: CaseEntry): { role: string; name: string; firm?: string } => {
-    const role = c.parties.ourSide === 'plaintiff' ? '被告'
-      : c.parties.ourSide === 'applicant' ? '被申请人'
-      : c.parties.ourSide === 'defendant' ? '原告'
-      : c.parties.ourSide === 'respondent' ? '申请人'
-      : c.parties.ourSide === 'appellant' ? '被上诉人'
-      : c.parties.ourSide === 'appellee' ? '上诉人'
-      : c.parties.ourSide === 'executionApplicant' ? '被执行人'
-      : c.parties.ourSide === 'executionRespondent' ? '申请执行人'
-      : '';
-    if (!role) return { role: '', name: '' };
-    const detail = c.parties.details.find(d => (d.role ?? '').includes(role));
-    return { role, name: detail?.name ?? '', firm: detail?.firm };
-  }, []);
-
-  /** 我方诉讼地位（ourSide → 中文角色标签），卡片第一行展示用。 */
-  const ourSideRole = (c: CaseEntry): string => {
-    if (c.parties.ourSide === 'plaintiff') return '原告';
-    if (c.parties.ourSide === 'applicant') return '申请人';
-    if (c.parties.ourSide === 'defendant') return '被告';
-    if (c.parties.ourSide === 'respondent') return '被申请人';
-    if (c.parties.ourSide === 'appellant') return '上诉人';
-    if (c.parties.ourSide === 'appellee') return '被上诉人';
-    if (c.parties.ourSide === 'executionApplicant') return '申请执行人';
-    if (c.parties.ourSide === 'executionRespondent') return '被执行人';
-    return '';
-  };
-
-  /** 我方当事人名称：按我方角色在 details 中精确匹配，回退 parties.plaintiff/defendant。 */
-  const ourSideName = (c: CaseEntry): string => {
-    const role = ourSideRole(c);
-    const detail = c.parties.details.find(d => d.role === role);
-    if (detail?.name) return detail.name;
-    if (c.parties.ourSide === 'plaintiff' || c.parties.ourSide === 'applicant' || c.parties.ourSide === 'executionApplicant') return c.parties.plaintiff ?? '';
-    if (c.parties.ourSide === 'defendant' || c.parties.ourSide === 'respondent' || c.parties.ourSide === 'executionRespondent') return c.parties.defendant ?? '';
-    return '';
-  };
 
   /** 关键节点 chips：最近 2 条未发生节点，紧迫(≤3天)/紧要(≤7天) 用语义色，其余中性。 */
   const keyDateChips = (c: CaseEntry) => {
@@ -501,9 +462,8 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {displayCases.map(c => {
-            const { role: counterpartRole, name: counterpart, firm: counterpartFirm } = counterpartyOf(c);
-            const ourRole = ourSideRole(c);
-            const ourName = ourSideName(c);
+            const ours = ourPartyList(c);
+            const theirs = theirPartyList(c);
             const typeDot = getCaseTypeDot(c.type);
             const levels = railLevels(c);
             const { head, tail } = caseIdParts(c.caseId);
@@ -554,19 +514,36 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
                     <h3 className="flex-1 min-w-0 text-sm font-semibold text-[var(--ink)] truncate leading-snug" style={{ letterSpacing: '-0.005em' }} title={s(c.name)}>{s(c.name)}</h3>
                     <StatusBadge status={normalizeStatus(c.status, c.level)} level={c.level} />
                   </div>
-                  {/* 我方：诉讼地位 + 我方名称（写清楚） */}
-                  <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--ink-muted)] min-w-0">
-                    <span className="w-8 shrink-0 text-[var(--ink-subtle)]">我方</span>
-                    {ourRole ? <span className="shrink-0 text-[var(--ink-secondary)] font-medium">{ourRole}</span> : <span className="shrink-0 text-[var(--ink-subtle)]">—</span>}
-                    {ourName ? <span className="shrink-0 text-[var(--ink)] font-medium">{ourName}</span> : <span className="shrink-0 text-[var(--ink-subtle)]">—</span>}
+                  {/* 我方：同侧所有我方当事人（可能多人，逐行清晰） */}
+                  <div className="mt-2 flex items-start gap-1.5 text-xs text-[var(--ink-muted)] min-w-0">
+                    <span className="w-8 shrink-0 text-[var(--ink-subtle)] pt-px">我方</span>
+                    {ours.length > 0 ? (
+                      <span className="min-w-0">
+                        {ours.map((p, pi) => (
+                          <span key={pi} className="block truncate leading-5">
+                            <span className="shrink-0 text-[var(--ink-secondary)] font-medium">{p.role || '—'}</span>
+                            <span className="mx-1 text-[var(--ink)] font-medium">{p.name}</span>
+                            {p.firm && <span className="text-[var(--ink-subtle)]">· {p.firm}</span>}
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="text-[var(--ink-subtle)]">—</span>
+                    )}
                   </div>
-                  {/* 对方：名称 + 其角色（含律所） */}
-                  {counterpart && (
-                    <div className="mt-1 flex items-center gap-1.5 text-xs text-[var(--ink-muted)] min-w-0">
-                      <span className="w-8 shrink-0 text-[var(--ink-subtle)]">对方</span>
-                      {counterpartRole && <span className="shrink-0 text-[var(--ink-secondary)] font-medium">{counterpartRole}</span>}
-                      <span className="truncate">{counterpart}</span>
-                      {counterpartFirm && <span className="shrink-0 text-[var(--ink-subtle)]">· {counterpartFirm}</span>}
+                  {/* 对方：对侧所有当事人 */}
+                  {theirs.length > 0 && (
+                    <div className="mt-1 flex items-start gap-1.5 text-xs text-[var(--ink-muted)] min-w-0">
+                      <span className="w-8 shrink-0 text-[var(--ink-subtle)] pt-px">对方</span>
+                      <span className="min-w-0">
+                        {theirs.map((p, pi) => (
+                          <span key={pi} className="block truncate leading-5">
+                            <span className="shrink-0 text-[var(--ink-secondary)] font-medium">{p.role || '—'}</span>
+                            <span className="mx-1 text-[var(--ink-muted)]">{p.name}</span>
+                            {p.firm && <span className="text-[var(--ink-subtle)]">· {p.firm}</span>}
+                          </span>
+                        ))}
+                      </span>
                     </div>
                   )}
                   {/* 案号 · 法院 */}

@@ -24,7 +24,7 @@ import { useSyncExternalStore, useCallback } from 'react';
 import { isTauriEnvironment } from '@/utils/browserMock';
 import { listenWithCleanup } from '@/utils/tauriListen';
 import { normalizeStatus, normalizeLevel } from '@/utils/caseStatus';
-import { normalizePartyRole } from '@/utils/caseFormat';
+import { normalizePartyRole, canonicalPartyRole } from '@/utils/caseFormat';
 import { timelineEventToAddPayload, timelineEventToUpdatePatch } from '@/utils/caseTimeline';
 import { normalizeCaseType } from '@/utils/caseTypes';
 import { getClientRemoteTarget, remoteAuthHeaders, applyRemoteOrigin } from '@/api/remoteBackendClient';
@@ -111,7 +111,9 @@ export interface CaseEntry {
     plaintiff?: string;
     defendant?: string;
     ourSide: string;
-    details: Array<{ name: string; role: string; firm?: string; phone?: string; address?: string }>;
+    /** 我方当事人名（显式指认，2026-09-04）。 */
+    ourClientName?: string;
+    details: Array<{ name: string; role: string; roles?: string[]; firm?: string; phone?: string; address?: string; ourClient?: boolean }>;
   };
   court: string;
   keyDates: Array<{
@@ -602,26 +604,44 @@ function normalizeTaskGroup(dg: DiskTaskGroup, idx: number): TaskGroup {
 
 function normalizeParties(raw: DiskCase['parties']): CaseEntry['parties'] {
   const p = (raw ?? {}) as Record<string, unknown>;
-  // Ensure details array always exists, auto-populate from legacy plaintiff/defendant.
-  // Roles are normalized to the canonical Chinese labels (UI-created records used
-  // to write English 'plaintiff'/'defendant', which the renderer's color mapping
-  // does not recognize — map those here so both write paths converge).
+  // details 是权威（0.2.0 起 parties.details 存全量当事人，含 roles[] 多身份）。
+  // 首级 plaintiff/defendant 仅是历史兼容冗余；只有当 details 完全缺失（纯 legacy
+  // 记录）才从首级字段补行。修复：此前 auto-populate 用「精确字符串 hasRole('原告')」
+  // 判定 + 无脑补首级行，导致已归一的数据（申请人/第一被申请人等 canonical 变体）
+  // 被误判为「缺原告/被告」而重复补行——002 4 行、003 5 行 的根因。
+  // 详见备忘录 #5：同一主体不重复列当事人。
   const rawDetails = Array.isArray(p.details) ? p.details as Array<Record<string, unknown>> : [];
   const details = rawDetails.map(d => ({
     name: typeof d.name === 'string' ? d.name : '',
     role: normalizePartyRole(typeof d.role === 'string' ? d.role : ''),
+    roles: Array.isArray(d.roles) ? (d.roles as unknown[]).map(String) : undefined,
     firm: typeof d.firm === 'string' ? d.firm : undefined,
     phone: typeof d.phone === 'string' ? d.phone : undefined,
     address: typeof d.address === 'string' ? d.address : undefined,
+    // 我方指认标记必须透传（2026-09-04：此前丢失导致 UI 无法识别我方当事人，
+    // 003 两个被申请人里把非我方的邦得人力也标成我方）。
+    ourClient: d.ourClient === true,
   }));
-  // Auto-populate from legacy fields
-  const hasRole = (r: string) => details.some(d => d.role === r);
-  if (!hasRole('原告') && typeof p.plaintiff === 'string' && p.plaintiff) details.push({ name: p.plaintiff, role: '原告', firm: undefined, phone: undefined, address: undefined });
-  if (!hasRole('被告') && typeof p.defendant === 'string' && p.defendant) details.push({ name: p.defendant, role: '被告', firm: undefined, phone: undefined, address: undefined });
+  // 仅当 details 为空时才从 legacy 首级字段兜底补行（避免重复主体）。
+  if (details.length === 0) {
+    const pushIfMissing = (name: string | undefined, roleLabel: '原告' | '被告') => {
+      if (typeof name !== 'string' || name.trim() === '') return;
+      // 顿号串 = 多人合并的旧首级写法，不再按单主体补行（details 应显式维护）。
+      if (name.includes('、') || name.includes(',')) return;
+      const sideRoles = roleLabel === '原告' ? ['原告', '申请人', '上诉人', '申请执行人']
+        : ['被告', '被申请人', '被上诉人', '被执行人'];
+      const exists = details.some(d => sideRoles.includes(canonicalPartyRole(d.role ?? '')));
+      if (!exists) details.push({ name, role: roleLabel as string, firm: undefined, phone: undefined, address: undefined, ourClient: false });
+    };
+    pushIfMissing(typeof p.plaintiff === 'string' ? p.plaintiff : undefined, '原告');
+    pushIfMissing(typeof p.defendant === 'string' ? p.defendant : undefined, '被告');
+  }
   return {
     plaintiff: typeof p.plaintiff === 'string' ? p.plaintiff : undefined,
     defendant: typeof p.defendant === 'string' ? p.defendant : undefined,
     ourSide: typeof p.ourSide === 'string' ? p.ourSide : 'unknown',
+    // 我方当事人名指认（与行内 ourClient 双保险）。
+    ourClientName: typeof p.ourClientName === 'string' ? p.ourClientName : undefined,
     details,
   };
 }
@@ -1419,6 +1439,7 @@ async function addTimelineEvent(evt: TimelineEvent): Promise<void> {
   // 统一事项：登记为 event 事项（进关键日程/时间轴）。
   await addItem({
     ownerId: evt.caseId,
+    ownerType: 'litigation',
     ownerName: evt.caseName,
     type: 'event',
     title: evt.label || evt.title,
@@ -1468,6 +1489,7 @@ async function addStandaloneTask(task: AgentLexStandaloneTask): Promise<void> {
   // 统一事项：独立任务 = ownerId 为空的任务。
   await addItem({
     ownerId: task.caseId || '',
+    ownerType: task.caseId ? 'litigation' : 'standalone',
     ownerName: task.caseName || undefined,
     type: 'task',
     title: task.title,
@@ -1675,7 +1697,7 @@ const reorderTaskGroups = (caseId: string, orderedIds: string[]) =>
   Promise.all(orderedIds.map((id, index) => itemCall('group', { id, ownerId: caseId, order: index }))).then(() => reloadFromDisk());
 
 const addTask = (caseId: string, groupId: string, title: string, opts?: { detail?: string; deadline?: string; time?: string; priority?: TaskPriority; folder?: string }) =>
-  addItem({ ownerId: caseId, type: 'task', title, detail: opts?.detail, date: opts?.deadline, time: opts?.time, priority: opts?.priority, groupId: groupId || undefined });
+  addItem({ ownerId: caseId, ownerType: 'litigation', type: 'task', title, detail: opts?.detail, date: opts?.deadline, time: opts?.time, priority: opts?.priority, groupId: groupId || undefined });
 const updateTask = (caseId: string, taskId: string, patch: Partial<Task>) =>
   updateItem(taskId, {
     ...(patch.title !== undefined ? { title: patch.title } : {}),

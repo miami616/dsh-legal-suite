@@ -33,7 +33,7 @@ import TagInput from '@/components/agentlex/TagInput';
 import EventForm, { type EventFormData } from '@/components/agentlex/EventForm';
 import InstanceForm, { type InstanceData } from '@/components/agentlex/InstanceForm';
 import { getProcedureColor, getProcedureDot } from '@/utils/caseStatus';
-import { daysUntil, todayStr, formatAmount, PARTY_ROLE_ZH } from '@/utils/caseFormat';
+import { daysUntil, todayStr, formatAmount, PARTY_ROLE_ZH, ourSideRoleLabel, oppositeRoleOf, ourPartyList, theirPartyList } from '@/utils/caseFormat';
 import { CASE_TYPES, getCaseTypeDot } from '@/utils/caseTypes';
 import { TAG_PRESETS } from '@/utils/caseTags';
 import { useWorkspaceFileService } from '@/hooks/useWorkspaceFileService';
@@ -62,26 +62,11 @@ const CASE_AGENTS = [
 ] as const;
 
 /** 审级节点配色统一走 caseStatus：hex=getProcedureDot（冷色族身份色）、
- *  label=getProcedureColor（中性标签）——不再在本页重复定义（见 2026-08 配色收敛）。 */
-
-/** ourSide 值 → 中文角色（原告/申请人、被告/被申请人 各自独立）。 */
-const OUR_SIDE_LABEL: Record<string, string> = {
-  plaintiff: '原告',
-  applicant: '申请人',
-  defendant: '被告',
-  respondent: '被申请人',
-  appellant: '上诉人',
-  appellee: '被上诉人',
-  executionApplicant: '申请执行人',
-  executionRespondent: '被执行人',
-};
-
-/** 我方角色 → 对方角色。 */
-const OPPOSITE_ROLE: Record<string, string> = {
-  plaintiff: '被告', applicant: '被申请人', defendant: '原告', respondent: '申请人',
-  appellant: '被上诉人', appellee: '上诉人',
-  executionApplicant: '被执行人', executionRespondent: '申请执行人',
-};
+ *  label=getProcedureColor（中性标签）——不再在本页重复定义（见 2026-08 配色收敛）。
+ *
+ * 我方/对方角色由 utils/caseFormat 的 ourSideRoleLabel/oppositeRoleOf 提供
+ * （与卡片一致，备忘录 #5：角色词表收敛、不重复定义）。
+ */
 
 /** 当事人角色徽章配色。 */
 const ROLE_BADGE: Record<string, string> = {
@@ -572,6 +557,32 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
   }, [entry, updateCase]);
   const updateParty = (i: number, patch: Partial<CaseEntry['parties']['details'][number]>) =>
     updateParties(entry!.parties.details.map((d, j) => (j === i ? { ...d, ...patch } : d)));
+  /** 把第 i 行设为我方当事人：该行 ourClient=true，其余行清 false；同步
+   *  parties.ourClientName；若 ourSide 未定/与行角色侧不符则按其角色侧修正
+   *  ourSide（我方诉讼地位与 myClient 保持一致）。 */
+  const setOurParty = (i: number) => {
+    if (!entry) return;
+    const name = safeStr(entry.parties.details[i]?.name);
+    if (!name) return;
+    const rowRole = safeStr(entry.parties.details[i]?.role) || '';
+    const sideMap: Record<string, string> = {
+      原告: 'plaintiff', 申请人: 'applicant', 上诉人: 'appellant', 申请执行人: 'executionApplicant',
+      被告: 'defendant', 被申请人: 'respondent', 被上诉人: 'appellee', 被执行人: 'executionRespondent',
+    };
+    const canonicalOf = (r: string) => r.replace(/^(一审|二审|再审|原审|终审)/, '').replace(/(第?[一二三四五六七八九十百\d]+)/, '');
+    const canon = canonicalOf(rowRole) || rowRole;
+    const side = sideMap[canon];
+    updateCase(entry.caseId, c => ({
+      ...c,
+      parties: {
+        ...c.parties,
+        details: c.parties.details.map((d, j) => ({ ...d, ourClient: j === i })),
+        ourClientName: name,
+        ...(side ? { ourSide: side } : {}),
+      },
+      updatedAt: new Date().toISOString(),
+    }));
+  };
   const addParty = () => updateParties([...entry!.parties.details, { name: '', role: '原告' }]);
   const removeParty = (i: number) => updateParties(entry!.parties.details.filter((_, j) => j !== i));
   const moveParty = (i: number, dir: -1 | 1) => {
@@ -588,6 +599,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
     // 统一事项：登记为 event 事项（进关键日程/时间轴）。
     void addItem({
       ownerId: caseId,
+      ownerType: 'litigation',
       ownerName: entry.name,
       type: 'event',
       title: d.label,
@@ -637,18 +649,19 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
 
   const sectionTitle = 'text-sm font-bold tracking-widest uppercase text-[var(--ink)]';
 
-  // ── Masthead 计算 ──
+  // ── Masthead 计算（阵营语义：我方=与 ourSide 同侧的所有主体；对方=对侧） ──
   const caseIdDash = entry.caseId.indexOf('-');
   const idHead = caseIdDash > 0 ? entry.caseId.slice(0, caseIdDash + 1) : '';
   const idTail = caseIdDash > 0 ? entry.caseId.slice(caseIdDash + 1) : entry.caseId;
-  const ourRole = OUR_SIDE_LABEL[entry.parties.ourSide] ?? '';
-  const oppositeRole = OPPOSITE_ROLE[entry.parties.ourSide] ?? '';
-  const ourSideName = ourRole
-    ? (entry.parties.details.find(p => p.role === ourRole)?.name
-      ?? (entry.parties.ourSide === 'plaintiff' ? entry.parties.plaintiff
-        : entry.parties.ourSide === 'defendant' ? entry.parties.defendant : ''))
-    : '';
-  const oppositeName = oppositeRole ? (entry.parties.details.find(p => p.role === oppositeRole)?.name ?? '') : '';
+  const ourList = ourPartyList(entry);
+  const theirList = theirPartyList(entry);
+  const ourRole = ourSideRoleLabel(entry.parties.ourSide) || '';
+  const oppositeRole = oppositeRoleOf(entry.parties.ourSide) || '';
+  // 紧凑展示：主槽取首个主体名，多个主体用「、」连接。
+  const ourSideNames = ourList.map(p => p.name).filter(Boolean);
+  const oppositeNames = theirList.map(p => p.name).filter(Boolean);
+  const ourSideName = ourSideNames.join('、');
+  const oppositeName = oppositeNames.join('、');
 
   // ── 案件文件夹目录树渲染 ──
   const folderChildren = folderTree?.tree?.children ?? [];
@@ -817,20 +830,49 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
 
             {/* ── 2. 当事人信息 ── */}
             <section style={{ background: 'var(--biz-card-bg, #ffffff)' }} className="rounded-2xl border border-[var(--ink-subtle)] p-5 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <h2 className={sectionTitle}>当事人信息</h2>
-                <span className="text-xs text-[var(--ink-muted)]">我方：
-                  {renderEditable({ field: 'ourSide', value: OUR_SIDE_LABEL[entry.parties.ourSide], options: ['原告', '申请人', '被告', '被申请人', '上诉人', '被上诉人', '申请执行人', '被执行人', '待确认'], placeholder: '待确认' })}
-                </span>
+                {/* 我方当事人选择：从下方当事人里选；ourSide 随所选行角色自动推导。 */}
+                <CustomSelect
+                  value={entry.parties.ourClientName ?? ''}
+                  placeholder="选择我方当事人"
+                  options={[
+                    ...entry.parties.details
+                      .filter(d => safeStr(d.name) !== '')
+                      .map(d => {
+                        const name = safeStr(d.name);
+                        const role = safeStr(d.role) || '—';
+                        return { value: name, label: `${role} · ${name}` };
+                      }),
+                  ]}
+                  onChange={(v) => {
+                    if (v === '') {
+                      updateCase(entry.caseId, c => ({
+                        ...c,
+                        parties: {
+                          ...c.parties,
+                          details: c.parties.details.map(d => ({ ...d, ourClient: false })),
+                          ourClientName: undefined,
+                        },
+                        updatedAt: new Date().toISOString(),
+                      }));
+                      return;
+                    }
+                    const idx = entry.parties.details.findIndex(d => safeStr(d.name) === v);
+                    if (idx >= 0) setOurParty(idx);
+                  }}
+                  size="sm"
+                  className="w-[200px]"
+                />
               </div>
               <div className="space-y-1.5">
                 {entry.parties.details.map((p, i) => {
                   const role = safeStr(p.role) || '原告';
-                  const isOur = role === ourRole;
+                  const pOur = p.ourClient === true;
                   return (
-                    <div key={i} className={`flex items-center gap-2 rounded-lg border p-2 ${isOur ? 'border-[var(--ink-subtle)]/40' : 'border-[var(--paper-inset)]'}`} style={isOur ? { background: 'var(--hover-bg)' } : undefined}>
+                    <div key={i} className={`flex items-center gap-2 rounded-lg border p-2 ${pOur ? 'border-[var(--ink-subtle)]/40' : 'border-[var(--paper-inset)]'}`} style={pOur ? { background: 'var(--hover-bg)' } : undefined}>
                       <RoleBadge value={role} onChange={v => updateParty(i, { role: v })} />
-                      {isOur && <span className="shrink-0 text-xs font-bold text-[var(--accent)]">我方</span>}
+                      {pOur && <span className="shrink-0 text-xs font-bold text-[var(--accent)]">我方</span>}
                       <input type="text" value={safeStr(p.name)} onChange={e => updateParty(i, { name: e.target.value })}
                         placeholder="姓名/名称" className="flex-1 min-w-0 bg-transparent outline-none text-sm text-[var(--ink)] placeholder:text-[var(--ink-subtle)]" />
                       <input type="text" value={safeStr(p.firm)} onChange={e => updateParty(i, { firm: e.target.value })}

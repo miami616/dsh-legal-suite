@@ -17,7 +17,7 @@ import { useAgentLex } from '@/hooks/useAgentLex';
 import type { CaseEntry } from '@/hooks/useAgentLex';
 import { getSessions, type SessionMetadata } from '@/api/sessionClient';
 import { setSessionSlot } from '@/utils/sessionDock';
-import { partyRoleForOurSide } from '@/utils/caseFormat';
+import { canonicalPartyRole } from '@/utils/caseFormat';
 
 import CaseDetailPage from '@/pages/CaseDetailPage';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -49,6 +49,41 @@ interface CaseManagerProps {
   /** Resolves the DSH workspace archive set — archived sessions are hidden
    *  from the case detail's historical-session dropdown. */
   getArchivedSessionIds?: () => Promise<Set<string>>;
+}
+
+/** 我方侧角色 → ourSide key（推导用）。 */
+const ROLE_TO_OURSIDE: Record<string, string> = {
+  原告: 'plaintiff', 申请人: 'applicant', 上诉人: 'appellant', 申请执行人: 'executionApplicant',
+  被告: 'defendant', 被申请人: 'respondent', 被上诉人: 'appellee', 被执行人: 'executionRespondent',
+};
+
+/**
+ * 由新建表单的当事人行（我方/对方分组）组装 parties：
+ *  - 我方行 ourClient:true，对方行 false；
+ *  - ourSide 由我方第一行角色推导（没有我方行 → unknown）；
+ *  - 首级 plaintiff/defendant 取各侧第一行名字（兼容旧数据；details 才是权威）。
+ */
+function buildPartiesFromRows(rows: Array<{ side: 'our' | 'their'; role: string; name: string }>): CaseEntry['parties'] {
+  const ourRows = rows.filter(r => r.side === 'our' && r.name.trim() !== '');
+  const theirRows = rows.filter(r => r.side === 'their' && r.name.trim() !== '');
+  const details: CaseEntry['parties']['details'] = [
+    ...ourRows.map(r => ({ name: r.name.trim(), role: r.role || '原告', ourClient: true })),
+    ...theirRows.map(r => ({ name: r.name.trim(), role: r.role || '被告', ourClient: false })),
+  ];
+  let ourSide: string = 'unknown';
+  if (ourRows.length > 0) {
+    const canon = canonicalPartyRole(ourRows[0].role || '');
+    ourSide = ROLE_TO_OURSIDE[canon] ?? 'unknown';
+  }
+  const primary = ourRows[0]?.name?.trim();
+  const counterpartPrimary = theirRows[0]?.name?.trim();
+  const A = ['plaintiff', 'applicant', 'appellant', 'executionApplicant'];
+  return {
+    ...(A.includes(ourSide) ? { plaintiff: primary, defendant: counterpartPrimary } : { plaintiff: counterpartPrimary, defendant: primary }),
+    ourSide,
+    ourClientName: primary,
+    details,
+  };
 }
 
 export default memo(function CaseManager({ isActive: _isActive, onOpenCaseSession, onCaseRegistered, selectedCaseId, onSelectCase, trafficInset = 0, hasDockedSession = false, dockedSessionTitle, onCloseDockedSession, onMoveDockedToWorkspace, onOpenCalendar, onOpenCaseAgent, onOpenCaseFolder, getArchivedSessionIds }: CaseManagerProps) {
@@ -174,18 +209,9 @@ export default memo(function CaseManager({ isActive: _isActive, onOpenCaseSessio
       status: 'intake',
       folder: data.folder,
       // 法院/法官/标的额/立案日期/概述不随表单采集，交给注册后的 agent 会话补全。
-      parties: {
-        plaintiff: data.plaintiff || undefined,
-        defendant: data.defendant || undefined,
-        ourSide: data.ourSide,
-        // 两个主诉主体的角色标签随我方立场映射（仲裁→申请人/被申请人、执行→申请执行人/被执行人）。
-        details: [
-          ...(data.plaintiff ? [{ name: data.plaintiff, role: partyRoleForOurSide(data.ourSide).first }] : []),
-          ...(data.defendant ? [{ name: data.defendant, role: partyRoleForOurSide(data.ourSide).second }] : []),
-          ...(data.appellant ? [{ name: data.appellant, role: '上诉人' }] : []),
-          ...(data.appellee ? [{ name: data.appellee, role: '被上诉人' }] : []),
-        ],
-      },
+      // 当事人：我方/对方两组行 → details（我方行 ourClient:true）；ourSide 由我方
+      // 首行的角色推导；首级 plaintiff/defendant 仅作兼容冗余。
+      parties: buildPartiesFromRows(data.partyRows),
       court: '',
       keyDates: [],
       boundSessions: [],

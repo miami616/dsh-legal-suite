@@ -73,8 +73,142 @@ export function timeAgo(iso: string | null | undefined): string {
   return iso.slice(0, 10);
 }
 
-/** Chinese role labels used on disk for party details. */
-export const PARTY_ROLE_ZH = ['原告', '被告', '上诉人', '被上诉人', '申请人', '被申请人', '申请执行人', '被执行人', '第三人', '代理人', '审判人员', '书记员'] as const;
+/** 当事人角色可选标签（编辑下拉固定用，与后端 party-vocab CANONICAL_ROLES 一致；
+ *  不再含 代理人/审判人员/书记员——那些是卷宗人员非当事人，备忘录 #5）。
+ *  另含常用序数/审级变体（第一/第二/第三被申请人等、一审原告），管家写的这类
+ *  角色在编辑下拉里能选回、不丢（2026-09-04）。 */
+export const PARTY_ROLE_ZH = [
+  '原告', '被告', '申请人', '被申请人', '上诉人', '被上诉人', '申请执行人', '被执行人', '第三人',
+  '第一被申请人', '第二被申请人', '第三被申请人',
+  '第一被告', '第二被告', '第三被告',
+  '第一原告', '第二原告',
+  '第一被执行人', '第二被执行人',
+] as const;
+
+/** 规范角色（不含序数/审级变体）。 */
+const CANONICAL_ROLES = ['原告', '被告', '申请人', '被申请人', '上诉人', '被上诉人', '申请执行人', '被执行人', '第三人'] as const;
+
+/** 从角色串里提取规范角色（「第一被申请人」→「被申请人」、「被告一」→「被告」、
+ *  「一审原告」→「原告」）。非规范返回原值。 */
+export function canonicalPartyRole(role: string): string {
+  const r = (role ?? '').trim();
+  if ((CANONICAL_ROLES as readonly string[]).includes(r)) return r;
+  const stripped = r
+    .replace(/^(一审|二审|再审|原审|终审|重审)/, '')
+    .replace(/(第?[一二三四五六七八九十百\d]+)/, '');
+  return (CANONICAL_ROLES as readonly string[]).includes(stripped) ? stripped : r;
+}
+
+/** 在 parties.details 里找一个角色命中给定规范角色的当事人（支持序数变体）。 */
+export function findPartyByCanonicalRole(
+  details: Array<{ name?: string; role?: string; roles?: string[]; firm?: string }> | undefined,
+  canonical: string,
+): { name: string; role: string; firm?: string } | undefined {
+  const rows = Array.isArray(details) ? details : [];
+  for (const d of rows) {
+    const roles = Array.isArray(d.roles) ? d.roles : [d.role];
+    const hit = roles.some((r) => canonicalPartyRole(r ?? '') === canonical);
+    if (hit) return { name: d.name ?? '', role: d.role ?? canonical, firm: d.firm };
+  }
+  return undefined;
+}
+
+/** 我方立场 → 我方主角色中文标签。 */
+export function ourSideRoleLabel(ourSide: string): string {
+  const map: Record<string, string> = {
+    plaintiff: '原告', applicant: '申请人', defendant: '被告', respondent: '被申请人',
+    appellant: '上诉人', appellee: '被上诉人',
+    executionApplicant: '申请执行人', executionRespondent: '被执行人',
+  };
+  return map[ourSide] ?? '';
+}
+
+/** 我方主角色 → 对方主角色。 */
+export function oppositeRoleOf(ourSide: string): string {
+  const map: Record<string, string> = {
+    plaintiff: '被告', applicant: '被申请人', defendant: '原告', respondent: '申请人',
+    appellant: '被上诉人', appellee: '上诉人',
+    executionApplicant: '被执行人', executionRespondent: '申请执行人',
+  };
+  return map[ourSide] ?? '';
+}
+
+/** 规范角色 → 所在侧（A=原告系/申请人系，B=被告系/被申请人系）。 */
+function sideOfCanonical(canonical: string): 'A' | 'B' | '' {
+  if (['原告', '申请人', '上诉人', '申请执行人'].includes(canonical)) return 'A';
+  if (['被告', '被申请人', '被上诉人', '被执行人'].includes(canonical)) return 'B';
+  return '';
+}
+
+/** ourSide key → 我方所在侧。 */
+function sideOfOurSide(ourSide: string): 'A' | 'B' | '' {
+  const A = ['plaintiff', 'applicant', 'appellant', 'executionApplicant'];
+  const B = ['defendant', 'respondent', 'appellee', 'executionRespondent'];
+  if (A.includes(ourSide)) return 'A';
+  if (B.includes(ourSide)) return 'B';
+  return '';
+}
+
+/** 一行当事人是否含指定侧角色（容忍序数/多角色）。 */
+function rowHasSide(
+  d: { name?: string; role?: string; roles?: string[]; firm?: string; phone?: string; address?: string },
+  side: 'A' | 'B' | '',
+): boolean {
+  if (side === '') return false;
+  const roles = Array.isArray(d.roles) ? d.roles : d.role ? [d.role] : [];
+  return roles.some((r) => sideOfCanonical(canonicalPartyRole(r ?? '')) === side);
+}
+
+export interface PartyDisplayRow { name: string; role: string; firm?: string; roles?: string[] }
+
+interface PartiesInput {
+  details?: Array<{ name?: string; role?: string; roles?: string[]; firm?: string; phone?: string; address?: string; ourClient?: boolean }>;
+  plaintiff?: string;
+  defendant?: string;
+  ourClientName?: string;
+}
+interface PartyOwnerInput { ourSide?: string; parties?: PartiesInput }
+
+/** 我方主体列表：以显式标记指认（details[].ourClient:true，或 parties.ourClientName
+ *  对应行）。无标记时退化为「我方侧恰好只有一位主体」才敢用；否则返回空（不臆断，
+ *  2026-09-04：003 两被申请人，律所只代理第一被申请人，不能把同侧全当我方）。 */
+export function ourPartyList(c: PartyOwnerInput): PartyDisplayRow[] {
+  const parties = c.parties ?? {};
+  const ourSide = c.ourSide ?? parties.ourSide ?? '';
+  const details = parties.details ?? [];
+  // 1) 显式行标记。
+  const marked = details.filter((d) => d.ourClient === true);
+  if (marked.length > 0) return marked.map((d) => ({ name: d.name ?? '', role: d.role ?? '', firm: d.firm, roles: d.roles }));
+  // 2) ourClientName 指认。
+  if (parties.ourClientName) {
+    const byName = details.filter((d) => (d.name ?? '') === parties.ourClientName);
+    if (byName.length > 0) return byName.map((d) => ({ name: d.name ?? '', role: d.role ?? '', firm: d.firm, roles: d.roles }));
+  }
+  const side = sideOfOurSide(ourSide);
+  // 3) 我方侧恰好只有一位主体 → 无歧义可用。
+  if (side !== '') {
+    const sameSide = details.filter((d) => rowHasSide(d, side));
+    if (sameSide.length === 1) return sameSide.map((d) => ({ name: d.name ?? '', role: d.role ?? '', firm: d.firm, roles: d.roles }));
+  }
+  // 4) 无法确定 → 空。
+  return [];
+}
+
+/** 对方主体列表：对侧当事人，排除我方标记行。 */
+export function theirPartyList(c: PartyOwnerInput): PartyDisplayRow[] {
+  const parties = c.parties ?? {};
+  const ourSide = c.ourSide ?? parties.ourSide ?? '';
+  const details = parties.details ?? [];
+  const side = sideOfOurSide(ourSide);
+  const opp = side === 'A' ? 'B' : side === 'B' ? 'A' : '';
+  if (opp === '') return [];
+  const ourNames = new Set(details.filter((d) => d.ourClient === true).map((d) => d.name ?? ''));
+  const theirs = details.filter((d) => rowHasSide(d, opp) && !ourNames.has(d.name ?? ''));
+  if (theirs.length > 0) return theirs.map((d) => ({ name: d.name ?? '', role: d.role ?? '', firm: d.firm, roles: d.roles }));
+  const primary = oppositeRoleOf(ourSide);
+  const fallback = side === 'A' ? parties.defendant : parties.plaintiff;
+  return primary && fallback ? [{ name: fallback, role: primary }] : [];
+}
 
 /** Map legacy/UI English role tokens to the canonical Chinese role labels. */
 export function normalizePartyRole(role: string): string {

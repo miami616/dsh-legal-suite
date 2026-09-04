@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.2.3（2026-09-05）
+
+### 备忘录 #10–#13（管家阶段智能 + 详情页精简 + 任务联动 + 案件记忆文件）
+
+- **#10 任务模板去噪 + 管家阶段判定修复**：模板层把「收到触发才做的事」从固定
+  任务改为 **optional 条件任务**——立案阶段删掉「计算并缴纳诉讼费」「领取受理
+  通知书与举证通知书」两条噪音（缴费改为收到缴费通知后按需建；受理/举证通知书
+  大多电子送达，改为「登记举证期限与开庭安排」，把举证期限落成关键日期而非
+  「领取」任务）；庭后管理「分析上诉可行性/确认当事人上诉意向/提交上诉状」全部
+  改为 optional，只有裁判对我方不利、确需评估上诉时才用 `only` 点名展开——我方
+  全胜或调解结案的案件不再自动铺「上诉三件套」。stage-expansion 默认展开跳过
+  optional（only 点名才建），预览同样过滤。**阶段判定**：把散落在「未分组」/自建
+  组但 templateTitle 属本阶段模板的任务计入本阶段（管家直写 upsert_task 不再被
+  误判成「阶段为空」而反复建议展开当前阶段）；case_health 阶段进度与建议共用
+  同一判定。实测 2026-010：立案组 5/5 完成 → 正确建议展开「一审 · 庭前准备」。
+  persona / 工具描述 / LITIGATION_GUIDANCE 同步「条件任务 + 电子送达 + 不铺上诉」
+  指引；TASK_VERBS 增补「登记」。
+- **#11 案件详情页概述精简**：右栏「案件概述」长文本默认折叠 3 行（line-clamp +
+  内联 WebkitLineClamp 双保险），「展开全文/收起」切换，hover 露「编辑」。
+- **#12 逾期/待办/紧急日程点击关联任务模块**：CaseDashboard（诉讼 + 非诉）顶部
+  「N 项逾期 / N 项待办 / N 紧急日程」统计按钮原 onClick=onOpenCalendar 空实现
+  → 现派发 `agentlex:open-task-panel`，任务管理 mount 监听后打开任务面板（面板
+  互斥激活由既有 data-attr/CSS 保证），点击有实际反应。
+- **#13 案件文件夹 案件信息.md 记忆文件**：file-service 增 writeTextFile（safeResolve
+  约束 + 自动建父目录）与 readCaseInfoFile / ensureCaseInfoFile（兼容存量
+  「案件信息.md」「案卷信息.md」两种叫法，新建统一「案件信息.md」并按登记信息
+  生成骨架模板）；新增 `/api/agentlex-case/file-write` 与 `/api/agentlex-case/case-info`
+  路由（read/ensure，caseId 自动解析 folder 或显式 path）；litigation 工具新增
+  `case_info` action；persona「案件记忆文件」章节 + 工具描述 + LITIGATION_GUIDANCE
+  指引管家：处理案件前先 case_info 读、没有则 ensure、有新进展用 file-write 同步
+  补写。
+- 验证：新增 scripts/verify-case-info.mjs、scripts/verify-optional-tasks.mjs 全过；
+  既有 9 个 verify 脚本回归全过；3081 实测 case-health（2026-010 阶段推进建议）、
+  case-info read/ensure、file-write E2E 通过。
+
 ## 0.2.2（2026-09-04）
 
 ### 备忘录新问题 5 项 + 字体（#6–#9 + 重复编号防护 + 卡片编号字体）

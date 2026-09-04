@@ -11,7 +11,7 @@
 
 import { getLitigationStage, getLitigationStatus } from '../../shared/playbook/litigation.ts'
 import type { CaseRecord, CaseRegistry } from './store/types.ts'
-import { detectStageSuggestions, STATUS_TO_STAGE } from './stage-expansion.ts'
+import { detectStageSuggestions, STATUS_TO_STAGE, stageTasksOf } from './stage-expansion.ts'
 import type { StageSuggestion } from './stage-expansion.ts'
 
 /* ------------------------------------------------------------ 字段规则 */
@@ -134,13 +134,12 @@ export async function computeCaseHealth(
   const total = applicable.length
   const score = total === 0 ? 100 : Math.round((filled / total) * 100)
 
-  // 阶段进度
+  // 阶段进度（含散落在别组但 templateTitle 属本阶段的任务，备忘录 #10）
   const stageId = STATUS_TO_STAGE[statusId]
   let stage: CaseHealth['stage'] = { total: 0, done: 0, open: 0 }
   if (stageId !== undefined) {
     const stageDef = getLitigationStage(stageId)
-    const group = (record.taskGroups ?? []).find((g) => g.name === stageDef?.name)
-    const tasks = group?.tasks ?? []
+    const tasks = stageTasksOf(record, stageId)
     stage = {
       id: stageId,
       name: stageDef?.name,

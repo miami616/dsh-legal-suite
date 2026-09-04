@@ -116,7 +116,7 @@ export const TASK_VERBS = [
   '核查', '检索', '梳理', '编制', '查阅', '起草', '撰写', '整理', '计算', '缴纳', '递交',
   '提交', '领取', '送达', '参加', '出庭', '申请', '配合', '督促', '跟进', '校对',
   '签署', '制作', '确认', '回复', '答复', '开展', '审查', '出具', '提供', '更新',
-  '归档', '评估', '分析', '谈判', '协商', '盘点', '制定', '通知', '反馈',
+  '归档', '评估', '分析', '谈判', '协商', '盘点', '制定', '通知', '反馈', '登记',
   '签订', '发送', '核对', '结案',
 ] as const
 
@@ -228,6 +228,15 @@ export interface TaskTemplate {
   leadDays?: number
   subtasks?: string[]
   checklist?: string[]
+  /**
+   * 条件任务（备忘录 #10）：只有收到特定触发（缴费通知、对方上诉等）才
+   * 真正要做，**默认展开不创建**；管家按案情用 `only` 显式点名（或人工
+   * upsert_task）时才纳入。模板保留它是为了给管家提供规范措辞参照与
+   * when 适用条件，避免管家想建时凭感觉现编标题。
+   */
+  optional?: boolean
+  /** optional 任务的触发条件（展示给管家判断何时才建）。 */
+  when?: string
 }
 
 export interface StageTemplate {
@@ -266,9 +275,16 @@ export const LITIGATION_STAGES: StageTemplate[] = [
     tasks: [
       { title: '起草起诉状', priority: 'high', detail: '诉讼请求须具体、可执行，含本金、利息（起算日与标准）、诉讼费承担' },
       { title: '整理证据材料并编制证据清单', priority: 'high', detail: '按被告人数 + 1 准备副本，证据编号与清单一致' },
-      { title: '计算并缴纳诉讼费', priority: 'medium', detail: '财产案件按标的额分段累计；缴费凭证是立案必备材料' },
       { title: '递交立案材料', priority: 'high', detail: '线上立案或窗口递交；法院一般 7 日内决定是否立案' },
-      { title: '领取受理通知书与举证通知书', priority: 'high', detail: '举证通知书载明的举证期限是后续所有排期的锚点，必须第一时间入系统' },
+      {
+        title: '缴纳诉讼费', priority: 'medium', optional: true,
+        when: '收到法院缴费通知（含案号与金额）后；未通知不必提前安排',
+        detail: '财产案件按标的额分段累计；缴费凭证是立案/审理材料，随通知执行并留存回执',
+      },
+      {
+        title: '登记举证期限与开庭安排', priority: 'high',
+        detail: '收到电子送达的受理/举证通知书后，第一时间把举证期限登记为关键日期（举证期限届满）、开庭排进时间轴——通知书载明的举证期限是后续所有排期的锚点，不要把它当成需要「领取」的任务',
+      },
     ],
   },
   {
@@ -302,13 +318,25 @@ export const LITIGATION_STAGES: StageTemplate[] = [
     name: '一审 · 庭后管理',
     status: 'post_trial',
     tasks: [
-      { title: '领取裁判文书', priority: 'high', detail: '判决书送达之日起开始计算上诉期，务必当日登记日期' },
-      { title: '分析上诉可行性', priority: 'high', detail: '围绕事实认定与法律适用，给出明确的上诉/不上诉建议与理由', leadDays: 5 },
-      { title: '确认当事人上诉意向', priority: 'high', detail: '须书面确认，避免错过上诉期引发执业风险', leadDays: 3 },
-      { title: '提交上诉状', priority: 'medium', detail: '民事判决 15 日、裁定 10 日；刑事上诉期 10 日', leadDays: 2 },
+      { title: '领取裁判文书', priority: 'high', detail: '判决书送达之日起开始计算上诉期，务必当日登记「裁判文书送达」日期并核对电子送达回执', checklist: ['登记裁判文书送达日期', '登记上诉期届满关键日期'] },
       { title: '督促对方履行生效裁判', priority: 'medium', detail: '履行期限届满前发送履行催告函，为后续申请执行固定证据' },
       { title: '评估申请强制执行可行性', priority: 'medium', detail: '对方未按期履行的，申请执行期间为 2 年，切勿逾期' },
       { title: '结案归档', priority: 'low', detail: '卷宗归档、费用结算、未结事项交接' },
+      {
+        title: '分析上诉可行性', priority: 'high', optional: true,
+        when: '我方对裁判结果不满，或案件存在法律适用/事实认定错误且当事人可能上诉时',
+        detail: '围绕事实认定与法律适用，给出明确的上诉/不上诉建议与理由；判决对我方全胜或无上诉必要时不建此任务', leadDays: 5,
+      },
+      {
+        title: '确认当事人上诉意向', priority: 'high', optional: true,
+        when: '裁判对我方不利或部分不利，需要确认是否上诉时',
+        detail: '须书面确认，避免错过上诉期引发执业风险', leadDays: 3,
+      },
+      {
+        title: '提交上诉状', priority: 'medium', optional: true,
+        when: '当事人决定上诉后；对方上诉时则改为准备二审答辩',
+        detail: '民事判决 15 日、裁定 10 日；刑事上诉期 10 日', leadDays: 2,
+      },
     ],
   },
   {

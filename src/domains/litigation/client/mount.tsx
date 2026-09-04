@@ -28,6 +28,11 @@ const OTHER_ACTIVE_ATTRS = ['data-dsh-taskboard-active', 'data-dsh-ssh-active']
 const ACTIVATE_EVENT = 'dsh-panel-activate'
 const PANEL_NAME = 'litigation'
 
+/** 请求任务管理面板打开（备忘录 #12：案件看板统计点击 → 任务面板）。 */
+export function requestTaskPanelOpen(): void {
+  window.dispatchEvent(new CustomEvent('agentlex:open-task-panel'))
+}
+
 /** Panel width bounds (px) for the drag-to-resize handle. */
 const PANEL_MIN_WIDTH = 360
 const PANEL_MAX_WIDTH = 720

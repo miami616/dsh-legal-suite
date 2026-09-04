@@ -57,6 +57,10 @@ export function mountPanel(controller: PanelController): () => void {
     const other = (event as CustomEvent).detail as string
     if (other !== PANEL_NAME && controller.getSnapshot().panelOpen) controller.close()
   }
+  // Cross-module handoff: 诉讼案件看板「逾期/待办/紧急日程」统计点击 → 打开
+  // 任务管理面板（备忘录 #12）。Litigation mount 派发该事件请求打开本面板。
+  const onOpenTaskPanel = (): void => { controller.open() }
+  window.addEventListener('agentlex:open-task-panel', onOpenTaskPanel)
   const SIDEBAR_ROW_SELECTOR = '[class*="sessionRow"], [class*="projectRow"], [class*="searchResultRow"], [class*="searchResultWorkspace"], [class*="newSession"]'
   const onClickSidebarRow = (event: MouseEvent): void => {
     if (!controller.getSnapshot().panelOpen) return
@@ -71,6 +75,7 @@ export function mountPanel(controller: PanelController): () => void {
   ensure()
 
   return () => {
+    window.removeEventListener('agentlex:open-task-panel', onOpenTaskPanel)
     document.removeEventListener('click', onClickSidebarRow, true)
     document.removeEventListener(ACTIVATE_EVENT, onOtherActivate)
     waitObserver.disconnect()

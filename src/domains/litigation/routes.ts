@@ -17,7 +17,7 @@ import type { TimelineStore } from './store/timeline-store.ts'
 import type { ScheduleStore } from './store/schedule-store.ts'
 import type { ApiResponse } from './store/types.ts'
 import { parseReminderMinutes } from './store/timeline-store.ts'
-import { buildFolderTree, downloadFile, expandFolder, openPath, readPreviewFile, searchFolder } from './file-service.ts'
+import { buildFolderTree, downloadFile, expandFolder, openPath, readPreviewFile, searchFolder, writeTextFile, readCaseInfoFile, ensureCaseInfoFile } from './file-service.ts'
 import { registerLegacyCompatRoutes } from './legacy-compat.ts'
 import { cascadeDeleteCase } from './cascade-delete.ts'
 import { itemToTimelineEvent } from '../item/shape.ts'
@@ -660,6 +660,71 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const file = String(b.file ?? '')
     if (root === '' || file === '') return fail(res, 'path/file required')
     ok(res, await downloadFile(root, file))
+  })
+
+  // POST /api/agentlex-case/file-write —— 往案件文件夹写 UTF-8 文本（create/overwrite，
+  // 自动建父目录）。给管家「读卷宗 → 补全/新建 案件信息.md 等记忆文件」的写通道
+  // （备忘录 #13）。路径与其余 folder 操作同样受 safeResolve 约束。
+  route(`${API_PREFIX}/file-write`, async (_d, b, res) => {
+    const root = String(b.path ?? '')
+    const file = String(b.file ?? '')
+    const content = typeof b.content === 'string' ? b.content : ''
+    if (root === '' || file === '') return fail(res, 'path/file required')
+    ok(res, await writeTextFile(root, file, content))
+  })
+
+  // POST /api/agentlex-case/case-info —— 案件文件夹记忆文件（案件信息.md/案卷信息.md）。
+  // action=read  只读，不存在返回 name:null 不创建
+  // action=ensure 不存在则按模板新建（seed 字段来自案件登记信息），存在原样返回
+  // 入参二选一：path=卷宗根路径，或 caseId=案件编号（后者由服务端从 registry 取 folder）。
+  // （备忘录 #13：每个案件文件夹一份 md 记忆文件，管家开工先读、缺信息补全）。
+  route(`${API_PREFIX}/case-info`, async (d, b, res) => {
+    let root = String(b.path ?? '')
+    const action = b.action === 'ensure' ? 'ensure' : 'read'
+    if (root === '') {
+      const caseId = String(b.caseId ?? '')
+      if (caseId === '') return fail(res, 'path or caseId required')
+      const record = await d.caseStore.readCase(caseId)
+      if (record === undefined) return fail(res, `case not found: ${caseId}`, 404)
+      if (record.folder === undefined || record.folder === '') {
+        return fail(res, `案件 ${caseId} 未绑定卷宗文件夹，无法读写案件信息文件`)
+      }
+      root = String(record.folder)
+    }
+    if (action === 'ensure') {
+      let statusLabel = b.statusLabel === undefined ? undefined : String(b.statusLabel)
+      // caseId 路径：从 registry 回填 seed（名称/案由/状态标签等）。
+      if (b.caseId !== undefined && String(b.caseId) !== '') {
+        const record = await d.caseStore.readCase(String(b.caseId))
+        if (record !== undefined) {
+          const { getLitigationStatus } = await import('../../shared/playbook/litigation.ts')
+          statusLabel = getLitigationStatus(record.status, record.level).label
+          ok(res, await ensureCaseInfoFile(root, {
+            caseId: record.caseId,
+            caseName: record.name,
+            type: record.type,
+            cause: record.cause,
+            statusLabel,
+            level: record.level,
+            caseNumber: record.caseNumber,
+            court: record.court,
+          }))
+          return
+        }
+      }
+      ok(res, await ensureCaseInfoFile(root, {
+        caseId: b.caseId === undefined ? undefined : String(b.caseId),
+        caseName: b.caseName === undefined ? undefined : String(b.caseName),
+        type: b.type === undefined ? undefined : String(b.type),
+        cause: b.cause === undefined ? undefined : String(b.cause),
+        statusLabel,
+        level: b.level === undefined ? undefined : String(b.level),
+        caseNumber: b.caseNumber === undefined ? undefined : String(b.caseNumber),
+        court: b.court === undefined ? undefined : String(b.court),
+      }))
+      return
+    }
+    ok(res, await readCaseInfoFile(root))
   })
 
   route(`${API_PREFIX}/open-path`, async (_d, b, res) => {

@@ -7,8 +7,8 @@
  * client half calls these routes when `isTauriEnvironment()` is false.
  */
 
-import { readdir, readFile, stat } from 'node:fs/promises'
-import { basename, extname, join, resolve, sep } from 'node:path'
+import { readdir, readFile, stat, writeFile, mkdir } from 'node:fs/promises'
+import { basename, dirname, extname, join, resolve, sep } from 'node:path'
 import { spawn } from 'node:child_process'
 
 export interface FolderTreeNode {
@@ -204,6 +204,109 @@ export async function downloadFile(root: string, file: string): Promise<Download
     mimeType: mimeType(basename(target)),
     data: data.toString('base64'),
   }
+}
+
+export interface WriteFileResult {
+  name: string
+  size: number
+  ok: true
+}
+
+/**
+ * Write UTF-8 text into a file under the folder root (create/overwrite).
+ * Parent directories are created on demand so a nested target never fails
+ * just because its dir doesn't exist yet. The path is confined to the folder
+ * root (same safeResolve guard as every other folder operation).
+ */
+export async function writeTextFile(root: string, file: string, content: string): Promise<WriteFileResult> {
+  const base = resolve(root)
+  const target = safeResolve(base, file)
+  if (target === base) throw new Error('cannot write the folder root')
+  await mkdir(dirname(target), { recursive: true })
+  await writeFile(target, content, 'utf8')
+  return { name: basename(target), size: Buffer.byteLength(content, 'utf8'), ok: true }
+}
+
+/* --------------------------------------------------- 案件信息记忆文件 */
+
+/** 记忆文件候选名（备忘录 #13）：用户卷宗里「案件信息.md」「案卷信息.md」两种叫法都存在，都认。 */
+export const CASE_INFO_FILE_CANDIDATES = ['案件信息.md', '案卷信息.md'] as const
+/** 新建时统一使用的文件名。 */
+export const CASE_INFO_DEFAULT_FILE = '案件信息.md'
+
+export interface CaseInfoResult {
+  /** 命中的记忆文件名（相对 folder 根）；null = 尚未创建。 */
+  name: string | null
+  /** 记忆文件内容（不存在时为空串）。 */
+  content: string
+  /** 磁盘上实际用了哪个候选名（多候选都存在时取第一个）。 */
+  matched?: string
+}
+
+/**
+ * 读取案件记忆文件：遍历候选名取第一个存在的；都不存在返回 name:null
+ * （不自动创建——由 case_info ensure 语义决定何时建）。
+ */
+export async function readCaseInfoFile(root: string): Promise<CaseInfoResult> {
+  const base = resolve(root)
+  for (const candidate of CASE_INFO_FILE_CANDIDATES) {
+    try {
+      const target = safeResolve(base, candidate)
+      const content = await readFile(target, 'utf8')
+      return { name: candidate, content, matched: candidate }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+      // 存在但读失败（目录/权限等）——如实抛出，不做静默降级。
+      throw error
+    }
+  }
+  return { name: null, content: '' }
+}
+
+/**
+ * 确保案件记忆文件存在：没有就按规范模板建一个；有就原样返回内容。
+ * 模板只放「确定性可回填」的基本字段占位（编号/名称/案由/状态等），
+ * 缺的信息由管家按案情补全，不编造。
+ */
+export async function ensureCaseInfoFile(root: string, seed: {
+  caseId?: string; caseName?: string; type?: string; cause?: string;
+  statusLabel?: string; level?: string; caseNumber?: string; court?: string;
+}): Promise<CaseInfoResult & { created: boolean }> {
+  const base = resolve(root)
+  const existing = await readCaseInfoFile(base)
+  if (existing.name !== null) return { ...existing, created: false }
+  const name = CASE_INFO_DEFAULT_FILE
+  const lines = [
+    `# 案件信息 — ${seed.caseId ?? ''} ${seed.caseName ?? ''}`.trimEnd(),
+    '',
+    '## 基本信息',
+    '',
+    '| 字段 | 内容 |',
+    '|------|------|',
+    `| 案件编号 | ${seed.caseId ?? ''} |`,
+    `| 案件名称 | ${seed.caseName ?? ''} |`,
+    `| 案件类型 | ${seed.type ?? ''} |`,
+    `| 案由 | ${seed.cause ?? ''} |`,
+    `| 案件状态 | ${seed.statusLabel ?? ''} |`,
+    `| 审级 | ${seed.level ?? ''} |`,
+    `| 案号 | ${seed.caseNumber ?? ''} |`,
+    `| 审理法院 | ${seed.court ?? ''} |`,
+    '',
+    '## 当事人',
+    '',
+    '（待补全：角色 | 名称 | 我方/对方 | 备注）',
+    '',
+    '## 案情概要',
+    '',
+    '（待补全：争议由来、我方立场、核心诉求）',
+    '',
+    '## 关键日期',
+    '',
+    '（待补全：开庭 / 举证期限 / 上诉期等，含日期与来源）',
+    '',
+  ]
+  await writeTextFile(base, name, lines.join('\n'))
+  return { name, content: lines.join('\n'), created: true }
 }
 
 export function openPath(root: string, file: string | undefined, kind: 'finder' | 'default'): void {

@@ -72,7 +72,7 @@ export function OriginalNonLitigationPanel({ launchManager, onClose, getArchived
             dockedSessionTitle=""
             onCloseDockedSession={() => {}}
             onMoveDockedToWorkspace={() => {}}
-            onOpenCalendar={() => {}}
+            onOpenCalendar={() => { window.dispatchEvent(new CustomEvent('agentlex:open-task-panel')) }}
           />
         </div>
       </ToastProvider>

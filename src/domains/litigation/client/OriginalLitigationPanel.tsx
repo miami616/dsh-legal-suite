@@ -141,7 +141,7 @@ export function OriginalLitigationPanel({ launchManager, onClose, openCaseFolder
             dockedSessionTitle=""
             onCloseDockedSession={() => {}}
             onMoveDockedToWorkspace={() => {}}
-            onOpenCalendar={() => {}}
+            onOpenCalendar={() => { window.dispatchEvent(new CustomEvent('agentlex:open-task-panel')) }}
             onOpenCaseAgent={handleOpenCaseAgent}
           />
         </div>

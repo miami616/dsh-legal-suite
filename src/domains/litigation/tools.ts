@@ -13,7 +13,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { CaseStore } from './store/case-store.ts'
 import type { TimelineStore } from './store/timeline-store.ts'
 import type { ScheduleStore } from './store/schedule-store.ts'
-import { LITIGATION_STATUSES, STATUS_LADDERS } from '../../shared/playbook/litigation.ts'
+import { LITIGATION_STATUSES, STATUS_LADDERS, getLitigationStatus } from '../../shared/playbook/litigation.ts'
 import {
   STAGE_ORDER,
   applyStageExpansion,
@@ -59,6 +59,7 @@ const ACTIONS = [
   'apply_stage_template',
   'stage_suggestions',
   'case_health',
+  'case_info',
 ] as const
 
 type Action = typeof ACTIONS[number]
@@ -111,6 +112,7 @@ const PARAMETERS = {
   skip: { type: 'json', description: 'apply_stage_template 跳过这些任务标题的数组（本案不适用的标准动作）' },
   dryRun: { type: 'boolean', description: 'apply_stage_template 传 true 时只返回展开计划不落库（预览用）；默认 false' },
   includeClosed: { type: 'boolean', description: 'case_health 不带 caseId 扫描全部时，是否包含已结案案件（默认 false）' },
+  caseInfoAction: { type: 'string', description: 'case_info 的动作：read（只读案件文件夹里的 案件信息.md/案卷信息.md，不存在不创建）/ ensure（不存在则按模板新建，存在原样返回）。读回内容后按案情补全缺失字段，用 file-write 写回' },
 } as const
 
 /** Tool description — the model reads this to know when to call. */
@@ -128,6 +130,11 @@ const DESCRIPTION = [
   'stage_suggestions 只读检测「当前阶段已完成→该展开下一阶段」与缺失的登记字段；',
   'update_case 改变 status 时响应会内联返回 stageSuggestions，据此向用户提出下一步建议。',
   'case_health 只读体检：信息完整度按当前阶段动态计算（诉前不罚缺案号），附缺口清单与阶段进度。',
+  '模板里的「条件任务」（如 缴纳诉讼费/分析上诉可行性/提交上诉状）默认展开不会创建——只在触发条件出现',
+  '（收到缴费通知 / 裁判对我方不利且需评估上诉）时用 only 点名展开。我方全胜、调解结案、对方不上诉的案子',
+  '不要铺上诉类任务。立案的 受理/举证通知书 大多电子送达，不是「领取」任务——举证期限登记为关键日期即可。',
+  '案件文件夹记忆文件：处理具体案件前用 case_info 读 案件信息.md（没有则 ensure），有新进展同步补写，',
+  '用 file-write 落盘。',
 ].join('')
 
 /** Validate ids are non-empty strings for mutation actions. */
@@ -313,6 +320,35 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
             includeClosed: args.includeClosed === true,
           })
           return clean({ count: rows.length, cases: rows })
+        }
+
+        /* ---------------------- case folder memory file ------------------ */
+        // case_info：案件文件夹里的 案件信息.md/案卷信息.md 记忆文件
+        // （备忘录 #13）。实际注册的 HTTP 代理走 routes 的 case-info 路由；
+        // 这里保留进程内等价实现，保证两套 execute 行为一致。
+        case 'case_info': {
+          requireIds({ caseId: s(args.caseId) })
+          const record = await cs.readCase(args.caseId as string)
+          if (record === undefined) return { error: `case not found: ${args.caseId}` }
+          const folder = s(record.folder)
+          if (folder === undefined || folder === '') {
+            return { error: `案件 ${args.caseId} 未绑定卷宗文件夹，无法读写 案件信息.md` }
+          }
+          const { readCaseInfoFile, ensureCaseInfoFile } = await import('./file-service.ts')
+          if (args.caseInfoAction === 'ensure') {
+            const statusDef = getLitigationStatus(record.status, record.level)
+            return clean(await ensureCaseInfoFile(folder, {
+              caseId: record.caseId,
+              caseName: record.name,
+              type: record.type,
+              cause: record.cause,
+              statusLabel: statusDef.label,
+              level: record.level,
+              caseNumber: record.caseNumber,
+              court: record.court,
+            }))
+          }
+          return clean(await readCaseInfoFile(folder))
         }
 
         /* ---------------------------- cases ----------------------------- */
@@ -733,6 +769,7 @@ const HTTP_ROUTE: Record<Action, { route: string; map?: (data: unknown) => unkno
   apply_stage_template: { route: 'stage-template' },
   stage_suggestions: { route: 'stage-suggestions' },
   case_health: { route: 'case-health' },
+  case_info: { route: 'case-info' },
 }
 
 /** Build the request payload (route + action fields) for an action. */
@@ -792,6 +829,11 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
         const skip = toStringArray(args.skip)
         if (skip !== undefined) body.skip = skip
       }
+      return body
+    case 'case_info':
+      if (args.caseId !== undefined) body.caseId = s(args.caseId)
+      if (args.folder !== undefined) body.path = s(args.folder)
+      if (args.caseInfoAction !== undefined) body.action = s(args.caseInfoAction)
       return body
     case 'upsert_task': case 'delete_task':
       body.caseId = s(args.caseId)

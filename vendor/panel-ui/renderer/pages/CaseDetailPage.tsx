@@ -121,6 +121,30 @@ function hasOccurred(e: TimelineEvent): boolean {
   return e.status === 'completed' || e.status === 'cancelled' || e.date < todayStr();
 }
 
+/**
+ * 案件概述展示块（备忘录 #11）：概述是案情长文，动辄几百字，右栏直接全文
+ * 铺开会把关键日程/审级推到视线之外。默认折叠为最多 3 行（line-clamp），
+ * 展开才看全文；hover 露出「编辑」。
+ */
+function SummaryBlock({ text, onEdit }: { text: string; onEdit: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > 90;
+  return (
+    <div className="group relative rounded-lg p-2 -mx-1 text-sm text-[var(--ink)] leading-relaxed">
+      <p className={`whitespace-pre-wrap break-words ${!expanded && long ? 'line-clamp-3' : ''}`} style={!expanded && long ? { WebkitLineClamp: 3, display: '-webkit-box', WebkitBoxOrient: 'vertical', overflow: 'hidden' } : undefined}>
+        {text}
+      </p>
+      {long && (
+        <button onClick={() => setExpanded(v => !v)} className="mt-1 text-xs text-[var(--accent-warm)] hover:underline font-medium">
+          {expanded ? '收起' : '展开全文'}
+        </button>
+      )}
+      <button onClick={onEdit}
+        className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-xs opacity-0 group-hover:opacity-100 hover:bg-[var(--paper-inset)] text-[var(--ink-muted)] transition-all">编辑</button>
+    </div>
+  );
+}
+
 /** 当事人角色徽章 + 点击展开角色选择。 */
 function RoleBadge({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -965,11 +989,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
                     </div>
                   </div>
                 ) : safeStr(entry.summary) ? (
-                  <div className="group relative rounded-lg p-2 -mx-1 text-sm text-[var(--ink)] leading-relaxed">
-                    {safeStr(entry.summary)}
-                    <button onClick={() => { setSummaryDraft(safeStr(entry.summary)); setEditingSummary(true); }}
-                      className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-xs opacity-0 group-hover:opacity-100 hover:bg-[var(--paper-inset)] text-[var(--ink-muted)] transition-all">编辑</button>
-                  </div>
+                  <SummaryBlock text={safeStr(entry.summary)} onEdit={() => { setSummaryDraft(safeStr(entry.summary)); setEditingSummary(true); }} />
                 ) : (
                   <button onClick={() => { setSummaryDraft(''); setEditingSummary(true); }}
                     className="w-full p-2 rounded-xl border border-dashed border-[var(--paper-inset)] text-xs text-[var(--ink-muted)] hover:border-[var(--ink-subtle)] hover:text-[var(--ink)] transition-colors">+ 案件概述</button>

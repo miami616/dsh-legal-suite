@@ -409,11 +409,14 @@ async function seedAwaitingTrialCase(
   await buildCaseGroup(writer, caseId, '一审 · 立案', [
     { title: '起草起诉状', status: 'done', priority: 'high', deadline: d(-32), detail: '诉请本金、逾期利息与诉讼费承担' },
     { title: '整理证据材料并编制证据清单', status: 'done', priority: 'high', deadline: d(-31) },
-    { title: '计算并缴纳诉讼费', status: 'done', priority: 'medium', deadline: d(-30) },
     { title: '递交立案材料', status: 'done', priority: 'high', deadline: d(-30) },
     {
-      title: '领取受理通知书与举证通知书', status: 'done', priority: 'high', deadline: d(-28),
-      detail: '举证通知书载明的举证期限是后续全部排期的锚点',
+      title: '缴纳诉讼费', status: 'done', priority: 'medium', deadline: d(-29),
+      detail: '收到缴费通知后缴纳',
+    },
+    {
+      title: '登记举证期限与开庭安排', status: 'done', priority: 'high', deadline: d(-28),
+      detail: '电子送达受理/举证通知书后登记举证期限与开庭',
     },
   ])
 

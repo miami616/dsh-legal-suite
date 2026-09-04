@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.2.2（2026-09-04）
+
+### 备忘录新问题 5 项 + 字体（#6–#9 + 重复编号防护 + 卡片编号字体）
+
+- **#6 新建案件拆双按钮**：表单按钮由单一「注册案件」改为「智能注册」（落库后跳
+  agent 会话，由 agent 按 SOP 补全法院/法官/标的额等）与「普通注册」（仅落库、
+  不跳会话，供纯手动登记）。CaseManager 新增 handleCaseSubmitPlain 分支，共用
+  buildCaseEntry 纯函数；NewCaseModal 增加 onSubmitPlain prop 与双提交按钮。
+- **#7 任务面板「全部」等数字基数 = 待办**：hero 时间排「全部 N」改为只计未完成
+  任务（status ≠ done），不再把已完成混入待办基数。
+- **#8 新建案件编号不被自动生成覆盖 + 重复编号防护**：NewCaseModal 之前每次打开/
+  现有案件变化都会用 generateCaseId 重置编号 → 用户手填后也被改成自动号。现加
+  caseIdTouchedRef 守卫：用户编辑过编号就不再自动分配（关闭重开才复位），自动
+  生成仅在编号为空时。**重复编号绝不覆盖数据**：编号输入框下方即时红字提醒（已被
+  哪个案件占用）、冲突时提交按钮禁用；`useAgentLex.addCase` 移除「冲突时静默回落
+  update-case」的危险逻辑，改为一律抛错提示换号（服务端 register 冲突同样拦截），
+  弹窗保持打开展示错误。
+- **#9 日历点日弹窗点击外部自动关闭**：TaskManager 增加 document pointerdown 捕获
+  ——弹层打开后点弹层外任意处（天格按钮除外）自动关闭，不再只能点 X。天格加
+  `data-calday` 标记防误关。修复任务面板白屏：TaskManager 新用 useEffect 但 import
+  遗漏 → 运行时 ReferenceError，补上 `useEffect` import。
+- **案件卡片/详情页编号字体改微软雅黑**：案件总览卡片左轨编号（年份+序号）与案件
+  详情页大标题编号由等宽 font-mono 改为微软雅黑（内联 fontFamily 保证生效）。
+
+### 存储：task-groups.json 退役，并入 items.json（单文件单源）
+
+- `items.json` 文档扩为 `{ groups: [...], items: [...] }`：任务组（阶段）壳与
+  任务/事件正文同文件存储，磁盘上不再有第二套任务数据文件。
+- 启动自动迁移旧 `task-groups.json` → `items.json.groups`（按 id 去重、已存在优先，
+  补 ownerType），成功后旧文件改名 `.legacy` 退役。
+- 读入兼容：旧 items.json（只有 items、无 groups 键）读写自动归一化，升级不断档。
+
+### 老数据彻底下岗：一次性并库迁移（启动自动，磁盘标记只跑一次）
+
+- `merge-legacy.ts`（诉讼）+ `merge-legacy.ts`（非诉）：把 case-registry 每案
+  残留的 taskGroups 镜像（组 + 任务正文，含 deadline/time/subtasks/checklist/
+  keyDateId）与 case-timeline.json 旧事件并入 items（按 id 去重、只补不覆盖，
+  零丢失）。
+- 迁移成功后剥离 registry 每案的 taskGroups（registry 只留案件元信息 + keyDates），
+  case-timeline.json 改名 `.legacy` 退役。
+- 迁移前先做数据快照（~/.dsh/agentlex-backups/），失败仅告警不致命、可重试。
+
+### 读侧统一（不再从 registry taskGroups 计数/判存在）
+
+- `/api/agentlex/read`（suite）、`/read-case`、legacy `/read-case`、`get_case`：
+  任务组一律从 items 实时聚合（含未分组兜底，组行 name+title 双写兼容 health 与旧 GUI）。
+- `case_health` / `stage_suggestions` / `update_case` 同回合建议：先重建 items 任务
+  视图再计算 → **修复「展开任务成功但体检阶段任务数=0、反复建议展开当前阶段」**。
+- `planStageExpansion` 已存在/已展开判断改读 items（幂等判断与写路径同源）。
+
+### 写侧统一（全部落 items）
+
+- litigation 原生路由 `/group /delete-group /reorder-groups /move-task /subtask
+  /checklist /check` 的 itemStore 分支补全；`/set-task-keydate` 任务本体写 items、
+  keyDates（案件字段）仍归 case-store 维护、item 记 keyDateId 链接。
+- legacy-compat GUI 写路由（诉讼 + 非诉）：组/任务/子任务/检查项增删改、
+  移动、排序全部改 itemStore → **修复 GUI 勾子任务/检查项写回旧库再分裂**；
+  时间轴事件 add/update/delete/toggle 也改 items。
+- 非诉原生路由同款 items 化（group/reorder/task/move/subtask/check/add-checklist/
+  delete-checklist/health/stage）。
+- 任务域写穿 `/api/agentlex-task/task`（source=litigation/nonlitigation）改
+  upsertItem（items），`delete-task` 同步按 source 走 items 删除 → 任务面板勾选
+  状态/编辑真正落到统一事项。
+- 导入工具（AgentLex 迁移）：案件任务搬入 items（不再写 registry taskGroups），
+  事件照旧入 items。
+
+### 其他
+
+- 工具/路由任务 upsert 补 groupName/templateTitle 溯源（幂等展开依据完整）。
+- deleteGroup 一并清理组内任务（0.2.2 store 语义），删组不留孤儿。
+- 验证：新增 `scripts/verify-unified-022.mjs`（并库/单文件/退役/展开→体检全链路），
+  全量既有 verify 脚本回归通过；真实 live 数据克隆演练通过（2026-015 展开后
+  体检阶段任务数=5、dryRun 正确跳过已存在 5 条）。
+
+---
 ## 0.2.1（2026-09-04）
 
 0.2.0 统一事项模型的收尾修复批次（备忘录 5 项 + 分叉根治 + 当事人模型重构）。

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.27（2026-09-03）
+## 0.2.0（2026-09-04）
 
 ### P0 · 统一事项模型重构（事件/任务统一为一个 Item）
 
@@ -17,12 +17,18 @@
 - **写路径统一**：useAgentLex 的 addTask/updateTask/deleteTask、addTimelineEvent/
   updateTimelineEvent/deleteTimelineEvent、addStandaloneTask/updateStandaloneTask、
   addTaskGroup/updateTaskGroup/deleteTaskGroup 全部重定向到 items.json；诉讼/非诉
-  管家 task 路由改写 items。
-- **登记入口统一**：TaskManager（含类型选择下拉 任务/事件/事件+任务）、
-  CaseDetailPage 新建事件 → 写统一事项。
+  管家 upsert_event/apply_stage_template/task 路由改写 items。
+- **登记入口统一**：TaskManager（类型选择 任务/事件/事件+任务）、CaseDetailPage
+  新建事件、备忘任务 tab（MemoTaskTab，类型选择）→ 写统一事项。
 - **推送去重**：both 事项在同一 deadline 只推一次（作为事件），不再重复。
-- **任务管理模块**：unified 聚合改为从 items 读任务。
-- 说明：本机现有数据将重建，本版为新模型设计，不含旧数据迁移。
+- **修复（3081 实测）**：
+  - upsert_event/apply_stage_template 写 items.json，时间轴/任务树数据源一致
+  - upsert_task 透传 status（todo→pending/doing→doing/done→done）
+  - 审级历程生成 instances（level 有值时生成 [{level,status}]），面板不恒为空
+  - 审级历程「当前」标记 bug（reverse 后 i===arr.length-1 → i===0）
+  - case_health ourSide 校验兼容 parties.ourSide
+  - update_case 设 level 自动同步 instances（幂等），管家审级敏感
+- 说明：本机现有数据已备份重建，本版为新模型设计，不含旧数据迁移。
 
 ## 0.1.26（2026-09-03）
 

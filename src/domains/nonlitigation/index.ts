@@ -272,6 +272,18 @@ export function apply(ctx: Context, config: Config = {}): void {
     // 统一事项 store：$DSH_HOME/agentlex/items。
     const itemsDir = `${dataDir.replace(/[\\/]+nonlitigation$/, '')}/items`
     const itemStore = createItemStore(itemsDir, ctx)
+    // 0.2.2：一次性并库迁移（project-registry 任务镜像 → items，成功后剥离）。
+    void snapshotDataDir('nonlitigation', dataDir, home)
+      .then(async () => {
+        const { mergeProjectLegacyIntoItems } = await import('./merge-legacy.ts')
+        const result = await mergeProjectLegacyIntoItems(projectStore, itemStore, dataDir)
+        if (result.mergedTasks > 0 || result.strippedProjects > 0) {
+          console.warn(
+            `[agentlex-nonlitigation] 0.2.2 并库完成：任务 ${result.mergedTasks}、剥离 registry 镜像 ${result.strippedProjects} 个项目`,
+          )
+        }
+      })
+      .catch((error) => console.warn('[agentlex-nonlitigation] 0.2.2 并库前快照失败:', error))
     // 全新安装（空数据目录）时内置一份参考项目，让新用户开箱即见完整演示。
     // 仅当 registry 为空时播种，绝不覆盖已有数据；失败仅告警不致命。
     void seedNonLitigationSample(projectStore, serviceStore, itemStore, dataDir)

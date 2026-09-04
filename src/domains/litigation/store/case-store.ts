@@ -132,6 +132,12 @@ export interface CaseStore {
   upsertTaskGroup(caseId: string, group: Partial<TaskGroup>): Promise<CaseRecord>
   deleteTaskGroup(caseId: string, groupId: string): Promise<CaseRecord>
   reorderTaskGroups(caseId: string, orderedIds: string[]): Promise<CaseRecord>
+  /**
+   * 0.2.2：从 registry 案件记录剥离 taskGroups 镜像（任务已并入库统一事项）。
+   * 一次性并库迁移后调用——registry 从此只存案件元信息/keyDates，不含任务正文。
+   * 幂等：无 taskGroups 时直接返回。
+   */
+  stripTaskGroups(caseId: string): Promise<CaseRecord>
   /** Tasks. */
   upsertTask(caseId: string, groupId: string, task: Partial<CaseTask>): Promise<CaseRecord>
   deleteTask(caseId: string, groupId: string, taskIdToDelete: string): Promise<CaseRecord>
@@ -451,6 +457,21 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
         next.lastUpdated = record.updatedAt
         return next
       }, 'tasks', caseId, 'group-delete')
+      return requireCase(caseId)
+    },
+
+    async stripTaskGroups(caseId: string): Promise<CaseRecord> {
+      await store.mutate((reg) => {
+        const current = reg.cases[caseId]
+        if (current === undefined) throw new Error(`case not found: ${caseId}`)
+        const next = clone(reg)
+        const record = next.cases[caseId]
+        if (record.taskGroups === undefined || record.taskGroups.length === 0) return reg
+        record.taskGroups = []
+        record.updatedAt = nowIso()
+        next.lastUpdated = record.updatedAt
+        return next
+      }, 'cases', caseId, 'strip-registry-taskgroups')
       return requireCase(caseId)
     },
 

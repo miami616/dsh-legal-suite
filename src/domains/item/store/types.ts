@@ -84,15 +84,22 @@ export interface Item {
   remindRules?: ItemRemindRule[]
   /** 该事项由哪个阶段模板任务展开而来（避免重复展开）。 */
   templateTitle?: string
+  /** 任务 ↔ 案件关键日期联动：关键日期 id（case-registry keyDates 数组项）。 */
+  keyDateId?: string
+  /** 任务是否带派生的关键日期提醒（true 时 keyDateId 指向案件 keyDates 项）。 */
+  remindKeyDate?: boolean
   createdAt?: string
   updatedAt?: string
   completedAt?: string
 }
 
-/** items.json 文档。 */
+/** items.json 文档（0.2.2：任务组壳并入同一文件，唯一真相源 = 单个 items.json）。 */
 export interface ItemRegistry {
   registryVersion: string
   lastUpdated?: string
+  /** 任务组（阶段）壳：组名/归属/顺序，任务正文在 items 用 groupId 引用。 */
+  groups: TaskGroup[]
+  /** 事项（任务/事件/双重）正文，扁平列表。 */
   items: Item[]
 }
 
@@ -110,7 +117,7 @@ export interface TaskGroup {
   updatedAt?: string
 }
 
-/** task-groups.json 文档。 */
+/** 旧 task-groups.json 文档（0.2.2 起仅迁移读入用，落盘后文件退役）。 */
 export interface TaskGroupRegistry {
   registryVersion: string
   lastUpdated?: string

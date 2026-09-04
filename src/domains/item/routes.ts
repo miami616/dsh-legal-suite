@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ItemStore } from './store/item-store.ts'
 import type { ApiResponse } from './store/types.ts'
-import { itemToLegacyTask, itemToTimelineEvent } from './shape.ts'
+import { buildLegacyTaskGroupsFromStore, itemToLegacyTask, itemToTimelineEvent } from './shape.ts'
 
 export interface RouteDeps {
   itemStore: ItemStore
@@ -106,7 +106,8 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
 
   /* ------------------- legacy 聚合（从 items 生成旧形状） ------------------- */
   // 供 /api/agentlex/read 聚合调用：把统一事项转成旧渲染层的 timeline + taskGroups。
-  // 这是「数据源统一」的桥：现有组件暂时读旧形状，但数据来自 items.json。
+  // 这是「数据源统一」的桥：现有组件暂时读旧形状，但数据来自 items.json
+  // （0.2.2：组壳也来自同一文件，唯一真相源 = items.json）。
   route('/api/agentlex-item/legacy', async (d, _b, res) => {
     const items = await d.itemStore.listItems()
     const groups = await d.itemStore.listGroups()
@@ -116,25 +117,15 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       if (it.type === 'task') continue
       timeline[it.id] = itemToTimelineEvent(it)
     }
-    // taskGroups = type 为 task/both 的事项，按 (ownerId, groupId) 分组。
-    // 未分组的任务各 owner 一个「未分组」组，避免串 owner。
-    // ownerType 随组透出（聚合按它区分同号案件/项目）。
-    const groupMap = new Map<string, { ownerId: string; ownerType?: string; id: string; title: string; order: number; tasks: unknown[] }>()
-    for (const g of groups) {
-      groupMap.set(`${g.ownerId}|${g.id}`, { ownerId: g.ownerId, ownerType: g.ownerType, id: g.id, title: g.name, order: g.order, tasks: [] })
-    }
-    for (const it of items) {
-      if (it.type === 'event') continue
-      const ownerId = it.ownerId ?? ''
-      const gid = it.groupId ?? '__ungrouped'
-      const key = `${ownerId}|${gid}`
-      if (!groupMap.has(key)) {
-        groupMap.set(key, { ownerId, ownerType: it.ownerType, id: gid, title: it.groupName ?? '未分组', order: groupMap.size, tasks: [] })
-      }
-      const g = groupMap.get(key)!
-      g.tasks.push(itemToLegacyTask(it))
-    }
-    ok(res, { timeline, taskGroups: [...groupMap.values()] })
+    // taskGroups = 统一事项按 (ownerId, groupId) 分组（共享 builder）。
+    // rawGroups/rawItems 一并透出，供 suite /api/agentlex/read 按 ownerType 精确
+    // 归属生成各案件/项目的任务组（0.2.2 唯一真相源 = items.json）。
+    ok(res, {
+      timeline,
+      taskGroups: buildLegacyTaskGroupsFromStore(groups, items),
+      rawGroups: groups,
+      rawItems: items,
+    })
   })
 
   return () => {

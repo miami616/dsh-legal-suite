@@ -239,25 +239,21 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           requireIds({ caseId: s(args.caseId) })
           const record = await cs.readCase(args.caseId as string)
           if (record === undefined) return { error: `case not found: ${args.caseId}` }
+          // 0.2.2：任务组从 items 重建（registry taskGroups 下岗）。
+          if (deps.itemStore !== undefined) {
+            const { hydrateCaseTaskGroups } = await import('./task-view.ts')
+            return clean({ case: await hydrateCaseTaskGroups(record, cs, deps.itemStore) })
+          }
           return clean({ case: record })
         }
         case 'list_events': {
-          // 统一事项模型：事件 = items(event/both) + legacy case-timeline 兜底，
-          // 与 UI 看到的一致（split-brain 收尾：写 items 后管家能查到）。
+          // 统一事项模型：事件 = items(event/both)。case-timeline.json 已于
+          // 0.2.2 并库退役，不再合并 legacy。
           if (deps.itemStore !== undefined) {
             const itemsEvents = (await deps.itemStore.listItems(args.caseId === undefined ? undefined : String(args.caseId)))
               .filter((it) => it.type !== 'task')
-            const legacy = await ts.listEvents(args.caseId === undefined ? undefined : String(args.caseId))
             const { itemToTimelineEvent } = await import('../item/shape.ts')
-            const seen = new Set<string>()
-            const out: unknown[] = []
-            for (const it of itemsEvents) {
-              seen.add(it.id)
-              out.push(itemToTimelineEvent(it))
-            }
-            for (const e of legacy) {
-              if (!seen.has(e.id)) out.push(e)
-            }
+            const out = itemsEvents.map((it) => itemToTimelineEvent(it))
             return clean({ count: out.length, events: out })
           }
           const events = await ts.listEvents(args.caseId === undefined ? undefined : String(args.caseId))
@@ -271,7 +267,11 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         /* ------------------- stage templates & suggestions -------------- */
         case 'stage_suggestions': {
           const registry = await cs.readRegistry()
-          const found = detectStageSuggestions(registry, s(args.caseId))
+          // 0.2.2：任务组从 items 重建，否则展开写 items 后检测仍说没任务。
+          const hydrated = deps.itemStore !== undefined
+            ? (await import('./task-view.ts')).hydrateRegistryTaskGroups(registry, cs, deps.itemStore)
+            : Promise.resolve(registry)
+          const found = detectStageSuggestions(await hydrated, s(args.caseId))
           return clean({ count: found.length, cases: found })
         }
         case 'apply_stage_template': {
@@ -298,10 +298,17 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           if (caseId !== undefined) {
             const record = await cs.readCase(caseId)
             if (record === undefined) return { error: `case not found: ${caseId}` }
-            return clean(await computeCaseHealth(record, healthOpts))
+            // 0.2.2：先重建任务组（从 items），体检才看得到展开的任务。
+            const hydrated = deps.itemStore !== undefined
+              ? await (await import('./task-view.ts')).hydrateCaseTaskGroups(record, cs, deps.itemStore)
+              : record
+            return clean(await computeCaseHealth(hydrated, healthOpts))
           }
           const registry = await cs.readRegistry()
-          const rows = await computeRegistryHealth(registry, {
+          const hydratedReg = deps.itemStore !== undefined
+            ? await (await import('./task-view.ts')).hydrateRegistryTaskGroups(registry, cs, deps.itemStore)
+            : registry
+          const rows = await computeRegistryHealth(hydratedReg, {
             ...healthOpts,
             includeClosed: args.includeClosed === true,
           })
@@ -334,7 +341,11 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           // 对话里就能接着问用户「要不要展开下一阶段」，不必等下一次体检。
           if (args.status !== undefined) {
             const registry = await cs.readRegistry()
-            const found = detectStageSuggestions(registry, args.caseId as string)[0]
+            // 0.2.2：任务组从 items 重建。
+            const hydrated = deps.itemStore !== undefined
+              ? await (await import('./task-view.ts')).hydrateRegistryTaskGroups(registry, cs, deps.itemStore)
+              : registry
+            const found = detectStageSuggestions(hydrated, args.caseId as string)[0]
             return clean({ caseId: record.caseId, ok: true, stageSuggestions: found?.suggestions ?? [] })
           }
           return { caseId: record.caseId, ok: true }
@@ -392,10 +403,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         case 'delete_group': {
           requireIds({ caseId: s(args.caseId), groupId: s(args.groupId) })
           if (deps.itemStore !== undefined) {
-            // 删除任务组时把组内任务一并清理（items 的 groupId 引用）。
-            const groupItems = (await deps.itemStore.listItems(String(args.caseId)))
-              .filter((it) => it.groupId === args.groupId)
-            for (const it of groupItems) await deps.itemStore.deleteItem(it.id)
+            // 0.2.2：deleteGroup 一并清理组内任务（items 的 groupId 引用）。
             await deps.itemStore.deleteGroup(String(args.groupId))
             return { ok: true }
           }
@@ -408,16 +416,21 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           requireIds({ caseId: s(args.caseId), groupId: s(args.groupId) })
           // 统一事项模型：任务写 items.json（type=task，groupId 引用任务组）。
           if (deps.itemStore !== undefined) {
+            const title = args.taskTitle !== undefined ? String(args.taskTitle) : (args.title !== undefined ? String(args.title) : '新事项')
+            const groupName = (await deps.itemStore.listGroups(String(args.caseId))).find((g) => g.id === args.groupId)?.name
             const created = await deps.itemStore.upsertItem({
               ownerId: String(args.caseId),
               ownerType: 'litigation',
               type: 'task',
-              title: args.taskTitle !== undefined ? String(args.taskTitle) : (args.title !== undefined ? String(args.title) : '新事项'),
+              title,
               date: args.deadline === undefined ? undefined : String(args.deadline),
               time: args.time === undefined ? undefined : String(args.time),
               priority: (args.priority as never) ?? 'medium',
               status: (args.status === 'done' ? 'done' : args.status === 'doing' || args.status === 'in_progress' ? 'doing' : args.status === 'todo' ? 'pending' : undefined) as never,
               groupId: String(args.groupId),
+              groupName,
+              // 溯源标记：任务后续被改名也能认出它来自哪个模板任务（幂等展开）。
+              templateTitle: title,
               ...(args.taskId !== undefined ? { id: String(args.taskId) } : {}),
             })
             return { caseId: String(args.caseId), taskId: created.id, ok: true }
@@ -444,13 +457,37 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         case 'set_task_keydate': {
           requireIds({ caseId: s(args.caseId), groupId: s(args.groupId), taskId: s(args.taskId) })
           if (typeof args.enabled !== 'boolean') throw new Error('enabled (boolean) is required')
+          // 0.2.2：任务在 items，但 keyDates 是案件字段 → case-store 维护
+          // keyDates 数组，item 补链接字段。
+          if (deps.itemStore !== undefined) {
+            const item = await deps.itemStore.readItem(String(args.taskId))
+            if (item === undefined) throw new Error(`task not found: ${args.taskId}`)
+            const record = await cs.setTaskKeyDate(args.caseId as string, args.groupId as string, args.taskId as string, args.enabled)
+            const kd = (record.keyDates ?? []).find((k) => k.id === item.keyDateId || (args.enabled === false && k.label === item.title))
+            await deps.itemStore.upsertItem({
+              id: String(args.taskId),
+              ...(args.enabled === true && kd !== undefined
+                ? { keyDateId: kd.id, remindKeyDate: true }
+                : { keyDateId: undefined, remindKeyDate: false }),
+            } as never)
+            const out: Record<string, unknown> = { caseId: String(args.caseId), ok: true, enabled: args.enabled }
+            if (args.enabled === true && kd !== undefined) out.keyDateId = kd.id
+            return clean(out)
+          }
           const record = await cs.setTaskKeyDate(args.caseId as string, args.groupId as string, args.taskId as string, args.enabled)
           return { caseId: record.caseId, ok: true, enabled: args.enabled }
         }
         case 'move_task': {
           requireIds({ caseId: s(args.caseId), taskId: s(args.taskId), toGroupId: s(args.toGroupId) })
           if (deps.itemStore !== undefined) {
-            await deps.itemStore.upsertItem({ id: String(args.taskId), groupId: String(args.toGroupId), ownerId: String(args.caseId), ownerType: 'litigation' })
+            const toGroup = (await deps.itemStore.listGroups(String(args.caseId))).find((g) => g.id === args.toGroupId)
+            await deps.itemStore.upsertItem({
+              id: String(args.taskId),
+              groupId: String(args.toGroupId),
+              groupName: toGroup?.name,
+              ownerId: String(args.caseId),
+              ownerType: 'litigation',
+            })
             return { ok: true }
           }
           await cs.moveTask(args.caseId as string, args.taskId as string, args.toGroupId as string)

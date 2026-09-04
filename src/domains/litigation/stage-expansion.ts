@@ -104,6 +104,7 @@ export async function planStageExpansion(
   caseId: string,
   stageId: string,
   opts: StageExpandOptions = {},
+  itemStore?: import('../item/store/item-store.ts').ItemStore,
 ): Promise<StagePlan> {
   const stage = getLitigationStage(stageId)
   if (stage === undefined) {
@@ -113,15 +114,31 @@ export async function planStageExpansion(
   if (record === undefined) throw new Error(`case not found: ${caseId}`)
 
   const warnings: string[] = []
-  const group = (record.taskGroups ?? []).find((g) => g.name === stage.name)
-  const existing = group?.tasks ?? []
-  const existingTitles = new Set(existing.map((t) => t.title))
-  // 管家把模板任务改名后（如「出庭参加庭审」→「出庭参加第二次庭审」），标题
-  // 对不上但 templateTitle 仍指向模板原标题——据此认定已展开过，避免重复
-  // 展开时又插入一个原名副本，把人工调整冲掉。
-  const existingTemplateTitles = new Set(
-    existing.map((t) => t.templateTitle).filter((v): v is string => v !== undefined && v !== ''),
-  )
+  // 0.2.2：任务组/任务已存在性判断一律读 items（写路径唯一真相源），不再从
+  // case-registry 的 taskGroups 判断（registry 副本已下岗）。
+  let existingTitles: Set<string>
+  let existingTemplateTitles: Set<string>
+  if (itemStore !== undefined) {
+    const { buildOwnerTaskGroups } = await import('../item/shape.ts')
+    const [groups, items] = await Promise.all([itemStore.listGroups(caseId), itemStore.listItems(caseId)])
+    const own = buildOwnerTaskGroups(caseId, 'litigation', groups, items)
+    const stageGroup = own.find((g) => g.name === stage.name)
+    const rows = stageGroup?.tasks ?? []
+    existingTitles = new Set(rows.map((t) => String((t as { title?: unknown }).title ?? '')))
+    existingTemplateTitles = new Set(
+      rows.map((t) => String((t as { templateTitle?: unknown }).templateTitle ?? '')).filter((v) => v !== ''),
+    )
+  } else {
+    const legacyGroup = (record.taskGroups ?? []).find((g) => g.name === stage.name)
+    const rows = legacyGroup?.tasks ?? []
+    existingTitles = new Set(rows.map((t) => t.title))
+    // 管家把模板任务改名后（如「出庭参加庭审」→「出庭参加第二次庭审」），标题
+    // 对不上但 templateTitle 仍指向模板原标题——据此认定已展开过，避免重复
+    // 展开时又插入一个原名副本，把人工调整冲掉。
+    existingTemplateTitles = new Set(
+      rows.map((t) => t.templateTitle).filter((v): v is string => v !== undefined && v !== ''),
+    )
+  }
   const only = opts.only === undefined ? undefined : new Set(opts.only)
   const skip = new Set(opts.skip ?? [])
   if (opts.anchorDate === undefined) {
@@ -188,7 +205,7 @@ export async function applyStageExpansion(
   opts: StageExpandOptions = {},
   itemStore?: import('../item/store/item-store.ts').ItemStore,
 ): Promise<StagePlan & { groupId?: string }> {
-  const plan = await planStageExpansion(caseStore, caseId, stageId, { ...opts, dryRun: false })
+  const plan = await planStageExpansion(caseStore, caseId, stageId, { ...opts, dryRun: false }, itemStore)
   if (plan.tasks.length === 0) return plan
   const stage = getLitigationStage(stageId)!
 

@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { syncShippedPreset } from './shared/preset-sync.ts';
+import { buildOwnerTaskGroups } from './domains/item/shape.ts';
 export const name = 'dsh-legal-suite';
 export const inject = ['webServer', 'settings'];
 export const AGENTLEX_SUITE_SETTINGS_NS = 'agentlex-legal-suite' as const;
@@ -233,29 +234,23 @@ export function apply(ctx, config = {}) {
                 // ownerType（litigation/nonlitigation/standalone）区分同号案件/项目：
                 // 案件只吃 litigation 归属的事项，项目只吃 nonlitigation（2026-09-04）。
                 const itemTimeline = (itemLegacy?.timeline ?? {}) as Record<string, { ownerType?: string; [k: string]: unknown }>;
-                const itemTaskGroups = (itemLegacy?.taskGroups ?? []) as Array<{ ownerId?: string; ownerType?: string; id: string; title: string; order: number; tasks: unknown[] }>;
+                const itemGroups = (itemLegacy?.rawGroups ?? []) as Array<{ ownerId?: string; ownerType?: string; id: string; name: string; order: number }>;
+                const itemItems = (itemLegacy?.rawItems ?? []) as Array<{ ownerId?: string; ownerType?: string; id: string; groupId?: string; type: string; [k: string]: unknown }>;
                 const cases = {};
                 for (const [id, c] of Object.entries(caseReg.cases ?? {})) {
                     const legacy = toLegacyCase(c);
                     // 任务的 taskGroups 从统一事项生成（按 group 的 ownerId + ownerType 归属）。
-                    const ownGroups = itemTaskGroups.filter((g) => String(g.ownerId ?? '') === id && (g.ownerType ?? 'litigation') === 'litigation');
-                    if (ownGroups.length > 0) {
-                        legacy.taskGroups = ownGroups.map((g) => normalizeGroup(g));
-                    } else if (Array.isArray(legacy.taskGroups)) {
-                        legacy.taskGroups = legacy.taskGroups.map((g) => normalizeGroup(g));
-                    }
+                    // 0.2.2：registry 的 taskGroups 彻底下岗，只认 items 聚合——不再回退。
+                    const ownGroups = buildOwnerTaskGroups(id, 'litigation', itemGroups, itemItems);
+                    legacy.taskGroups = ownGroups.map((g) => normalizeGroup(g));
                     cases[id] = legacy;
                 }
                 const projects = {};
                 for (const [id, p] of Object.entries(projectReg.projects ?? {})) {
                     const legacy = toLegacyProject(p);
                     // 非诉项目的 taskGroups 也从统一事项生成（只吃 nonlitigation 归属）。
-                    const projGroups = itemTaskGroups.filter((g) => String(g.ownerId ?? '') === id && (g.ownerType ?? 'nonlitigation') === 'nonlitigation');
-                    if (projGroups.length > 0) {
-                        legacy.taskGroups = projGroups.map((g) => normalizeGroup(g));
-                    } else if (Array.isArray(legacy.taskGroups)) {
-                        legacy.taskGroups = legacy.taskGroups.map((g) => normalizeGroup(g));
-                    }
+                    const projGroups = buildOwnerTaskGroups(id, 'nonlitigation', itemGroups, itemItems);
+                    legacy.taskGroups = projGroups.map((g) => normalizeGroup(g));
                     projects[id] = legacy;
                 }
                 // timeline 从统一事项生成（替代 case-timeline.json）。

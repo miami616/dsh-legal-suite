@@ -196,102 +196,223 @@ export function registerLegacyCompatRoutes(ctx: Context, deps: RouteDeps): () =>
   })
 
   /* ------------------------ project task tree -------------------------- */
+  // 0.2.2：项目任务组/任务/子任务/检查项全部写统一事项 items.json（ownerType=
+  // nonlitigation），不再写 project-registry 的 taskGroups（旧 GUI 曾写旧库分裂）。
   route('/api/agentlex/add-project-task-group', async (body, res) => {
-    const { projectId, ...group } = body
-    ok(res, await deps.projectStore.upsertTaskGroup(String(projectId ?? ''), toPluginGroup(group) as never))
+    const projectId = String(body.projectId ?? '')
+    const group: Record<string, unknown> = { ownerId: projectId, ownerType: 'nonlitigation', ...body }
+    delete group.projectId
+    if (group.title !== undefined && group.name === undefined) group.name = group.title
+    if (deps.itemStore !== undefined) {
+      const created = await deps.itemStore.upsertGroup(group as never)
+      ok(res, { ...created, title: created.name })
+      return
+    }
+    ok(res, await deps.projectStore.upsertTaskGroup(projectId, toPluginGroup(group) as never))
   })
 
   route('/api/agentlex/update-project-task-group', async (body, res) => {
-    const { projectId, groupId, patch } = body
-    const group = { id: String(groupId ?? ''), ...(patch as Record<string, unknown>) }
-    ok(res, await deps.projectStore.upsertTaskGroup(String(projectId ?? ''), toPluginGroup(group) as never))
+    const projectId = String(body.projectId ?? '')
+    const groupId = String(body.groupId ?? '')
+    const patch = (body.patch ?? {}) as Record<string, unknown>
+    if (deps.itemStore !== undefined) {
+      const input: Record<string, unknown> = { id: groupId, ownerId: projectId, ownerType: 'nonlitigation' }
+      if (patch.title !== undefined) input.name = String(patch.title)
+      else if (patch.name !== undefined) input.name = String(patch.name)
+      if (patch.order !== undefined) input.order = Number(patch.order)
+      const updated = await deps.itemStore.upsertGroup(input as never)
+      ok(res, { ...updated, title: updated.name })
+      return
+    }
+    const group = { id: groupId, ...patch }
+    ok(res, await deps.projectStore.upsertTaskGroup(projectId, toPluginGroup(group) as never))
   })
 
   route('/api/agentlex/delete-project-task-group', async (body, res) => {
-    ok(res, await deps.projectStore.deleteTaskGroup(String(body.projectId ?? ''), String(body.groupId ?? '')))
+    const projectId = String(body.projectId ?? '')
+    const groupId = String(body.groupId ?? '')
+    if (deps.itemStore !== undefined) {
+      ok(res, await deps.itemStore.deleteGroup(groupId))
+      return
+    }
+    ok(res, await deps.projectStore.deleteTaskGroup(projectId, groupId))
   })
 
   route('/api/agentlex/reorder-project-task-groups', async (body, res) => {
-    ok(res, await deps.projectStore.reorderTaskGroups(
-      String(body.projectId ?? ''),
-      Array.isArray(body.orderedIds) ? body.orderedIds.map(String) : [],
-    ))
+    const projectId = String(body.projectId ?? '')
+    const orderedIds = Array.isArray(body.orderedIds) ? body.orderedIds.map(String) : []
+    if (deps.itemStore !== undefined) {
+      const groups = await deps.itemStore.listGroups(projectId)
+      const byId = new Map(groups.map((g) => [g.id, g]))
+      for (let i = 0; i < orderedIds.length; i++) {
+        const g = byId.get(orderedIds[i])
+        if (g !== undefined && g.order !== i) await deps.itemStore.upsertGroup({ id: g.id, order: i })
+      }
+      ok(res, { ok: true })
+      return
+    }
+    ok(res, await deps.projectStore.reorderTaskGroups(projectId, orderedIds))
   })
 
   route('/api/agentlex/add-project-task', async (body, res) => {
-    const { projectId, groupId, ...task } = body
-    ok(res, await deps.projectStore.upsertTask(String(projectId ?? ''), String(groupId ?? ''), toPluginTask(task) as never))
+    const projectId = String(body.projectId ?? '')
+    const groupId = String(body.groupId ?? '')
+    const { projectId: _c, groupId: _g, ...task } = body
+    if (deps.itemStore !== undefined) {
+      const groupName = (await deps.itemStore.listGroups(projectId)).find((g) => g.id === groupId)?.name
+      const created = await deps.itemStore.upsertItem({
+        ownerId: projectId,
+        ownerType: 'nonlitigation',
+        type: 'task',
+        title: String(task.title ?? task.taskTitle ?? '新任务'),
+        detail: task.detail === undefined ? undefined : String(task.detail),
+        date: task.deadline === undefined ? undefined : String(task.deadline),
+        time: task.time === undefined ? undefined : String(task.time),
+        priority: (task.priority as never) ?? 'medium',
+        status: (task.status === 'done' ? 'done' : task.status === 'doing' || task.status === 'in_progress' ? 'doing' : task.status === 'todo' ? 'pending' : undefined) as never,
+        groupId: groupId || undefined,
+        groupName,
+        templateTitle: String(task.title ?? task.taskTitle ?? '新任务'),
+        ...(task.id !== undefined ? { id: String(task.id) } : {}),
+      })
+      ok(res, { ...created, title: created.title })
+      return
+    }
+    ok(res, await deps.projectStore.upsertTask(projectId, groupId, toPluginTask(task) as never))
   })
 
   route('/api/agentlex/update-project-task', async (body, res) => {
-    const { projectId, taskId, patch } = body
-    const group = await findGroupByTaskId(deps, String(projectId ?? ''), String(taskId ?? ''))
-    const task = { id: String(taskId ?? ''), ...(patch as Record<string, unknown>) }
-    ok(res, await deps.projectStore.upsertTask(String(projectId ?? ''), group.id, toPluginTask(task) as never))
+    const projectId = String(body.projectId ?? '')
+    const taskId = String(body.taskId ?? '')
+    const patch = (body.patch ?? {}) as Record<string, unknown>
+    if (deps.itemStore !== undefined) {
+      const existing = await deps.itemStore.readItem(taskId)
+      if (existing === undefined) throw new Error(`project task not found: ${taskId}`)
+      const input: Record<string, unknown> = { id: taskId, ownerId: projectId, ownerType: 'nonlitigation' }
+      if (patch.title !== undefined) input.title = String(patch.title)
+      if (patch.detail !== undefined) input.detail = String(patch.detail)
+      if (patch.deadline !== undefined) input.date = patch.deadline === '' || patch.deadline === null ? undefined : String(patch.deadline)
+      if (patch.time !== undefined) input.time = patch.time === '' ? undefined : String(patch.time)
+      if (patch.priority !== undefined) input.priority = String(patch.priority)
+      if (patch.status !== undefined) input.status = (patch.status === 'done' ? 'done' : patch.status === 'doing' || patch.status === 'in_progress' ? 'doing' : patch.status === 'todo' ? 'pending' : existing.status) as never
+      if (patch.folder !== undefined) input.detail = String(patch.folder)
+      const updated = await deps.itemStore.upsertItem(input as never)
+      ok(res, updated)
+      return
+    }
+    const group = await findGroupByTaskId(deps, projectId, taskId)
+    const task = { id: taskId, ...patch }
+    ok(res, await deps.projectStore.upsertTask(projectId, group.id, toPluginTask(task) as never))
   })
 
   route('/api/agentlex/delete-project-task', async (body, res) => {
-    const { projectId, taskId } = body
-    const group = await findGroupByTaskId(deps, String(projectId ?? ''), String(taskId ?? ''))
-    ok(res, await deps.projectStore.deleteTask(String(projectId ?? ''), group.id, String(taskId ?? '')))
+    const projectId = String(body.projectId ?? '')
+    const taskId = String(body.taskId ?? '')
+    if (deps.itemStore !== undefined) {
+      ok(res, await deps.itemStore.deleteItem(taskId))
+      return
+    }
+    const group = await findGroupByTaskId(deps, projectId, taskId)
+    ok(res, await deps.projectStore.deleteTask(projectId, group.id, taskId))
   })
 
   route('/api/agentlex/move-project-task', async (body, res) => {
-    ok(res, await deps.projectStore.moveTask(
-      String(body.projectId ?? ''),
-      String(body.taskId ?? ''),
-      String(body.targetGroupId ?? body.toGroupId ?? ''),
-      typeof body.index === 'number' ? body.index : undefined,
-    ))
+    const projectId = String(body.projectId ?? '')
+    const taskId = String(body.taskId ?? '')
+    const toGroupId = String(body.targetGroupId ?? body.toGroupId ?? '')
+    if (deps.itemStore !== undefined) {
+      const toGroup = (await deps.itemStore.listGroups(projectId)).find((g) => g.id === toGroupId)
+      await deps.itemStore.upsertItem({ id: taskId, groupId: toGroupId, groupName: toGroup?.name, ownerId: projectId, ownerType: 'nonlitigation' })
+      ok(res, { ok: true })
+      return
+    }
+    ok(res, await deps.projectStore.moveTask(projectId, taskId, toGroupId, typeof body.index === 'number' ? body.index : undefined))
   })
 
   route('/api/agentlex/add-project-subtask', async (body, res) => {
-    const { projectId, taskId, ...subtask } = body
-    const group = await findGroupByTaskId(deps, String(projectId ?? ''), String(taskId ?? ''))
-    ok(res, await deps.projectStore.upsertSubtask(
-      String(projectId ?? ''), group.id, String(taskId ?? ''), toPluginTask(subtask) as never,
-    ))
+    const projectId = String(body.projectId ?? '')
+    const taskId = String(body.taskId ?? '')
+    const { projectId: _c, taskId: _t, title, deadline, done, ...subtask } = body
+    if (deps.itemStore !== undefined) {
+      const created = await deps.itemStore.addSubtask(taskId, {
+        title: String(title ?? subtask.subtaskTitle ?? '子任务'),
+        deadline: deadline === undefined ? undefined : String(deadline),
+        done: done === true || subtask.status === 'done' || subtask.status === 'in_progress' ? done === true || subtask.status === 'done' : undefined,
+      })
+      ok(res, created)
+      return
+    }
+    const group = await findGroupByTaskId(deps, projectId, taskId)
+    ok(res, await deps.projectStore.upsertSubtask(projectId, group.id, taskId, toPluginTask(subtask as Record<string, unknown>) as never))
   })
 
   route('/api/agentlex/update-project-subtask', async (body, res) => {
-    const { projectId, taskId, subtaskId, patch } = body
-    const group = await findGroupByTaskId(deps, String(projectId ?? ''), String(taskId ?? ''))
-    const subtask = { id: String(subtaskId ?? ''), ...(patch as Record<string, unknown>) }
-    ok(res, await deps.projectStore.upsertSubtask(
-      String(projectId ?? ''), group.id, String(taskId ?? ''), toPluginTask(subtask) as never,
-    ))
+    const projectId = String(body.projectId ?? '')
+    const taskId = String(body.taskId ?? '')
+    const subtaskId = String(body.subtaskId ?? '')
+    const patch = (body.patch ?? {}) as Record<string, unknown>
+    if (deps.itemStore !== undefined) {
+      const updated = await deps.itemStore.updateSubtask(taskId, subtaskId, {
+        ...(patch.title !== undefined ? { title: String(patch.title) } : {}),
+        ...(patch.status !== undefined ? { done: patch.status === 'done' } : {}),
+        ...(patch.deadline !== undefined ? { deadline: String(patch.deadline) } : {}),
+      })
+      ok(res, updated)
+      return
+    }
+    const group = await findGroupByTaskId(deps, projectId, taskId)
+    const subtask = { id: subtaskId, ...patch }
+    ok(res, await deps.projectStore.upsertSubtask(projectId, group.id, taskId, toPluginTask(subtask as Record<string, unknown>) as never))
   })
 
   route('/api/agentlex/delete-project-subtask', async (body, res) => {
-    const { projectId, taskId, subtaskId } = body
-    const group = await findGroupByTaskId(deps, String(projectId ?? ''), String(taskId ?? ''))
-    ok(res, await deps.projectStore.deleteSubtask(
-      String(projectId ?? ''), group.id, String(taskId ?? ''), String(subtaskId ?? ''),
-    ))
+    const projectId = String(body.projectId ?? '')
+    const taskId = String(body.taskId ?? '')
+    const subtaskId = String(body.subtaskId ?? '')
+    if (deps.itemStore !== undefined) {
+      ok(res, await deps.itemStore.deleteSubtask(taskId, subtaskId))
+      return
+    }
+    const group = await findGroupByTaskId(deps, projectId, taskId)
+    ok(res, await deps.projectStore.deleteSubtask(projectId, group.id, taskId, subtaskId))
   })
 
   route('/api/agentlex/add-project-checklist-item', async (body, res) => {
-    const { projectId, taskId, text } = body
-    const group = await findGroupByTaskId(deps, String(projectId ?? ''), String(taskId ?? ''))
-    ok(res, await deps.projectStore.addChecklistItem(
-      String(projectId ?? ''), group.id, String(taskId ?? ''), String(text ?? ''),
-    ))
+    const projectId = String(body.projectId ?? '')
+    const taskId = String(body.taskId ?? '')
+    const text = String(body.text ?? '')
+    if (deps.itemStore !== undefined) {
+      const created = await deps.itemStore.addChecklist(taskId, { text })
+      ok(res, created)
+      return
+    }
+    const group = await findGroupByTaskId(deps, projectId, taskId)
+    ok(res, await deps.projectStore.addChecklistItem(projectId, group.id, taskId, text))
   })
 
   route('/api/agentlex/toggle-project-checklist-item', async (body, res) => {
-    const { projectId, taskId, itemId } = body
-    const group = await findGroupByTaskId(deps, String(projectId ?? ''), String(taskId ?? ''))
-    ok(res, await deps.projectStore.toggleChecklist(
-      String(projectId ?? ''), group.id, String(taskId ?? ''), String(itemId ?? ''),
-    ))
+    const projectId = String(body.projectId ?? '')
+    const taskId = String(body.taskId ?? '')
+    const itemId = String(body.itemId ?? '')
+    const done = body.done === undefined ? undefined : body.done === true
+    if (deps.itemStore !== undefined) {
+      ok(res, await deps.itemStore.toggleChecklist(taskId, itemId, done))
+      return
+    }
+    const group = await findGroupByTaskId(deps, projectId, taskId)
+    ok(res, await deps.projectStore.toggleChecklist(projectId, group.id, taskId, itemId))
   })
 
   route('/api/agentlex/delete-project-checklist-item', async (body, res) => {
-    const { projectId, taskId, itemId } = body
-    const group = await findGroupByTaskId(deps, String(projectId ?? ''), String(taskId ?? ''))
-    ok(res, await deps.projectStore.deleteChecklistItem(
-      String(projectId ?? ''), group.id, String(taskId ?? ''), String(itemId ?? ''),
-    ))
+    const projectId = String(body.projectId ?? '')
+    const taskId = String(body.taskId ?? '')
+    const itemId = String(body.itemId ?? '')
+    if (deps.itemStore !== undefined) {
+      ok(res, await deps.itemStore.deleteChecklist(taskId, itemId))
+      return
+    }
+    const group = await findGroupByTaskId(deps, projectId, taskId)
+    ok(res, await deps.projectStore.deleteChecklistItem(projectId, group.id, taskId, itemId))
   })
 
   return () => {

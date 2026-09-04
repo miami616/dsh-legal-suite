@@ -110,12 +110,13 @@ function planProjectTask(t: ProjectTaskTemplate, anchorDate: string | undefined)
   }
 }
 
-/** 计算展开计划（不写库）。已存在性按目标任务组内标题判定。 */
+/** 计算展开计划（不写库）。已存在性按目标任务组内标题判定（items 源）。 */
 export async function planStageExpansion(
   projectStore: ProjectStore,
   projectId: string,
   stageId: string,
   opts: ProjectStageExpandOptions = {},
+  itemStore?: import('../item/store/item-store.ts').ItemStore,
 ): Promise<ProjectStagePlan> {
   const stage = getProjectStage(stageId)
   if (stage === undefined) {
@@ -125,15 +126,30 @@ export async function planStageExpansion(
   if (record === undefined) throw new Error(`project not found: ${projectId}`)
 
   const warnings: string[] = []
-  const group = (record.taskGroups ?? []).find((g) => g.name === stage.name)
-  const existing = group?.tasks ?? []
-  const existingTitles = new Set(existing.map((t) => t.title))
-  // 同诉讼侧：管家改名后以 templateTitle 判定已展开，避免重复插入原名副本。
-  const existingTemplateTitles = new Set(
-    existing
-      .map((t) => (t as { templateTitle?: string }).templateTitle)
-      .filter((v): v is string => v !== undefined && v !== ''),
-  )
+  // 0.2.2：已存在性判断读 items（唯一真相源），不再从 registry taskGroups。
+  let existingTitles: Set<string>
+  let existingTemplateTitles: Set<string>
+  if (itemStore !== undefined) {
+    const { buildOwnerTaskGroups } = await import('../item/shape.ts')
+    const [groups, items] = await Promise.all([itemStore.listGroups(projectId), itemStore.listItems(projectId)])
+    const own = buildOwnerTaskGroups(projectId, 'nonlitigation', groups, items)
+    const stageGroup = own.find((g) => g.name === stage.name)
+    const rows = stageGroup?.tasks ?? []
+    existingTitles = new Set(rows.map((t) => String((t as { title?: unknown }).title ?? '')))
+    existingTemplateTitles = new Set(
+      rows.map((t) => String((t as { templateTitle?: unknown }).templateTitle ?? '')).filter((v) => v !== ''),
+    )
+  } else {
+    const group = (record.taskGroups ?? []).find((g) => g.name === stage.name)
+    const existing = group?.tasks ?? []
+    existingTitles = new Set(existing.map((t) => t.title))
+    // 同诉讼侧：管家改名后以 templateTitle 判定已展开，避免重复插入原名副本。
+    existingTemplateTitles = new Set(
+      existing
+        .map((t) => (t as { templateTitle?: string }).templateTitle)
+        .filter((v): v is string => v !== undefined && v !== ''),
+    )
+  }
   const only = opts.only === undefined ? undefined : new Set(opts.only)
   const skip = new Set(opts.skip ?? [])
   if (opts.anchorDate === undefined) {
@@ -177,7 +193,7 @@ export async function applyStageExpansion(
   opts: ProjectStageExpandOptions = {},
   itemStore?: import('../item/store/item-store.ts').ItemStore,
 ): Promise<ProjectStagePlan & { groupId?: string }> {
-  const plan = await planStageExpansion(projectStore, projectId, stageId, { ...opts, dryRun: false })
+  const plan = await planStageExpansion(projectStore, projectId, stageId, { ...opts, dryRun: false }, itemStore)
   if (plan.tasks.length === 0) return plan
   const stage = getProjectStage(stageId)!
 

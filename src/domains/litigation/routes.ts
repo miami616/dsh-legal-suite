@@ -21,6 +21,7 @@ import { buildFolderTree, downloadFile, expandFolder, openPath, readPreviewFile,
 import { registerLegacyCompatRoutes } from './legacy-compat.ts'
 import { cascadeDeleteCase } from './cascade-delete.ts'
 import { itemToTimelineEvent } from '../item/shape.ts'
+import { hydrateCaseTaskGroups, hydrateRegistryTaskGroups } from './task-view.ts'
 import { selfVersion } from './self-version.ts'
 import { applyStageExpansion, detectStageSuggestions, planStageExpansion } from './stage-expansion.ts'
 import { computeCaseHealth, computeRegistryHealth } from './health.ts'
@@ -29,14 +30,16 @@ import { computeCaseHealth, computeRegistryHealth } from './health.ts'
 export const API_PREFIX = '/api/agentlex-case'
 
 /** Services the routes need. */
+import type { ItemStore } from '../item/store/item-store.ts'
+
 export interface RouteDeps {
   caseStore: CaseStore
   timelineStore: TimelineStore
   scheduleStore: ScheduleStore
   /** Absolute data directory used as the module DSH workspace. */
   dataDir: string
-  /** 统一事项 store —— 任务写统一事项（v0.1.27 统一事项模型）。 */
-  itemStore?: import('../item/store/item-store.ts').ItemStore
+  /** 统一事项 store —— 任务/事件/任务组写统一事项（v0.1.27 统一事项模型）。 */
+  itemStore?: ItemStore
   /** Announce the deadline engine's per-case summary (M4). */
   deadlines?(caseId?: string, opts?: { includeOverdue?: boolean }): unknown | Promise<unknown>
   /** Import from an AgentLex data directory (M5). */
@@ -170,13 +173,22 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
 
   /* ------------------------------- cases ------------------------------ */
   route(`${API_PREFIX}/read`, async (d, _b, res) => {
-    ok(res, await d.caseStore.readRegistry())
+    const registry = await d.caseStore.readRegistry()
+    if (d.itemStore !== undefined) {
+      ok(res, await hydrateRegistryTaskGroups(registry, d.caseStore, d.itemStore))
+      return
+    }
+    ok(res, registry)
   })
 
   route(`${API_PREFIX}/read-case`, async (d, b, res) => {
     const caseId = String(b.caseId ?? '')
     const record = await d.caseStore.readCase(caseId)
     if (record === undefined) return fail(res, `case not found: ${caseId}`, 404)
+    if (d.itemStore !== undefined) {
+      ok(res, await hydrateCaseTaskGroups(record, d.caseStore, d.itemStore))
+      return
+    }
     ok(res, record)
   })
 
@@ -191,10 +203,13 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const record = await d.caseStore.updateCase(caseId, patch)
     // 同回合钩子：status 被更新时，在响应里内联返回阶段推进建议——
     // 调用方（管家/浏览器）在同一轮交互里就能拿到「接下来该展开什么」，
-    // 不必等下一次体检。
+    // 不必等下一次体检。任务组一律从 items 重建（0.2.2）。
     if (patch.status !== undefined) {
       const registry = await d.caseStore.readRegistry()
-      const found = detectStageSuggestions(registry, caseId)[0]
+      const hydrated = d.itemStore !== undefined
+        ? await hydrateRegistryTaskGroups(registry, d.caseStore, d.itemStore)
+        : registry
+      const found = detectStageSuggestions(hydrated, caseId)[0]
       ok(res, { ...record, stageSuggestions: found?.suggestions ?? [] })
     } else {
       ok(res, record)
@@ -232,21 +247,34 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   })
 
   /* --------------------------- task groups ---------------------------- */
+  // 0.2.2：任务组壳与任务全存 items.json（唯一真相源），不再写 case-registry。
   route(`${API_PREFIX}/group`, async (d, b, res) => {
     const caseId = String(b.caseId ?? '')
     if (caseId === '') return fail(res, 'caseId required')
     // The transport spells the upsert id as `groupId` (HTTP tool / curl),
     // while the store and the browser half use the canonical `id`. Accept
     // both so a group update never silently becomes a new group.
-    const { caseId: _omit, groupId, ...group } = b
-    if (groupId !== undefined) group.id = String(groupId)
-    ok(res, await d.caseStore.upsertTaskGroup(caseId, group))
+    const { caseId: _omit, groupId, name, ...rest } = b
+    const input: Record<string, unknown> = { ownerId: caseId, ownerType: 'litigation', ...rest }
+    if (groupId !== undefined) input.id = String(groupId)
+    // 兼容 name/title 双写（旧 GUI 传 title，工具传 name）。
+    const gname = name !== undefined ? String(name) : rest.title !== undefined ? String(rest.title) : undefined
+    if (gname !== undefined) input.name = gname
+    if (d.itemStore !== undefined) {
+      const created = await d.itemStore.upsertGroup(input as Parameters<ItemStore['upsertGroup']>[0])
+      return ok(res, { caseId, ok: true, ...created })
+    }
+    ok(res, await d.caseStore.upsertTaskGroup(caseId, { id: groupId === undefined ? undefined : String(groupId), ...(name !== undefined ? { name: String(name) } : {}) }))
   })
 
   route(`${API_PREFIX}/delete-group`, async (d, b, res) => {
     const caseId = String(b.caseId ?? '')
     const groupId = String(b.groupId ?? '')
     if (caseId === '' || groupId === '') return fail(res, 'caseId/groupId required')
+    if (d.itemStore !== undefined) {
+      // 删除组壳并清理组内任务（item-store deleteGroup 已含组内任务清理）。
+      return ok(res, await d.itemStore.deleteGroup(groupId))
+    }
     ok(res, await d.caseStore.deleteTaskGroup(caseId, groupId))
   })
 
@@ -254,6 +282,15 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const caseId = String(b.caseId ?? '')
     const orderedIds = Array.isArray(b.orderedIds) ? (b.orderedIds as unknown[]).map(String) : []
     if (caseId === '' || orderedIds.length === 0) return fail(res, 'caseId/orderedIds required')
+    if (d.itemStore !== undefined) {
+      const groups = await d.itemStore.listGroups(caseId)
+      const byId = new Map(groups.map((g) => [g.id, g]))
+      for (let i = 0; i < orderedIds.length; i++) {
+        const g = byId.get(orderedIds[i])
+        if (g !== undefined && g.order !== i) await d.itemStore.upsertGroup({ id: g.id, order: i })
+      }
+      return ok(res, { ok: true })
+    }
     ok(res, await d.caseStore.reorderTaskGroups(caseId, orderedIds))
   })
 
@@ -301,6 +338,23 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const taskId = String(b.taskId ?? '')
     if (caseId === '' || groupId === '' || taskId === '') return fail(res, 'caseId/groupId/taskId required')
     if (typeof b.enabled !== 'boolean') return fail(res, 'enabled (boolean) required')
+    // 0.2.2：任务本体在 items，但任务↔关键日期联动（keyDates 是案件字段）仍由
+    // case-store 维护 keyDates 数组。这里把任务写 items（item 补 keyDateId/
+    // remindKeyDate 链接），并把派生 keydate 写入案件 keyDates（registry 只存
+    // 案件元信息与关键日期，不含任务正文）。
+    if (d.itemStore !== undefined) {
+      const item = await d.itemStore.readItem(taskId)
+      if (item === undefined) return fail(res, `task not found: ${taskId}`, 404)
+      const record = await d.caseStore.setTaskKeyDate(caseId, groupId, taskId, b.enabled)
+      const kd = (record.keyDates ?? []).find((k) => k.id === item.keyDateId || (b.enabled === false && k.label === item.title))
+      await d.itemStore.upsertItem({
+        id: taskId,
+        ...(b.enabled === true && kd !== undefined
+          ? { keyDateId: kd.id, remindKeyDate: true }
+          : { keyDateId: undefined, remindKeyDate: false }),
+      } as never)
+      return ok(res, { caseId, ok: true, enabled: b.enabled, keyDateId: b.enabled === true ? kd?.id : undefined })
+    }
     ok(res, await d.caseStore.setTaskKeyDate(caseId, groupId, taskId, b.enabled))
   })
 
@@ -309,6 +363,20 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const taskId = String(b.taskId ?? '')
     const toGroupId = String(b.toGroupId ?? '')
     if (caseId === '' || taskId === '' || toGroupId === '') return fail(res, 'caseId/taskId/toGroupId required')
+    // 0.2.2：任务本体在 items → move 即改 item.groupId（顺带同步 groupName）。
+    if (d.itemStore !== undefined) {
+      const [item, groups] = await Promise.all([d.itemStore.readItem(taskId), d.itemStore.listGroups(caseId)])
+      if (item === undefined) return fail(res, `task not found: ${taskId}`, 404)
+      const toGroup = groups.find((g) => g.id === toGroupId)
+      const updated = await d.itemStore.upsertItem({
+        id: taskId,
+        groupId: toGroupId,
+        groupName: toGroup?.name,
+        ownerId: caseId,
+        ownerType: 'litigation',
+      })
+      return ok(res, { id: updated.id, caseId, groupId: toGroupId, ok: true })
+    }
     ok(res, await d.caseStore.moveTask(caseId, taskId, toGroupId, typeof b.index === 'number' ? b.index : undefined))
   })
 
@@ -401,19 +469,12 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   route(`${API_PREFIX}/events`, async (d, b, res) => {
     const caseId = b.caseId === undefined ? undefined : String(b.caseId)
     if (d.itemStore !== undefined) {
+      // case-timeline.json 已于 0.2.2 并库退役——事件只从 items 读。
       const items = await d.itemStore.listItems(caseId)
-      const legacy = await d.timelineStore.listEvents(caseId)
-      // items 事件 + legacy 事件合并（按 id 去重，items 优先）。
-      const seen = new Set<string>()
       const out: unknown[] = []
       for (const it of items) {
         if (it.type === 'task') continue
-        seen.add(it.id)
         out.push(itemToTimelineEvent(it))
-      }
-      for (const e of legacy) {
-        if (seen.has(e.id)) continue
-        out.push(e)
       }
       out.sort((a, b) => String((a as { date?: string }).date ?? '').localeCompare(String((b as { date?: string }).date ?? '')))
       return ok(res, out)
@@ -510,17 +571,21 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       skip: Array.isArray(b.skip) ? (b.skip as unknown[]).map(String) : undefined,
     }
     if (b.dryRun === true) {
-      ok(res, await planStageExpansion(d.caseStore, caseId, stageId, { ...opts, dryRun: true }))
+      ok(res, await planStageExpansion(d.caseStore, caseId, stageId, { ...opts, dryRun: true }, d.itemStore))
     } else {
       ok(res, await applyStageExpansion(d.caseStore, caseId, stageId, opts, d.itemStore))
     }
   })
 
   // 阶段推进检测：只读。返回每个案件的阶段展开/状态推进/信息缺口建议。
+  // 任务组从 items 重建（registry taskGroups 下岗，0.2.2）。
   route(`${API_PREFIX}/stage-suggestions`, async (d, b, res) => {
     const registry = await d.caseStore.readRegistry()
+    const hydrated = d.itemStore !== undefined
+      ? await hydrateRegistryTaskGroups(registry, d.caseStore, d.itemStore)
+      : registry
     const cases = detectStageSuggestions(
-      registry,
+      hydrated,
       b.caseId === undefined ? undefined : String(b.caseId),
     )
     ok(res, { count: cases.length, cases })
@@ -538,11 +603,17 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (caseId !== undefined && caseId !== '') {
       const record = await d.caseStore.readCase(caseId)
       if (record === undefined) return fail(res, `case not found: ${caseId}`, 404)
-      ok(res, await computeCaseHealth(record, opts))
+      const hydrated = d.itemStore !== undefined
+        ? await hydrateCaseTaskGroups(record, d.caseStore, d.itemStore)
+        : record
+      ok(res, await computeCaseHealth(hydrated, opts))
       return
     }
     const registry = await d.caseStore.readRegistry()
-    const cases = await computeRegistryHealth(registry, {
+    const hydrated = d.itemStore !== undefined
+      ? await hydrateRegistryTaskGroups(registry, d.caseStore, d.itemStore)
+      : registry
+    const cases = await computeRegistryHealth(hydrated, {
       ...opts,
       includeClosed: b.includeClosed === true,
     })

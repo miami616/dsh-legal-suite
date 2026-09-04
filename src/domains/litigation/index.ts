@@ -349,6 +349,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     // 统一事项 store：items.json 在 $DSH_HOME/agentlex/items（litigation 的父目录 + /items）。
     const itemsDir = `${dataDir.replace(/[\\/]+litigation$/, '')}/items`
     const itemStore = createItemStore(itemsDir, ctx)
+    // 0.2.2：启动时先做一次性并库迁移（registry 任务镜像 + case-timeline 旧事件
+    // → items，成功后 registry taskGroups 剥离、case-timeline 退役），再播种。
+    void snapshotDataDir('litigation', dataDir, home)
+      .then(async () => {
+        const { mergeLegacyIntoItems } = await import('./merge-legacy.ts')
+        const result = await mergeLegacyIntoItems(caseStore, timelineStore, itemStore, dataDir)
+        if (result.mergedTasks > 0 || result.mergedEvents > 0 || result.strippedCases > 0 || result.renamedTimeline) {
+          console.warn(
+            `[agentlex-litigation] 0.2.2 并库完成：任务 ${result.mergedTasks}、事件 ${result.mergedEvents}、剥离 registry 镜像 ${result.strippedCases} 案、退役 case-timeline ${result.renamedTimeline}`,
+          )
+        }
+      })
+      .catch((error) => console.warn('[agentlex-litigation] 0.2.2 并库前快照失败:', error))
     // 全新安装（空数据目录）时内置一份参考用例，让新用户开箱即见完整演示。
     // 仅当 registry 为空时播种，绝不覆盖已有数据；失败仅告警不致命。
     void seedLitigationSample(caseStore, timelineStore, scheduleStore, itemStore, dataDir)
@@ -358,13 +371,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       .catch((error) => console.warn('[agentlex-litigation] 参考用例播种失败:', error))
     const deadlines = async (caseId?: string, opts?: { includeOverdue?: boolean }) => {
       // 统一事项模型：事件与任务都写 items.json。deadline 聚合以 items 为准
-      // （type=event/both 进日程、type=task/both 进任务期限），同时把旧版
-      // case-timeline.json 事件并入作为历史兜底（split-brain 收尾）。
-      const [registry, legacyEvents] = await Promise.all([caseStore.readRegistry(), timelineStore.listEvents()])
-      const itemEvents = await itemStore.listItems()
-      // 事件侧：items 的 event/both → TimelineEvent 形状；与 legacy 合并去重。
+      // （type=event/both 进日程、type=task/both 进任务期限）。case-timeline.json
+      // 已在 0.2.2 并库退役，不再读取（只读 registry 案件元信息 + items 事项）。
+      const [registry, itemEvents] = await Promise.all([caseStore.readRegistry(), itemStore.listItems()])
+      // 事件侧：items 的 event/both → TimelineEvent 形状。
       const byId = new Map<string, TimelineEvent>()
-      for (const e of legacyEvents) byId.set(e.id, e)
       const todayStr = new Date().toISOString().slice(0, 10)
       for (const it of itemEvents) {
         if (it.type === 'task' || !it.date) continue

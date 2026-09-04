@@ -1,11 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context, Events } from '@deepseek-ai/cordis'
+import { join } from 'node:path'
 import { aggregateUnifiedTasks } from './aggregate/unified.ts'
 import type { TaskStore } from './store/task-store.ts'
 import type { ApiResponse } from './store/types.ts'
 import { registerLegacyCompatRoutes } from './legacy-compat.ts'
-import { createCaseStore } from '../litigation/store/case-store.ts'
-import { createProjectStore } from '../nonlitigation/store/project-store.ts'
+import { createItemStore, type ItemStore } from '../item/store/item-store.ts'
 
 export interface RouteDeps {
   taskStore: TaskStore
@@ -107,9 +107,8 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (taskId !== undefined) input.id = String(taskId)
 
     // Write-through: a task sourced from litigation / non-litigation updates
-    // the source case/project store (same shared ctx → broadcasts the change
-    // to both the task panel and the source panel). Standalone tasks stay in
-    // the task store.
+    // the unified-item store (items.json — 0.2.2 唯一真相源). Standalone tasks
+    // stay in the task store.
     const source = input.source === undefined ? undefined : String(input.source)
     if (source === 'litigation' || source === 'nonlitigation') {
       const sourceId = input.sourceId === undefined ? undefined : String(input.sourceId)
@@ -123,27 +122,39 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       // prefix to recover the real task id in the source store.
       const prefix = `${source === 'litigation' ? 'lit' : 'nl'}-${sourceId}-`
       const taskIdToEdit = rawId !== undefined && rawId.startsWith(prefix) ? rawId.slice(prefix.length) : rawId
-      const patch: Record<string, unknown> = {}
-      if (rawId !== undefined) patch.id = taskIdToEdit
-      if (input.status !== undefined) patch.status = String(input.status)
-      if (input.title !== undefined) patch.title = String(input.title)
-      if (input.deadline !== undefined) patch.deadline = String(input.deadline)
-      if (input.time !== undefined) patch.time = String(input.time)
-      if (input.priority !== undefined) patch.priority = String(input.priority)
-      if (input.detail !== undefined) patch.detail = String(input.detail)
-      let newId: string
-      if (source === 'litigation') {
-        const caseStore = createCaseStore(d.litigationDir, ctx)
-        const record = await caseStore.upsertTask(sourceId, groupId, patch)
-        const created = (record.taskGroups ?? []).find((g) => g.id === groupId)?.tasks.at(-1)
-        newId = rawId ?? created?.id ?? ''
-        return ok(res, { id: newId, source, sourceId, ok: true, updatedAt: record.updatedAt })
+      const itemsDir = source === 'litigation'
+        ? join(d.litigationDir, '..', 'items')
+        : join(d.nonlitigationDir, '..', 'items')
+      const itemStore: ItemStore = createItemStore(itemsDir, ctx)
+      const ownerType = source === 'litigation' ? 'litigation' as const : 'nonlitigation' as const
+      const existing = taskIdToEdit === undefined ? undefined : await itemStore.readItem(taskIdToEdit)
+      // status 解析：调用方显式传了 status 则优先（任务面板勾选/状态切换必须能
+      // 从 done 改回 doing/todo）；没传才沿用现有值。统一项 status 语义：
+      // done/doing/pending。
+      let resolvedStatus: 'pending' | 'doing' | 'done' | undefined
+      const inStatus = input.status === undefined ? undefined : String(input.status)
+      if (inStatus !== undefined) {
+        if (inStatus === 'done') resolvedStatus = 'done'
+        else if (inStatus === 'doing' || inStatus === 'in_progress') resolvedStatus = 'doing'
+        else if (inStatus === 'todo' || inStatus === 'pending') resolvedStatus = 'pending'
+      } else {
+        resolvedStatus = existing?.status as 'pending' | 'doing' | 'done' | undefined
       }
-      const projectStore = createProjectStore(d.nonlitigationDir, ctx)
-      const record = await projectStore.upsertTask(sourceId, groupId, patch)
-      const created = (record.taskGroups ?? []).find((g) => g.id === groupId)?.tasks.at(-1)
-      newId = rawId ?? created?.id ?? ''
-      return ok(res, { id: newId, source, sourceId, ok: true, updatedAt: record.updatedAt })
+      const created = await itemStore.upsertItem({
+        id: taskIdToEdit,
+        ownerId: sourceId,
+        ownerType,
+        type: (existing?.type === 'event' || existing?.type === 'both' ? existing.type : 'task'),
+        title: input.title === undefined ? (existing?.title ?? '新事项') : String(input.title),
+        detail: input.detail === undefined ? existing?.detail : String(input.detail),
+        date: input.deadline === undefined ? (existing?.date ?? undefined) : String(input.deadline),
+        time: input.time === undefined ? existing?.time : String(input.time),
+        priority: (input.priority as never) ?? existing?.priority ?? 'medium',
+        status: resolvedStatus,
+        groupId,
+        ...(groupId !== undefined ? { groupName: (await itemStore.listGroups(sourceId)).find((g) => g.id === groupId)?.name } : {}),
+      })
+      return ok(res, { id: created.id, source, sourceId, ok: true, updatedAt: created.updatedAt })
     }
 
     ok(res, await d.taskStore.upsertTask(input))
@@ -152,6 +163,20 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   route('/api/agentlex-task/delete-task', async (d, b, res) => {
     const id = String(b.id ?? '')
     if (id === '') return fail(res, 'id required')
+    const source = b.source === undefined ? undefined : String(b.source)
+    const sourceId = b.sourceId === undefined ? undefined : String(b.sourceId)
+    if ((source === 'litigation' || source === 'nonlitigation') && sourceId !== undefined) {
+      // 0.2.2：案件/项目任务从统一事项 items 删除（唯一真相源）。
+      const itemsDir = source === 'litigation'
+        ? join(d.litigationDir, '..', 'items')
+        : join(d.nonlitigationDir, '..', 'items')
+      const itemStore: ItemStore = createItemStore(itemsDir, ctx)
+      // 任务域视图 id 可能带 <src>-<sourceId>- 前缀 → 还原真实 item id。
+      const prefix = `${source === 'litigation' ? 'lit' : 'nl'}-${sourceId}-`
+      const realId = id.startsWith(prefix) ? id.slice(prefix.length) : id
+      ok(res, await itemStore.deleteItem(realId))
+      return
+    }
     ok(res, await d.taskStore.deleteTask(id))
   })
 

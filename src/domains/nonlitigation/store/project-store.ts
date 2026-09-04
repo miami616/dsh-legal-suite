@@ -13,6 +13,8 @@ export interface ProjectStore {
   upsertTaskGroup(projectId: string, group: Record<string, unknown>): Promise<ProjectRecord>
   deleteTaskGroup(projectId: string, groupId: string): Promise<ProjectRecord>
   reorderTaskGroups(projectId: string, orderedIds: string[]): Promise<ProjectRecord>
+  /** 0.2.2：剥离 registry 里的 taskGroups 镜像（任务并入统一事项后调用）。 */
+  stripTaskGroups(projectId: string): Promise<ProjectRecord>
   upsertTask(projectId: string, groupId: string, task: Record<string, unknown>): Promise<ProjectRecord>
   deleteTask(projectId: string, groupId: string, taskId: string): Promise<ProjectRecord>
   moveTask(projectId: string, taskId: string, toGroupId: string, index?: number): Promise<ProjectRecord>
@@ -152,6 +154,21 @@ export function createProjectStore(dataDir: string, ctx: Context): ProjectStore 
         updated = result
         return reg
       }, 'delete-group')
+      return updated!
+    },
+    async stripTaskGroups(projectId) {
+      const now = nowIso()
+      let updated: ProjectRecord | undefined
+      await save((reg) => {
+        const proj = reg.projects[projectId]
+        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
+        if (proj.taskGroups === undefined || proj.taskGroups.length === 0) return reg
+        const result: ProjectRecord = { ...proj, taskGroups: [], updatedAt: now }
+        reg.projects[projectId] = result
+        reg.lastUpdated = now
+        updated = result
+        return reg
+      }, 'strip-project-taskgroups')
       return updated!
     },
     async reorderTaskGroups(projectId, orderedIds) {

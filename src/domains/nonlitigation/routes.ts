@@ -4,17 +4,19 @@ import { importFromAgentLex } from './import/import-agentlex.ts'
 import type { ProjectStore } from './store/project-store.ts'
 import type { ServiceStore } from './store/service-store.ts'
 import type { ApiResponse } from './store/types.ts'
+import type { ItemStore } from '../item/store/item-store.ts'
 import { registerLegacyCompatRoutes } from './legacy-compat.ts'
 import { applyStageExpansion, detectStageSuggestions, planStageExpansion } from './stage-expansion.ts'
 import { computeProjectHealth, computeRegistryHealth } from './health.ts'
+import { hydrateProjectTaskGroups, hydrateRegistryProjectTaskGroups } from './project-task-view.ts'
 
 export interface RouteDeps {
   projectStore: ProjectStore
   serviceStore: ServiceStore
   /** Absolute data directory used as the module DSH workspace. */
   dataDir: string
-  /** 统一事项 store —— 任务写统一事项（v0.1.27 统一事项模型）。 */
-  itemStore?: import('../item/store/item-store.ts').ItemStore
+  /** 统一事项 store —— 任务/事件/任务组写统一事项（v0.1.27 统一事项模型）。 */
+  itemStore?: ItemStore
 }
 
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -111,13 +113,22 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
 
   // projects
   route('/api/agentlex-nonlitigation/projects', async (d, _b, res) => {
-    ok(res, await d.projectStore.readRegistry())
+    const registry = await d.projectStore.readRegistry()
+    if (d.itemStore !== undefined) {
+      ok(res, await hydrateRegistryProjectTaskGroups(registry, d.itemStore))
+      return
+    }
+    ok(res, registry)
   })
   route('/api/agentlex-nonlitigation/project', async (d, b, res) => {
     const id = String(b.projectId ?? '')
     if (id === '') return fail(res, 'projectId required')
     const rec = await d.projectStore.readProject(id)
     if (rec === undefined) return fail(res, `project not found: ${id}`, 404)
+    if (d.itemStore !== undefined) {
+      ok(res, await hydrateProjectTaskGroups(rec, d.itemStore))
+      return
+    }
     ok(res, rec)
   })
   route('/api/agentlex-nonlitigation/register-project', async (d, b, res) => {
@@ -129,12 +140,16 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const { projectId: _omit, ...patch } = b
     const record = await d.projectStore.updateProject(id, patch)
     // 同回合钩子：status 被更新时内联返回阶段推进建议（见 stage-expansion.ts）。
+    // 任务组从 items 重建（registry taskGroups 下岗，0.2.2）。
     if (patch.status !== undefined) {
       const [registry, services] = await Promise.all([
         d.projectStore.readRegistry(),
         d.serviceStore.listServices(),
       ])
-      const found = detectStageSuggestions(registry, services, id)[0]
+      const hydrated = d.itemStore !== undefined
+        ? await hydrateRegistryProjectTaskGroups(registry, d.itemStore)
+        : registry
+      const found = detectStageSuggestions(hydrated, services, id)[0]
       ok(res, { ...record, stageSuggestions: found?.suggestions ?? [] })
     } else {
       ok(res, record)
@@ -155,36 +170,67 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const id = String(b.projectId ?? '')
     if (id === '') return fail(res, 'projectId required')
     // Transport spells the upsert id as `groupId`; store/browser use `id`.
-    const { projectId: _omit, groupId, ...group } = b
+    const { projectId: _omit, groupId, name, title, ...rest } = b
+    if (d.itemStore !== undefined) {
+      const input: Record<string, unknown> = { ownerId: id, ownerType: 'nonlitigation', ...rest }
+      if (groupId !== undefined) input.id = String(groupId)
+      const gname = name !== undefined ? String(name) : title !== undefined ? String(title) : undefined
+      if (gname !== undefined) input.name = gname
+      const created = await d.itemStore.upsertGroup(input as Parameters<ItemStore['upsertGroup']>[0])
+      ok(res, { projectId: id, ok: true, ...created })
+      return
+    }
+    const group: Record<string, unknown> = { ...rest }
     if (groupId !== undefined) group.id = String(groupId)
+    if (name !== undefined) group.name = String(name)
     ok(res, await d.projectStore.upsertTaskGroup(id, group))
   })
   route('/api/agentlex-nonlitigation/delete-group', async (d, b, res) => {
     const id = String(b.projectId ?? '')
     const groupId = String(b.groupId ?? '')
     if (id === '' || groupId === '') return fail(res, 'projectId/groupId required')
+    if (d.itemStore !== undefined) {
+      ok(res, await d.itemStore.deleteGroup(groupId))
+      return
+    }
     ok(res, await d.projectStore.deleteTaskGroup(id, groupId))
   })
   route('/api/agentlex-nonlitigation/reorder-groups', async (d, b, res) => {
     const id = String(b.projectId ?? '')
     const orderedIds = Array.isArray(b.orderedIds) ? (b.orderedIds as unknown[]).map(String) : []
     if (id === '' || orderedIds.length === 0) return fail(res, 'projectId/orderedIds required')
+    if (d.itemStore !== undefined) {
+      const groups = await d.itemStore.listGroups(id)
+      const byId = new Map(groups.map((g) => [g.id, g]))
+      for (let i = 0; i < orderedIds.length; i++) {
+        const g = byId.get(orderedIds[i])
+        if (g !== undefined && g.order !== i) await d.itemStore.upsertGroup({ id: g.id, order: i })
+      }
+      ok(res, { ok: true })
+      return
+    }
     ok(res, await d.projectStore.reorderTaskGroups(id, orderedIds))
   })
   route('/api/agentlex-nonlitigation/task', async (d, b, res) => {
     const id = String(b.projectId ?? '')
     const gid = String(b.groupId ?? '')
     if (id === '' || gid === '') return fail(res, 'projectId/groupId required')
-    // 统一事项模型：任务写到 items.json（type=task）。
+    // 统一事项模型：任务写到 items.json（type=task，ownerType=nonlitigation）。
     if (d.itemStore !== undefined) {
+      const title = String(b.title ?? b.taskTitle ?? '新事项')
+      const groupName = (await d.itemStore.listGroups(id)).find((g) => g.id === gid)?.name
       const created = await d.itemStore.upsertItem({
         ownerId: id,
+        ownerType: 'nonlitigation',
         type: 'task',
-        title: String(b.title ?? b.taskTitle ?? '新事项'),
+        title,
         date: b.deadline === undefined ? undefined : String(b.deadline),
         time: b.time === undefined ? undefined : String(b.time),
         priority: (b.priority as never) ?? 'medium',
+        status: (b.status === 'done' ? 'done' : b.status === 'doing' || b.status === 'in_progress' ? 'doing' : b.status === 'todo' ? 'pending' : undefined) as never,
         groupId: gid || undefined,
+        groupName,
+        templateTitle: title,
         ...(b.taskId !== undefined ? { id: String(b.taskId) } : {}),
       })
       return ok(res, { id: created.id, projectId: id, groupId: gid, ok: true })
@@ -207,49 +253,82 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const taskId = String(b.taskId ?? '')
     const toGroupId = String(b.toGroupId ?? '')
     if (id === '' || taskId === '' || toGroupId === '') return fail(res, 'projectId/taskId/toGroupId required')
+    if (d.itemStore !== undefined) {
+      const toGroup = (await d.itemStore.listGroups(id)).find((g) => g.id === toGroupId)
+      await d.itemStore.upsertItem({ id: taskId, groupId: toGroupId, groupName: toGroup?.name, ownerId: id, ownerType: 'nonlitigation' })
+      ok(res, { ok: true })
+      return
+    }
     ok(res, await d.projectStore.moveTask(id, taskId, toGroupId, typeof b.index === 'number' ? b.index : undefined))
   })
   route('/api/agentlex-nonlitigation/subtask', async (d, b, res) => {
     const id = String(b.projectId ?? '')
-    const gid = String(b.groupId ?? '')
     const taskId = String(b.taskId ?? '')
-    if (id === '' || gid === '' || taskId === '') return fail(res, 'projectId/groupId/taskId required')
-    // Transport spells the upsert id as `subtaskId`; store/browser use `id`.
+    if (id === '' || taskId === '') return fail(res, 'projectId/taskId required')
+    if (d.itemStore !== undefined) {
+      const subtaskId = b.subtaskId === undefined ? undefined : String(b.subtaskId)
+      const title = String(b.title ?? b.subtaskTitle ?? '')
+      const deadline = b.deadline === undefined ? undefined : String(b.deadline)
+      if (subtaskId !== undefined) {
+        const updated = await d.itemStore.updateSubtask(taskId, subtaskId, {
+          ...(title !== '' ? { title } : {}),
+          ...(deadline !== undefined ? { deadline } : {}),
+          ...(b.done !== undefined ? { done: b.done === true } : {}),
+        })
+        ok(res, updated)
+        return
+      }
+      ok(res, await d.itemStore.addSubtask(taskId, { title, deadline }))
+      return
+    }
     const { projectId: _omit, groupId: _g, taskId: _t, subtaskId, ...subtask } = b
     if (subtaskId !== undefined) subtask.id = String(subtaskId)
-    ok(res, await d.projectStore.upsertSubtask(id, gid, taskId, subtask))
+    ok(res, await d.projectStore.upsertSubtask(id, String(b.groupId ?? ''), taskId, subtask))
   })
   route('/api/agentlex-nonlitigation/delete-subtask', async (d, b, res) => {
     const id = String(b.projectId ?? '')
-    const gid = String(b.groupId ?? '')
     const taskId = String(b.taskId ?? '')
     const subtaskId = String(b.subtaskId ?? '')
-    if (id === '' || gid === '' || taskId === '' || subtaskId === '') return fail(res, 'ids required')
-    ok(res, await d.projectStore.deleteSubtask(id, gid, taskId, subtaskId))
+    if (id === '' || taskId === '' || subtaskId === '') return fail(res, 'ids required')
+    if (d.itemStore !== undefined) {
+      ok(res, await d.itemStore.deleteSubtask(taskId, subtaskId))
+      return
+    }
+    ok(res, await d.projectStore.deleteSubtask(id, String(b.groupId ?? ''), taskId, subtaskId))
   })
   route('/api/agentlex-nonlitigation/check', async (d, b, res) => {
     const id = String(b.projectId ?? '')
-    const gid = String(b.groupId ?? '')
     const taskId = String(b.taskId ?? '')
     const checklistId = String(b.checklistId ?? '')
-    if (id === '' || gid === '' || taskId === '' || checklistId === '') return fail(res, 'ids required')
-    ok(res, await d.projectStore.toggleChecklist(id, gid, taskId, checklistId))
+    if (id === '' || taskId === '' || checklistId === '') return fail(res, 'ids required')
+    if (d.itemStore !== undefined) {
+      const done = b.done === undefined ? undefined : b.done === true
+      ok(res, await d.itemStore.toggleChecklist(taskId, checklistId, done))
+      return
+    }
+    ok(res, await d.projectStore.toggleChecklist(id, String(b.groupId ?? ''), taskId, checklistId))
   })
   route('/api/agentlex-nonlitigation/add-checklist', async (d, b, res) => {
     const id = String(b.projectId ?? '')
-    const gid = String(b.groupId ?? '')
     const taskId = String(b.taskId ?? '')
     const text = String(b.text ?? '')
-    if (id === '' || gid === '' || taskId === '' || text === '') return fail(res, 'projectId/groupId/taskId/text required')
-    ok(res, await d.projectStore.addChecklistItem(id, gid, taskId, text))
+    if (id === '' || taskId === '' || text === '') return fail(res, 'projectId/taskId/text required')
+    if (d.itemStore !== undefined) {
+      ok(res, await d.itemStore.addChecklist(taskId, { text }))
+      return
+    }
+    ok(res, await d.projectStore.addChecklistItem(id, String(b.groupId ?? ''), taskId, text))
   })
   route('/api/agentlex-nonlitigation/delete-checklist', async (d, b, res) => {
     const id = String(b.projectId ?? '')
-    const gid = String(b.groupId ?? '')
     const taskId = String(b.taskId ?? '')
     const checklistId = String(b.checklistId ?? '')
-    if (id === '' || gid === '' || taskId === '' || checklistId === '') return fail(res, 'ids required')
-    ok(res, await d.projectStore.deleteChecklistItem(id, gid, taskId, checklistId))
+    if (id === '' || taskId === '' || checklistId === '') return fail(res, 'ids required')
+    if (d.itemStore !== undefined) {
+      ok(res, await d.itemStore.deleteChecklist(taskId, checklistId))
+      return
+    }
+    ok(res, await d.projectStore.deleteChecklistItem(id, String(b.groupId ?? ''), taskId, checklistId))
   })
 
   // key dates (常法续约/年审等提醒)
@@ -276,7 +355,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
 
   // import
   route('/api/agentlex-nonlitigation/import', async (d, b, res) => {
-    ok(res, await importFromAgentLex(d.projectStore, d.serviceStore, String(b.sourceDir ?? '')))
+    ok(res, await importFromAgentLex(d.projectStore, d.serviceStore, String(b.sourceDir ?? ''), d.itemStore))
   })
 
   /* ----------------------- stage templates & suggestions -------------- */
@@ -292,20 +371,24 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       skip: Array.isArray(b.skip) ? (b.skip as unknown[]).map(String) : undefined,
     }
     if (b.dryRun === true) {
-      ok(res, await planStageExpansion(d.projectStore, projectId, stageId, { ...opts, dryRun: true }))
+      ok(res, await planStageExpansion(d.projectStore, projectId, stageId, { ...opts, dryRun: true }, d.itemStore))
     } else {
       ok(res, await applyStageExpansion(d.projectStore, projectId, stageId, opts, d.itemStore))
     }
   })
 
   // 阶段推进检测：只读。返回每个项目的阶段展开/续约/台账断更/结项建议。
+  // 任务组从 items 重建（registry taskGroups 下岗，0.2.2）。
   route('/api/agentlex-nonlitigation/stage-suggestions', async (d, b, res) => {
     const [registry, services] = await Promise.all([
       d.projectStore.readRegistry(),
       d.serviceStore.listServices(),
     ])
+    const hydrated = d.itemStore !== undefined
+      ? await hydrateRegistryProjectTaskGroups(registry, d.itemStore)
+      : registry
     const projects = detectStageSuggestions(
-      registry,
+      hydrated,
       services,
       b.projectId === undefined ? undefined : String(b.projectId),
     )
@@ -321,14 +404,18 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (projectId !== undefined && projectId !== '') {
       const record = await d.projectStore.readProject(projectId)
       if (record === undefined) return fail(res, `project not found: ${projectId}`, 404)
-      ok(res, computeProjectHealth(record, await d.serviceStore.listServices()))
+      const hydrated = d.itemStore !== undefined ? await hydrateProjectTaskGroups(record, d.itemStore) : record
+      ok(res, computeProjectHealth(hydrated, await d.serviceStore.listServices()))
       return
     }
     const [registry, services] = await Promise.all([
       d.projectStore.readRegistry(),
       d.serviceStore.listServices(),
     ])
-    const projects = computeRegistryHealth(registry, services, {
+    const hydrated = d.itemStore !== undefined
+      ? await hydrateRegistryProjectTaskGroups(registry, d.itemStore)
+      : registry
+    const projects = computeRegistryHealth(hydrated, services, {
       includeClosed: b.includeClosed === true,
     })
     ok(res, { count: projects.length, projects })

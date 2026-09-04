@@ -10,6 +10,9 @@
  * 存储：<dataDir>/items.json（扁平列表），替代 case-timeline.json + taskGroups。
  */
 
+/** 事项归属类型：诉讼案件 / 非诉项目 / 独立（不归案）。 */
+export type ItemOwnerType = 'litigation' | 'nonlitigation' | 'standalone'
+
 /** 事项类型：纯事件 / 纯任务 / 事件+任务（双重）。 */
 export type ItemType = 'event' | 'task' | 'both'
 
@@ -49,8 +52,11 @@ export interface ItemRemindRule {
 /** 统一事项。 */
 export interface Item {
   id: string
-  /** 归属：caseId / projectId / ''（独立）。 */
+  /** 归属 id：案件 caseId / 项目 projectId（独立事项为 ''）。 */
   ownerId: string
+  /** 归属类型：litigation / nonlitigation / standalone——区分诉讼案件与非诉项目
+   *  同号（都可能是 YYYY-NNN）的场景，避免跨模块串数据（2026-09-04 发现）。 */
+  ownerType?: ItemOwnerType
   /** 归属名（案件名/项目名），冗余便于列表展示。 */
   ownerName?: string
   /** 事项类型：event / task / both。 */
@@ -95,6 +101,8 @@ export interface TaskGroup {
   id: string
   /** 归属：caseId / projectId。 */
   ownerId: string
+  /** 归属类型（与 Item.ownerType 同语义）。 */
+  ownerType?: ItemOwnerType
   /** 组名（一审 · 庭前准备）。 */
   name: string
   order: number

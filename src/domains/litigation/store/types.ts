@@ -12,14 +12,18 @@
 /** One side's identity block (party.details[i]). */
 export interface PartyDetail {
   name: string
+  /** 主角色（中文，如 原告/第一被申请人）。读侧一律按字符串处理。 */
   role?: string
+  /** 全量角色标签（同一主体跨审级的多个身份，如 ["申请人","上诉人"]）。 */
+  roles?: string[]
   address?: string
   legalRep?: string
   creditCode?: string
   phone?: string
+  firm?: string
   /** True when this row is the client/our side (AgentLex source marker). */
   ourClient?: boolean
-  [key: string]: string | boolean | undefined
+  [key: string]: string | string[] | boolean | undefined
 }
 
 /** Parties block of a case record. */

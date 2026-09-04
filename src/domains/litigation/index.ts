@@ -28,7 +28,9 @@ import { createCaseStore } from './store/case-store.ts'
 import { createScheduleStore } from './store/schedule-store.ts'
 import { createTimelineStore } from './store/timeline-store.ts'
 import { createItemStore } from '../item/store/item-store.ts'
-import { computeDeadlines } from './deadlines.ts'
+import { computeDeadlines, computeDeadlinesV2 } from './deadlines.ts'
+import { nowIso } from './store/id.ts'
+import type { TimelineEvent } from './store/types.ts'
 import { defaultSourcePath, importFromAgentLex } from './import/agentlex-migrate.ts'
 import { makeRoutes } from './routes.ts'
 import { registerLitigationHttpTool } from './tools.ts'
@@ -349,14 +351,54 @@ export function apply(ctx: Context, config: Config = {}): void {
     const itemStore = createItemStore(itemsDir, ctx)
     // 全新安装（空数据目录）时内置一份参考用例，让新用户开箱即见完整演示。
     // 仅当 registry 为空时播种，绝不覆盖已有数据；失败仅告警不致命。
-    void seedLitigationSample(caseStore, timelineStore, scheduleStore)
+    void seedLitigationSample(caseStore, timelineStore, scheduleStore, itemStore, dataDir)
       .then((seeded) => {
         if (seeded !== undefined) console.warn(`[agentlex-litigation] 已播种内置参考用例 ${seeded}`)
       })
       .catch((error) => console.warn('[agentlex-litigation] 参考用例播种失败:', error))
     const deadlines = async (caseId?: string, opts?: { includeOverdue?: boolean }) => {
-      const [registry, events] = await Promise.all([caseStore.readRegistry(), timelineStore.listEvents()])
-      return computeDeadlines(registry, events, caseId, opts)
+      // 统一事项模型：事件与任务都写 items.json。deadline 聚合以 items 为准
+      // （type=event/both 进日程、type=task/both 进任务期限），同时把旧版
+      // case-timeline.json 事件并入作为历史兜底（split-brain 收尾）。
+      const [registry, legacyEvents] = await Promise.all([caseStore.readRegistry(), timelineStore.listEvents()])
+      const itemEvents = await itemStore.listItems()
+      // 事件侧：items 的 event/both → TimelineEvent 形状；与 legacy 合并去重。
+      const byId = new Map<string, TimelineEvent>()
+      for (const e of legacyEvents) byId.set(e.id, e)
+      const todayStr = new Date().toISOString().slice(0, 10)
+      for (const it of itemEvents) {
+        if (it.type === 'task' || !it.date) continue
+        const mapped: TimelineEvent = {
+          id: it.id,
+          caseId: it.ownerId ?? '',
+          caseName: it.ownerName ?? '',
+          type: (it.type === 'both' ? 'hearing' : 'case_event') as TimelineEvent['type'],
+          title: it.title,
+          detail: it.detail,
+          date: it.date,
+          time: it.time,
+          status: (it.status === 'done' || (it.date < todayStr && it.status === 'pending') ? 'done' : it.status === 'cancelled' ? 'cancelled' : 'pending') as TimelineEvent['status'],
+          remindRules: (it.remindRules ?? []) as TimelineEvent['remindRules'],
+          createdAt: it.createdAt ?? nowIso(),
+          updatedAt: it.updatedAt ?? nowIso(),
+          createdBy: '诉讼管家',
+        }
+        byId.set(it.id, mapped)
+      }
+      // 任务侧：items 的 task/both 作为任务 deadline 来源（映射进 registry 每个
+      // 案件的 keyDates/任务期限前，先并入任务 deadline 计算）。
+      const taskDeadlineById = new Map<string, { caseId: string; title: string; date: string; time?: string; status: string }>()
+      for (const it of itemEvents) {
+        if ((it.type !== 'task' && it.type !== 'both') || !it.date) continue
+        taskDeadlineById.set(it.id, {
+          caseId: it.ownerId ?? '',
+          title: it.title,
+          date: it.date,
+          time: it.time,
+          status: it.status,
+        })
+      }
+      return computeDeadlinesV2(registry, [...byId.values()], taskDeadlineById, caseId, opts)
     }
     // Automatic backup: snapshot after every data write (throttled), plus one
     // on apply. Backups land OUTSIDE the dataDir (~/.dsh/agentlex-backups/),

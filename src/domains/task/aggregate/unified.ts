@@ -14,6 +14,7 @@ async function readJson<T>(file: string): Promise<T | undefined> {
 interface ItemLike {
   id: string
   ownerId?: string
+  ownerType?: string
   ownerName?: string
   type?: string
   title: string
@@ -49,7 +50,9 @@ export async function aggregateUnifiedTasks(
     // 只取任务侧（task/both）。
     if (it.type === 'event') continue
     const ownerId = it.ownerId ?? ''
-    const source = ownerId === '' ? 'standalone' : 'litigation'
+    // ownerType 区分同号案件/项目/独立（2026-09-04）；缺省按历史（案件/独立）。
+    const ownerType = it.ownerType ?? (ownerId === '' ? 'standalone' : 'litigation')
+    const source = ownerType === 'nonlitigation' ? 'nonlitigation' : ownerType === 'standalone' ? 'standalone' : 'litigation'
     out.push({
       id: it.id,
       title: it.title,

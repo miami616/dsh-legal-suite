@@ -164,7 +164,13 @@ export function registerLegacyCompatRoutes(ctx: Context, deps: RouteDeps): () =>
   })
 
   route('/api/agentlex/delete-project', async (body, res) => {
-    ok(res, await deps.projectStore.deleteProject(String(body.projectId ?? '')))
+    const projectId = String(body.projectId ?? '')
+    if (deps.itemStore !== undefined) {
+      const { cascadeDeleteProject } = await import('../litigation/cascade-delete.ts')
+      ok(res, await cascadeDeleteProject(deps.projectStore, deps.itemStore, projectId))
+      return
+    }
+    ok(res, await deps.projectStore.deleteProject(projectId))
   })
 
   /* ------------------------- contracts / research ---------------------- */

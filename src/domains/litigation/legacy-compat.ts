@@ -215,7 +215,20 @@ export function registerLegacyCompatRoutes(ctx: Context, deps: RouteDeps): () =>
   })
 
   route('/api/agentlex/delete-case', async (body, res) => {
-    ok(res, await deps.caseStore.deleteCase(String(body.caseId ?? '')))
+    const caseId = String(body.caseId ?? '')
+    // 级联删除（与原生 /api/agentlex-case/delete-case 一致）：案件 + items +
+    // task-groups + legacy timeline/schedules 孤儿（备忘录 #3：删除后编号残留）。
+    if (deps.itemStore !== undefined) {
+      const { cascadeDeleteCase } = await import('./cascade-delete.ts')
+      ok(res, await cascadeDeleteCase({
+        caseStore: deps.caseStore,
+        timelineStore: deps.timelineStore,
+        scheduleStore: deps.scheduleStore,
+        itemStore: deps.itemStore,
+      }, caseId))
+      return
+    }
+    ok(res, await deps.caseStore.deleteCase(caseId))
   })
 
   /* ------------------------------ schedules --------------------------- */

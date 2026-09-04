@@ -19,6 +19,8 @@ import type { ApiResponse } from './store/types.ts'
 import { parseReminderMinutes } from './store/timeline-store.ts'
 import { buildFolderTree, downloadFile, expandFolder, openPath, readPreviewFile, searchFolder } from './file-service.ts'
 import { registerLegacyCompatRoutes } from './legacy-compat.ts'
+import { cascadeDeleteCase } from './cascade-delete.ts'
+import { itemToTimelineEvent } from '../item/shape.ts'
 import { selfVersion } from './self-version.ts'
 import { applyStageExpansion, detectStageSuggestions, planStageExpansion } from './stage-expansion.ts'
 import { computeCaseHealth, computeRegistryHealth } from './health.ts'
@@ -202,7 +204,15 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   route(`${API_PREFIX}/delete-case`, async (d, b, res) => {
     const caseId = String(b.caseId ?? '')
     if (caseId === '') return fail(res, 'caseId required')
-    ok(res, await d.caseStore.deleteCase(caseId))
+    // 级联删除：案件 + items（事件/任务/双重）+ task-groups + 旧版 timeline/schedules
+    // 孤儿记录（备忘录 #3：删除后旧编号仍残留）。UI / HTTP 工具 / agent 工具共用。
+    const result = await cascadeDeleteCase({
+      caseStore: d.caseStore,
+      timelineStore: d.timelineStore,
+      scheduleStore: d.scheduleStore,
+      itemStore: d.itemStore!,
+    }, caseId)
+    ok(res, result)
   })
 
   /* ----------------------------- key dates ---------------------------- */
@@ -257,6 +267,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       const { caseId: _omit, groupId: _g, taskId, taskTitle: _tt, ...rest } = b
       const created = await d.itemStore.upsertItem({
         ownerId: caseId,
+        ownerType: 'litigation',
         type: 'task',
         title: String(b.title ?? b.taskTitle ?? '新事项'),
         date: b.deadline === undefined ? undefined : String(b.deadline),
@@ -307,6 +318,23 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const groupId = String(b.groupId ?? '')
     const taskId = String(b.taskId ?? '')
     if (caseId === '' || groupId === '' || taskId === '') return fail(res, 'caseId/groupId/taskId required')
+    // 统一事项模型：任务与其子项都存 items.json。taskId 即 item id——直接对
+    // item 追加/更新子任务（0.2.0 split-brain：task 写 items 而 subtask 找
+    // case-registry → not found）。
+    if (d.itemStore !== undefined) {
+      const subtaskId = b.subtaskId === undefined ? undefined : String(b.subtaskId)
+      const title = String(b.title ?? b.subtaskTitle ?? '')
+      if (subtaskId !== undefined) {
+        const updated = await d.itemStore.updateSubtask(taskId, subtaskId, {
+          ...(title !== '' ? { title } : {}),
+          ...(b.deadline !== undefined ? { deadline: b.deadline === '' ? undefined : String(b.deadline) } : {}),
+          ...(b.done !== undefined ? { done: b.done === true } : {}),
+        })
+        return ok(res, updated)
+      }
+      ok(res, await d.itemStore.addSubtask(taskId, { title, deadline: b.deadline === undefined ? undefined : String(b.deadline) }))
+      return
+    }
     // Transport spells the upsert id as `subtaskId`; store/browser use `id`.
     const { caseId: _omit, groupId: _g, taskId: _t, subtaskId, ...subtask } = b
     if (subtaskId !== undefined) subtask.id = String(subtaskId)
@@ -319,6 +347,9 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const taskId = String(b.taskId ?? '')
     const subtaskId = String(b.subtaskId ?? '')
     if (caseId === '' || groupId === '' || taskId === '' || subtaskId === '') return fail(res, 'caseId/groupId/taskId/subtaskId required')
+    if (d.itemStore !== undefined) {
+      return ok(res, await d.itemStore.deleteSubtask(taskId, subtaskId))
+    }
     ok(res, await d.caseStore.deleteSubtask(caseId, groupId, taskId, subtaskId))
   })
 
@@ -327,6 +358,23 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const groupId = String(b.groupId ?? '')
     const taskId = String(b.taskId ?? '')
     if (caseId === '' || groupId === '' || taskId === '') return fail(res, 'caseId/groupId/taskId required')
+    // 统一事项模型：检查项存 items（见 /subtask 说明）。
+    if (d.itemStore !== undefined) {
+      const checklistId = b.checklistId === undefined ? undefined : String(b.checklistId)
+      const text = String(b.text ?? b.checklistText ?? '')
+      if (checklistId !== undefined) {
+        const updated = await d.itemStore.toggleChecklist(taskId, checklistId, false)
+        // 若 text 变更则就地更新（先 toggle 无意义——改用 addChecklist 的 upsert 语义）。
+        const updatedRow = updated.checklist?.find((c) => c.id === checklistId)
+        if (updatedRow !== undefined && text !== '' && updatedRow.text !== text) {
+          // 更新文本：addChecklist 按 id upsert。
+          return ok(res, await d.itemStore.addChecklist(taskId, { id: checklistId, text, done: updatedRow.done }))
+        }
+        return ok(res, updated)
+      }
+      ok(res, await d.itemStore.addChecklist(taskId, { text }))
+      return
+    }
     // Transport spells the upsert id as `checklistId`; store/browser use `id`.
     const { caseId: _omit, groupId: _g, taskId: _t, checklistId, ...item } = b
     if (checklistId !== undefined) item.id = String(checklistId)
@@ -339,12 +387,38 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const taskId = String(b.taskId ?? '')
     const checklistId = String(b.checklistId ?? '')
     if (caseId === '' || groupId === '' || taskId === '' || checklistId === '') return fail(res, 'caseId/groupId/taskId/checklistId required')
+    if (d.itemStore !== undefined) {
+      const done = b.done === undefined ? undefined : b.done === true
+      return ok(res, await d.itemStore.toggleChecklist(taskId, checklistId, done))
+    }
     ok(res, await d.caseStore.toggleChecklist(caseId, groupId, taskId, checklistId))
   })
 
   /* ------------------------------ timeline ---------------------------- */
+  // 读路径与写路径同源：事件现在统一写 items.json（type=event/both）。
+  // list_events 从 itemStore 生成事件列表（兼读旧版 case-timeline.json 兜底，
+  // 覆盖迁移前的历史孤儿事件），保证 UI 添加的事件管家能查到（split-brain 收尾）。
   route(`${API_PREFIX}/events`, async (d, b, res) => {
-    ok(res, await d.timelineStore.listEvents(b.caseId === undefined ? undefined : String(b.caseId)))
+    const caseId = b.caseId === undefined ? undefined : String(b.caseId)
+    if (d.itemStore !== undefined) {
+      const items = await d.itemStore.listItems(caseId)
+      const legacy = await d.timelineStore.listEvents(caseId)
+      // items 事件 + legacy 事件合并（按 id 去重，items 优先）。
+      const seen = new Set<string>()
+      const out: unknown[] = []
+      for (const it of items) {
+        if (it.type === 'task') continue
+        seen.add(it.id)
+        out.push(itemToTimelineEvent(it))
+      }
+      for (const e of legacy) {
+        if (seen.has(e.id)) continue
+        out.push(e)
+      }
+      out.sort((a, b) => String((a as { date?: string }).date ?? '').localeCompare(String((b as { date?: string }).date ?? '')))
+      return ok(res, out)
+    }
+    ok(res, await d.timelineStore.listEvents(caseId))
   })
 
   route(`${API_PREFIX}/event`, async (d, b, res) => {
@@ -352,6 +426,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (d.itemStore !== undefined) {
       const created = await d.itemStore.upsertItem({
         ownerId: String(b.caseId ?? ''),
+        ownerType: 'litigation',
         type: 'event',
         title: String(b.title ?? b.label ?? '新事件'),
         date: b.date === undefined ? undefined : String(b.date),
@@ -369,7 +444,13 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const eventId = String(b.eventId ?? '')
     if (eventId === '') return fail(res, 'eventId required')
     if (d.itemStore !== undefined) {
-      return ok(res, await d.itemStore.deleteItem(eventId))
+      const existing = await d.itemStore.readItem(eventId)
+      if (existing !== undefined && existing.type !== 'task') {
+        const r = await d.itemStore.deleteItem(eventId)
+        return ok(res, r)
+      }
+      // items 中不存在（旧孤儿事件）→ 走 legacy 删除，保证删得掉。
+      return ok(res, await d.timelineStore.deleteEvent(eventId))
     }
     ok(res, await d.timelineStore.deleteEvent(eventId))
   })
@@ -378,7 +459,10 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const eventId = String(b.eventId ?? '')
     if (eventId === '') return fail(res, 'eventId required')
     if (d.itemStore !== undefined) {
-      return ok(res, await d.itemStore.toggleItem(eventId))
+      const existing = await d.itemStore.readItem(eventId)
+      if (existing !== undefined && existing.type !== 'task') {
+        return ok(res, await d.itemStore.toggleItem(eventId))
+      }
     }
     ok(res, await d.timelineStore.toggleEvent(eventId))
   })

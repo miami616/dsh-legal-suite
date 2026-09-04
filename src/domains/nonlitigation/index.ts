@@ -274,7 +274,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const itemStore = createItemStore(itemsDir, ctx)
     // 全新安装（空数据目录）时内置一份参考项目，让新用户开箱即见完整演示。
     // 仅当 registry 为空时播种，绝不覆盖已有数据；失败仅告警不致命。
-    void seedNonLitigationSample(projectStore, serviceStore)
+    void seedNonLitigationSample(projectStore, serviceStore, itemStore, dataDir)
       .then((seeded) => {
         if (seeded !== undefined) console.warn(`[agentlex-nonlitigation] 已播种内置参考项目 ${seeded}`)
       })

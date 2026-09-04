@@ -230,13 +230,15 @@ export function apply(ctx, config = {}) {
                     internalCall(ctx, '/api/agentlex-item/legacy'),
                 ]);
                 // 统一事项：从 items.json 生成 timeline + taskGroups（数据源统一）。
-                const itemTimeline = (itemLegacy?.timeline ?? {}) as Record<string, unknown>;
-                const itemTaskGroups = (itemLegacy?.taskGroups ?? []) as Array<{ ownerId?: string; id: string; title: string; order: number; tasks: unknown[] }>;
+                // ownerType（litigation/nonlitigation/standalone）区分同号案件/项目：
+                // 案件只吃 litigation 归属的事项，项目只吃 nonlitigation（2026-09-04）。
+                const itemTimeline = (itemLegacy?.timeline ?? {}) as Record<string, { ownerType?: string; [k: string]: unknown }>;
+                const itemTaskGroups = (itemLegacy?.taskGroups ?? []) as Array<{ ownerId?: string; ownerType?: string; id: string; title: string; order: number; tasks: unknown[] }>;
                 const cases = {};
                 for (const [id, c] of Object.entries(caseReg.cases ?? {})) {
                     const legacy = toLegacyCase(c);
-                    // 任务的 taskGroups 从统一事项生成（按 group 的 ownerId 归属）。
-                    const ownGroups = itemTaskGroups.filter((g) => String(g.ownerId ?? '') === id);
+                    // 任务的 taskGroups 从统一事项生成（按 group 的 ownerId + ownerType 归属）。
+                    const ownGroups = itemTaskGroups.filter((g) => String(g.ownerId ?? '') === id && (g.ownerType ?? 'litigation') === 'litigation');
                     if (ownGroups.length > 0) {
                         legacy.taskGroups = ownGroups.map((g) => normalizeGroup(g));
                     } else if (Array.isArray(legacy.taskGroups)) {
@@ -247,8 +249,8 @@ export function apply(ctx, config = {}) {
                 const projects = {};
                 for (const [id, p] of Object.entries(projectReg.projects ?? {})) {
                     const legacy = toLegacyProject(p);
-                    // 非诉项目的 taskGroups 也从统一事项生成。
-                    const projGroups = itemTaskGroups.filter((g) => String(g.ownerId ?? '') === id);
+                    // 非诉项目的 taskGroups 也从统一事项生成（只吃 nonlitigation 归属）。
+                    const projGroups = itemTaskGroups.filter((g) => String(g.ownerId ?? '') === id && (g.ownerType ?? 'nonlitigation') === 'nonlitigation');
                     if (projGroups.length > 0) {
                         legacy.taskGroups = projGroups.map((g) => normalizeGroup(g));
                     } else if (Array.isArray(legacy.taskGroups)) {
@@ -257,8 +259,10 @@ export function apply(ctx, config = {}) {
                     projects[id] = legacy;
                 }
                 // timeline 从统一事项生成（替代 case-timeline.json）。
+                // 按 ownerType 归属：案件只取 litigation；其余（非诉事件/独立）不进案件聚合。
                 const timelineMap = {};
                 for (const [eid, e] of Object.entries(itemTimeline)) {
+                    if (e.ownerType !== undefined && e.ownerType !== '' && e.ownerType !== 'litigation') continue;
                     timelineMap[eid] = toLegacyTimelineEvent(e);
                 }
                 const standaloneMap = {};

@@ -194,3 +194,113 @@ export function computeDeadlines(
   }
   return merged.slice(0, opts.maxItems ?? 500)
 }
+
+/**
+ * 统一事项版 deadline 计算（v2）：事件来自 items + legacy 合并，任务期限
+ * 来自 items（type=task/both）。registry 仍提供案件元信息（名称/案号/法院）
+ * 与 keyDates。兼容旧入口——旧 computeDeadlines 保留给无 item 的调用方。
+ *
+ * @param taskDeadlines - items 里的任务期限：Map<taskId, {caseId,title,date,time,status}>。
+ */
+export function computeDeadlinesV2(
+  registry: CaseRegistry,
+  events: TimelineEvent[],
+  taskDeadlines: Map<string, { caseId: string; title: string; date: string; time?: string; status: string }>,
+  caseId?: string,
+  opts: { includeOverdue?: boolean; maxItems?: number } = {},
+): DeadlineItem[] {
+  const today = TODAY()
+  const items: DeadlineItem[] = []
+  const byKey = new Map<string, DeadlineItem>()
+  const KIND_PRIORITY: Record<DeadlineItem['kind'], number> = {
+    keydate: 4,
+    deadline: 3,
+    hearing: 2,
+    task: 1,
+  }
+
+  const push = (rec: CaseRecord, date: string, label: string, kind: DeadlineItem['kind'], source: string, extra?: { time?: string; detail?: string }): void => {
+    if (!date) return
+    const normLabel = String(label ?? '').trim()
+    if (normLabel === '') return
+    const daysLeft = Math.round((new Date(`${date}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86_400_000)
+    const item: DeadlineItem = {
+      caseId: rec.caseId,
+      caseName: rec.name,
+      caseNumber: rec.caseNumber,
+      court: rec.court,
+      time: extra?.time !== undefined && extra.time.trim() !== '' ? extra.time.trim() : undefined,
+      detail: extra?.detail !== undefined && extra.detail.trim() !== '' ? extra.detail.trim() : undefined,
+      date,
+      label: normLabel,
+      kind,
+      daysLeft,
+      urgent: daysLeft >= 0 && daysLeft <= URGENT_HORIZON_DAYS,
+      overdue: daysLeft < 0,
+      source,
+    }
+    const key = `${rec.caseId}|${date}|${normLabel}`
+    const existing = byKey.get(key)
+    if (existing === undefined || KIND_PRIORITY[kind] > KIND_PRIORITY[existing.kind]) {
+      const mergedItem: DeadlineItem = { ...item }
+      if (existing !== undefined) {
+        if (mergedItem.time === undefined) mergedItem.time = existing.time
+        if (mergedItem.detail === undefined) mergedItem.detail = existing.detail
+        if (mergedItem.caseNumber === undefined) mergedItem.caseNumber = existing.caseNumber
+        if (mergedItem.court === undefined) mergedItem.court = existing.court
+      }
+      byKey.set(key, mergedItem)
+    }
+  }
+
+  // caseId → CaseRecord 映射（items 的 ownerId 可能对应 registry 里已删案件——
+  // 此时孤儿事件自然跳过，配合 cascade delete 不再有孤儿）。
+  const byCase = new Map<string, CaseRecord>()
+  for (const rec of Object.values(registry.cases)) {
+    byCase.set(rec.caseId, rec)
+  }
+
+  // 事件（items + legacy 合并）：kind 按事件类型。
+  for (const e of events) {
+    if (caseId !== undefined && e.caseId !== caseId) continue
+    const rec = byCase.get(e.caseId)
+    if (rec === undefined) continue
+    if (e.status === 'done' || e.status === 'cancelled') continue
+    if (!e.date) continue
+    push(rec, e.date, e.title || eventTypeLabel(e.type), eventKind(e.type), e.type, { time: e.time, detail: e.detail })
+  }
+
+  // 任务期限（items 的 task/both）。
+  const processedCases = new Set<string>()
+  for (const td of taskDeadlines.values()) {
+    if (caseId !== undefined && td.caseId !== caseId) continue
+    const rec = byCase.get(td.caseId)
+    if (rec === undefined) continue
+    if (td.status === 'done' || td.status === 'cancelled') continue
+    processedCases.add(td.caseId)
+    push(rec, td.date, td.title, 'task', 'task', { time: td.time })
+  }
+
+  // keyDates：registry 里仍未 done 的（含任务派生的 keydate）。
+  for (const [cid, rec] of byCase) {
+    if (caseId !== undefined && cid !== caseId) continue
+    for (const kd of rec.keyDates ?? []) {
+      if (kd.done || !kd.date) continue
+      let time: string | undefined
+      let detail: string | undefined
+      for (const e of events) {
+        if (e.caseId !== cid || e.date !== kd.date) continue
+        if (e.time !== undefined && e.time !== '') time = e.time
+        if (e.detail !== undefined && e.detail !== '') detail = e.detail
+      }
+      push(rec, kd.date, kd.label, 'keydate', 'keydate', { time, detail })
+    }
+  }
+
+  const merged = [...byKey.values()]
+  merged.sort((a, b) => a.date.localeCompare(b.date) || a.caseId.localeCompare(b.caseId))
+  if (opts.includeOverdue !== true) {
+    return merged.filter((i) => i.daysLeft >= 0).slice(0, opts.maxItems ?? 200)
+  }
+  return merged.slice(0, opts.maxItems ?? 500)
+}

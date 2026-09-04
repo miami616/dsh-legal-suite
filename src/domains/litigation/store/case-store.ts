@@ -11,8 +11,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { assertSafePathSegment, JsonFileStore, clone } from './file-store.ts'
 import { childId, keyDateId, nextCaseId, nowIso, taskGroupId, taskId } from './id.ts'
+import { normalizePartiesBlock, normalizeOurSide, OUR_SIDE_PRIMARY_ROLE, canonicalRoleOf } from '../party-vocab.ts'
 import type {
-  CaseRecord, CaseRegistry, CaseTask, ChecklistItem, KeyDate, Subtask, TaskGroup,
+  CaseRecord, CaseRegistry, CaseTask, ChecklistItem, KeyDate, Parties, Subtask, TaskGroup,
 } from './types.ts'
 
 export type { CaseRecord, CaseRegistry, TaskGroup, CaseTask }
@@ -25,20 +26,23 @@ function caseRegistryDefault(): CaseRegistry {
 /**
  * parties 写盘归一化：工具链路可能把 json 参数以 JSON 字符串传入（issue:
  * 当事人信息不显示——字符串形态落盘导致界面无法渲染）。合法 JSON 字符串 →
- * 解析为对象；解析失败或非字符串 → 原样 clone。
+ * 解析为对象；解析失败或非字符串 → 原样 clone。写路径还做主体去重合并与
+ * ourSide 中文化归一（见 party-vocab.ts）——同一主体不重复列当事人。
  */
-function normalizePartiesInput(value: unknown): Parties | undefined {
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      try {
-        return JSON.parse(trimmed) as Parties
-      } catch {
-        /* 非 JSON 字符串：保留原值 */
+function normalizePartiesInput(value: unknown, ourSideValue?: unknown): Parties | undefined {
+  const raw = typeof value === 'string'
+    ? (() => {
+      const trimmed = value.trim()
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try { return JSON.parse(trimmed) as Parties } catch { /* 非 JSON 字符串：保留原值 */ }
       }
-    }
-  }
-  return clone(value as Parties)
+      return value
+    })()
+    : value
+  const sideKey = normalizeOurSide(ourSideValue ?? (raw as { ourSide?: unknown } | null)?.ourSide)
+  const normalized = normalizePartiesBlock(raw)
+  if (normalized === undefined) return clone(raw as Parties)
+  return normalized as unknown as Parties
 }
 
 /** Find a case's task group by id (mutating helper — assumes group exists). */
@@ -272,7 +276,7 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
           summary: input.summary === undefined ? undefined : String(input.summary),
           folder: input.folder === undefined ? undefined : String(input.folder),
           alias: input.alias === undefined ? undefined : clone(input.alias as string[] | undefined),
-          parties: input.parties === undefined ? undefined : normalizePartiesInput(input.parties),
+          parties: input.parties === undefined ? undefined : normalizePartiesInput(input.parties, input.ourSide),
           instances: input.instances === undefined ? undefined : clone(input.instances as Array<Record<string, unknown>> | undefined),
           fee: input.fee === undefined ? undefined : String(input.fee),
           retainerUnit: input.retainerUnit === undefined ? undefined : String(input.retainerUnit),
@@ -302,10 +306,20 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
         const current = reg.cases[caseId]
         if (current === undefined) throw new Error(`case not found: ${caseId}`)
         const next = clone(reg)
-        const merged = { ...clone(current), ...clone(patch), caseId, updatedAt: nowIso() }
+        // parties 写路径归一：先归一 patch 里的 parties（主体去重、ourSide 中文化），
+        // 再与现案合并——避免合并后才去重造成多次往返或对存量重复行无感知。
+        const normalizedPatch = { ...patch }
+        if (patch.parties !== undefined) {
+          const partiesSide = patch.ourSide ?? (patch.parties as { ourSide?: unknown } | null)?.ourSide
+          normalizedPatch.parties = normalizePartiesInput(patch.parties, partiesSide)
+        }
+        const merged = { ...clone(current), ...clone(normalizedPatch), caseId, updatedAt: nowIso() }
         normalizeKeyDates(merged)
         // 审级历程自动同步：patch 携带 level 时，若该审级不在 instances 历程里，
         // 自动追加节点。让管家只需设 level（如 一审→二审），审级历程面板自动补全。
+        // 新节点回填当前案件已知信息（案号/法院/承办法官/立案日期/我方当事人），
+        // 管家无需在每级重复登记这些跨审级不变的信息（备忘录：#1 审级面板相关
+        // 信息缺失）。
         const levelValue = patch.level === undefined ? undefined : String(patch.level).trim()
         if (levelValue !== undefined && levelValue !== '') {
           const instances = merged.instances ?? []
@@ -313,6 +327,26 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
           if (!has) {
             const node: Record<string, unknown> = { level: levelValue }
             if (patch.status !== undefined) node.status = patch.status
+            if (merged.caseNumber !== undefined) node.caseNo = merged.caseNumber
+            if (merged.court !== undefined) node.court = merged.court
+            if (merged.judge !== undefined) node.judge = merged.judge
+            if (merged.filingDate !== undefined) node.filedAt = merged.filingDate
+            const ourRow = findOurPartyRowFromRecord(merged)
+            if (ourRow !== undefined) {
+              const canonical = canonicalRoleOf(ourRow.role)
+              const sideIsPlaintiff = ['原告', '申请人', '申请执行人'].includes(canonical)
+              const sideIsDefendant = ['被告', '被申请人', '被执行人'].includes(canonical)
+              // 原告/被告 存首级字段；上诉人/被上诉人 是二审特有，也按我方落位。
+              if (sideIsPlaintiff) {
+                if (node.plaintiff === undefined) node.plaintiff = ourRow.name
+              } else if (sideIsDefendant) {
+                if (node.defendant === undefined) node.defendant = ourRow.name
+              } else if (canonical === '上诉人') {
+                node.plaintiff = ourRow.name
+              } else if (canonical === '被上诉人') {
+                node.defendant = ourRow.name
+              }
+            }
             merged.instances = [...instances, node]
           }
         }
@@ -681,5 +715,27 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
   }
 }
 
-/** Re-export the local Parties type for the registerCase closure above. */
-type Parties = import('./types.ts').Parties
+/**
+ * 从案件记录里解析「我方」当事人（party-vocab 的读侧辅助，case-store 内联版，
+ * 避免环形 import）。ourClient 标记优先，其次按 ourSide 主角色命中角色列。
+ */
+function findOurPartyRowFromRecord(record: { parties?: Parties | null; ourSide?: string }): { name: string; role: string } | undefined {
+  const details = Array.isArray(record.parties?.details) ? record.parties!.details! : []
+  if (details.length === 0) return undefined
+  const marked = details.find((p) => p.ourClient === true)
+  if (marked !== undefined && String(marked.name ?? '').trim() !== '') {
+    return { name: String(marked.name), role: String(marked.role ?? '') }
+  }
+  const sideKey = normalizeOurSide(record.ourSide ?? record.parties?.ourSide)
+  const primary = OUR_SIDE_PRIMARY_ROLE[sideKey] ?? ''
+  if (primary === '') {
+    const first = details[0]!
+    return { name: String(first.name ?? ''), role: String(first.role ?? '') }
+  }
+  for (const p of details) {
+    const roles = Array.isArray(p.roles) ? (p.roles as unknown[]).map(String) : [p.role]
+    const hit = roles.some((role) => canonicalRoleOf(String(role)) === primary)
+    if (hit) return { name: String(p.name ?? ''), role: String(p.role ?? '') }
+  }
+  return undefined
+}

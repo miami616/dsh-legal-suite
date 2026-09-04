@@ -7,6 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ItemStore } from './store/item-store.ts'
 import type { ApiResponse } from './store/types.ts'
+import { itemToLegacyTask, itemToTimelineEvent } from './shape.ts'
 
 export interface RouteDeps {
   itemStore: ItemStore
@@ -113,27 +114,14 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const timeline: Record<string, unknown> = {}
     for (const it of items) {
       if (it.type === 'task') continue
-      timeline[it.id] = {
-        id: it.id,
-        caseId: it.ownerId,
-        caseName: it.ownerName,
-        type: it.type === 'both' ? 'hearing' : 'case_event',
-        title: it.title,
-        label: it.title,
-        detail: it.detail,
-        date: it.date ?? '',
-        time: it.time,
-        status: it.status === 'done' ? 'completed' : it.status === 'cancelled' ? 'cancelled' : 'pending',
-        remindRules: it.remindRules ?? [],
-        createdAt: it.createdAt,
-        updatedAt: it.updatedAt,
-      }
+      timeline[it.id] = itemToTimelineEvent(it)
     }
     // taskGroups = type 为 task/both 的事项，按 (ownerId, groupId) 分组。
     // 未分组的任务各 owner 一个「未分组」组，避免串 owner。
-    const groupMap = new Map<string, { ownerId: string; id: string; title: string; order: number; tasks: unknown[] }>()
+    // ownerType 随组透出（聚合按它区分同号案件/项目）。
+    const groupMap = new Map<string, { ownerId: string; ownerType?: string; id: string; title: string; order: number; tasks: unknown[] }>()
     for (const g of groups) {
-      groupMap.set(`${g.ownerId}|${g.id}`, { ownerId: g.ownerId, id: g.id, title: g.name, order: g.order, tasks: [] })
+      groupMap.set(`${g.ownerId}|${g.id}`, { ownerId: g.ownerId, ownerType: g.ownerType, id: g.id, title: g.name, order: g.order, tasks: [] })
     }
     for (const it of items) {
       if (it.type === 'event') continue
@@ -141,24 +129,10 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       const gid = it.groupId ?? '__ungrouped'
       const key = `${ownerId}|${gid}`
       if (!groupMap.has(key)) {
-        groupMap.set(key, { ownerId, id: gid, title: it.groupName ?? '未分组', order: groupMap.size, tasks: [] })
+        groupMap.set(key, { ownerId, ownerType: it.ownerType, id: gid, title: it.groupName ?? '未分组', order: groupMap.size, tasks: [] })
       }
       const g = groupMap.get(key)!
-      g.tasks.push({
-        id: it.id,
-        ownerId: it.ownerId,
-        caseId: it.ownerId,
-        title: it.title,
-        detail: it.detail,
-        deadline: it.date,
-        time: it.time,
-        priority: it.priority ?? 'medium',
-        status: it.status === 'done' ? 'done' : it.status === 'doing' ? 'in_progress' : 'todo',
-        subtasks: it.subtasks ?? [],
-        checklist: it.checklist ?? [],
-        createdAt: it.createdAt,
-        updatedAt: it.updatedAt,
-      })
+      g.tasks.push(itemToLegacyTask(it))
     }
     ok(res, { timeline, taskGroups: [...groupMap.values()] })
   })

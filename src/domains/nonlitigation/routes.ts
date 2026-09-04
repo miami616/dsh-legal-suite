@@ -143,6 +143,12 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   route('/api/agentlex-nonlitigation/delete-project', async (d, b, res) => {
     const id = String(b.projectId ?? '')
     if (id === '') return fail(res, 'projectId required')
+    // 级联删除：项目 + items（任务/事件）+ task-groups（备忘录 #3）。
+    if (d.itemStore !== undefined) {
+      const { cascadeDeleteProject } = await import('../litigation/cascade-delete.ts')
+      ok(res, await cascadeDeleteProject(d.projectStore, d.itemStore, id))
+      return
+    }
     ok(res, await d.projectStore.deleteProject(id))
   })
   route('/api/agentlex-nonlitigation/group', async (d, b, res) => {

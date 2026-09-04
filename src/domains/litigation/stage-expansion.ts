@@ -198,11 +198,12 @@ export async function applyStageExpansion(
     const groups = await itemStore.listGroups(caseId)
     let group = groups.find((g) => g.name === stage.name)
     if (group === undefined) {
-      group = await itemStore.upsertGroup({ ownerId: caseId, name: stage.name })
+      group = await itemStore.upsertGroup({ ownerId: caseId, ownerType: 'litigation', name: stage.name })
     }
     for (const t of plan.tasks) {
       await itemStore.upsertItem({
         ownerId: caseId,
+        ownerType: 'litigation',
         type: 'task',
         title: t.title,
         status: 'pending',

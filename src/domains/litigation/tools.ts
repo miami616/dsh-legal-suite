@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { CaseStore } from './store/case-store.ts'
 import type { TimelineStore } from './store/timeline-store.ts'
+import type { ScheduleStore } from './store/schedule-store.ts'
 import { LITIGATION_STATUSES, STATUS_LADDERS } from '../../shared/playbook/litigation.ts'
 import {
   STAGE_ORDER,
@@ -25,6 +26,7 @@ import { computeCaseHealth, computeRegistryHealth } from './health.ts'
 export interface ToolDeps {
   caseStore: CaseStore
   timelineStore: TimelineStore
+  scheduleStore?: ScheduleStore
   /** 统一事项 store —— 时间轴事件/任务写统一事项（v0.1.27）。 */
   itemStore?: import('../item/store/item-store.ts').ItemStore
   /** Deadline engine summary (optional when unavailable). */
@@ -81,7 +83,7 @@ const PARAMETERS = {
   ourSide: { type: 'string', description: '我方身份：plaintiff/defendant/applicant/respondent/appellant/appellee/executionApplicant/executionRespondent' },
   summary: { type: 'string', description: '案情摘要' },
   folder: { type: 'string', description: '卷宗文件夹路径' },
-  parties: { type: 'json', description: '当事人明细对象：{ plaintiff?, defendant?, ourSide?, details?: [{ name, role?, address?, legalRep?, creditCode?, phone?, ourClient? }] }。登记/更新案件时传入以写入当事人' },
+  parties: { type: 'json', description: '当事人明细对象：{ plaintiff?, defendant?, ourSide?, details?: [{ name, role?, roles?, address?, legalRep?, creditCode?, phone?, firm?, ourClient? }] }。role 只取规范角色（原告/被告/申请人/被申请人/上诉人/被上诉人/申请执行人/被执行人/第三人，可带序数/审级前缀如「第一被申请人」）；同一主体（同名）只登记一行、绝不重复列当事人；同一主体跨审级出现多个身份时角色放 roles 数组（如 申请人+上诉人）；我方行加 ourClient: true' },
   label: { type: 'string', description: '关键日期名称，如 开庭' },
   date: { type: 'string', description: '日期 YYYY-MM-DD' },
   keyDateId: { type: 'string', description: '关键日期 id' },
@@ -120,6 +122,8 @@ const DESCRIPTION = [
   '写入纪律：任务名写「动作」不写「状态」（用「出庭参加庭审」，不用「等待开庭」）；',
   '同一事项不得同时登记为任务 deadline、关键日期与时间轴事件，只登记必要的体系；',
   '新建案件时只铺当前阶段，不要一次性生成全流程任务。',
+  '当事人纪律（备忘录 #5）：角色只能用规范词表（原告/被告/申请人/被申请人/上诉人/被上诉人/申请执行人/被执行人/第三人），',
+  '同一主体只登记一行、不重复列当事人，跨审级多个身份用 roles 数组表达；我方行标 ourClient: true。',
   '阶段推进：apply_stage_template 按阶段模板展开标准任务（dryRun=true 先预览、only/skip 裁剪、anchorDate 推算 deadline）；',
   'stage_suggestions 只读检测「当前阶段已完成→该展开下一阶段」与缺失的登记字段；',
   'update_case 改变 status 时响应会内联返回 stageSuggestions，据此向用户提出下一步建议。',
@@ -238,6 +242,24 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           return clean({ case: record })
         }
         case 'list_events': {
+          // 统一事项模型：事件 = items(event/both) + legacy case-timeline 兜底，
+          // 与 UI 看到的一致（split-brain 收尾：写 items 后管家能查到）。
+          if (deps.itemStore !== undefined) {
+            const itemsEvents = (await deps.itemStore.listItems(args.caseId === undefined ? undefined : String(args.caseId)))
+              .filter((it) => it.type !== 'task')
+            const legacy = await ts.listEvents(args.caseId === undefined ? undefined : String(args.caseId))
+            const { itemToTimelineEvent } = await import('../item/shape.ts')
+            const seen = new Set<string>()
+            const out: unknown[] = []
+            for (const it of itemsEvents) {
+              seen.add(it.id)
+              out.push(itemToTimelineEvent(it))
+            }
+            for (const e of legacy) {
+              if (!seen.has(e.id)) out.push(e)
+            }
+            return clean({ count: out.length, events: out })
+          }
           const events = await ts.listEvents(args.caseId === undefined ? undefined : String(args.caseId))
           return clean({ count: events.length, events })
         }
@@ -319,6 +341,18 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         }
         case 'delete_case': {
           requireIds({ caseId: s(args.caseId) })
+          // 级联删除：案件 + items（事件/任务）+ task-groups + 旧版孤儿记录。
+          // 备忘录 #3：删除后编号不得残留。
+          if (deps.itemStore !== undefined && deps.scheduleStore !== undefined) {
+            const { cascadeDeleteCase } = await import('./cascade-delete.ts')
+            const result = await cascadeDeleteCase({
+              caseStore: cs,
+              timelineStore: ts,
+              scheduleStore: deps.scheduleStore,
+              itemStore: deps.itemStore,
+            }, args.caseId as string)
+            return clean(result)
+          }
           await cs.deleteCase(args.caseId as string)
           return clean({ caseId: args.caseId, deleted: true })
         }
@@ -339,6 +373,16 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         /* ---------------------------- task groups ----------------------- */
         case 'upsert_group': {
           requireIds({ caseId: s(args.caseId) })
+          // 统一事项模型：任务组存 task-groups.json（ownerId=caseId）。
+          if (deps.itemStore !== undefined) {
+            const created = await deps.itemStore.upsertGroup({
+              ownerId: String(args.caseId),
+              ownerType: 'litigation',
+              name: args.groupName !== undefined ? String(args.groupName) : undefined,
+              ...(args.groupId !== undefined ? { id: String(args.groupId) } : {}),
+            })
+            return { caseId: String(args.caseId), groupId: created.id, ok: true }
+          }
           const group: Record<string, unknown> = {}
           if (args.groupId !== undefined) group.id = String(args.groupId)
           if (args.groupName !== undefined) group.name = String(args.groupName)
@@ -347,6 +391,14 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         }
         case 'delete_group': {
           requireIds({ caseId: s(args.caseId), groupId: s(args.groupId) })
+          if (deps.itemStore !== undefined) {
+            // 删除任务组时把组内任务一并清理（items 的 groupId 引用）。
+            const groupItems = (await deps.itemStore.listItems(String(args.caseId)))
+              .filter((it) => it.groupId === args.groupId)
+            for (const it of groupItems) await deps.itemStore.deleteItem(it.id)
+            await deps.itemStore.deleteGroup(String(args.groupId))
+            return { ok: true }
+          }
           await cs.deleteTaskGroup(args.caseId as string, args.groupId as string)
           return { ok: true }
         }
@@ -354,6 +406,22 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         /* ------------------------------ tasks --------------------------- */
         case 'upsert_task': {
           requireIds({ caseId: s(args.caseId), groupId: s(args.groupId) })
+          // 统一事项模型：任务写 items.json（type=task，groupId 引用任务组）。
+          if (deps.itemStore !== undefined) {
+            const created = await deps.itemStore.upsertItem({
+              ownerId: String(args.caseId),
+              ownerType: 'litigation',
+              type: 'task',
+              title: args.taskTitle !== undefined ? String(args.taskTitle) : (args.title !== undefined ? String(args.title) : '新事项'),
+              date: args.deadline === undefined ? undefined : String(args.deadline),
+              time: args.time === undefined ? undefined : String(args.time),
+              priority: (args.priority as never) ?? 'medium',
+              status: (args.status === 'done' ? 'done' : args.status === 'doing' || args.status === 'in_progress' ? 'doing' : args.status === 'todo' ? 'pending' : undefined) as never,
+              groupId: String(args.groupId),
+              ...(args.taskId !== undefined ? { id: String(args.taskId) } : {}),
+            })
+            return { caseId: String(args.caseId), taskId: created.id, ok: true }
+          }
           const task: Record<string, unknown> = {}
           if (args.taskId !== undefined) task.id = String(args.taskId)
           if (args.taskTitle !== undefined) task.title = String(args.taskTitle)
@@ -366,6 +434,10 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         }
         case 'delete_task': {
           requireIds({ caseId: s(args.caseId), groupId: s(args.groupId), taskId: s(args.taskId) })
+          if (deps.itemStore !== undefined) {
+            await deps.itemStore.deleteItem(String(args.taskId))
+            return { ok: true }
+          }
           await cs.deleteTask(args.caseId as string, args.groupId as string, args.taskId as string)
           return { ok: true }
         }
@@ -377,6 +449,10 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         }
         case 'move_task': {
           requireIds({ caseId: s(args.caseId), taskId: s(args.taskId), toGroupId: s(args.toGroupId) })
+          if (deps.itemStore !== undefined) {
+            await deps.itemStore.upsertItem({ id: String(args.taskId), groupId: String(args.toGroupId), ownerId: String(args.caseId), ownerType: 'litigation' })
+            return { ok: true }
+          }
           await cs.moveTask(args.caseId as string, args.taskId as string, args.toGroupId as string)
           return { ok: true }
         }
@@ -384,6 +460,16 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         /* ---------------------------- subtasks -------------------------- */
         case 'upsert_subtask': {
           requireIds({ caseId: s(args.caseId), groupId: s(args.groupId), taskId: s(args.taskId) })
+          if (deps.itemStore !== undefined) {
+            const title = args.subtaskTitle !== undefined ? String(args.subtaskTitle) : (args.title !== undefined ? String(args.title) : '子任务')
+            const sid = args.subtaskId === undefined ? undefined : String(args.subtaskId)
+            if (sid !== undefined) {
+              await deps.itemStore.updateSubtask(String(args.taskId), sid, { title })
+            } else {
+              await deps.itemStore.addSubtask(String(args.taskId), { title })
+            }
+            return { caseId: String(args.caseId), ok: true }
+          }
           const subtask: Record<string, unknown> = {}
           if (args.subtaskId !== undefined) subtask.id = String(args.subtaskId)
           if (args.subtaskTitle !== undefined) subtask.title = String(args.subtaskTitle)
@@ -392,11 +478,24 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         }
         case 'delete_subtask': {
           requireIds({ caseId: s(args.caseId), groupId: s(args.groupId), taskId: s(args.taskId), subtaskId: s(args.subtaskId) })
+          if (deps.itemStore !== undefined) {
+            await deps.itemStore.deleteSubtask(String(args.taskId), String(args.subtaskId))
+            return { ok: true }
+          }
           await cs.deleteSubtask(args.caseId as string, args.groupId as string, args.taskId as string, args.subtaskId as string)
           return { ok: true }
         }
         case 'upsert_check': {
           requireIds({ caseId: s(args.caseId), groupId: s(args.groupId), taskId: s(args.taskId) })
+          if (deps.itemStore !== undefined) {
+            const text = args.checklistText !== undefined ? String(args.checklistText) : ''
+            const cid = args.checklistId === undefined ? undefined : String(args.checklistId)
+            await deps.itemStore.addChecklist(String(args.taskId), {
+              ...(cid !== undefined ? { id: cid } : {}),
+              text,
+            })
+            return { caseId: String(args.caseId), ok: true }
+          }
           const item: Record<string, unknown> = {}
           if (args.checklistId !== undefined) item.id = String(args.checklistId)
           if (args.checklistText !== undefined) item.text = String(args.checklistText)
@@ -405,6 +504,10 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         }
         case 'toggle_check': {
           requireIds({ caseId: s(args.caseId), groupId: s(args.groupId), taskId: s(args.taskId), checklistId: s(args.checklistId) })
+          if (deps.itemStore !== undefined) {
+            await deps.itemStore.toggleChecklist(String(args.taskId), String(args.checklistId))
+            return { caseId: String(args.caseId), ok: true }
+          }
           const record = await cs.toggleChecklist(args.caseId as string, args.groupId as string, args.taskId as string, args.checklistId as string)
           return { caseId: record.caseId, ok: true }
         }
@@ -416,6 +519,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           if (deps.itemStore !== undefined) {
             const created = await deps.itemStore.upsertItem({
               ownerId: String(args.caseId),
+              ownerType: 'litigation',
               type: 'event',
               title: s(args.title) ?? '新事件',
               date: s(args.date),
@@ -440,11 +544,30 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         }
         case 'toggle_event': {
           requireIds({ eventId: s(args.eventId) })
+          if (deps.itemStore !== undefined) {
+            const existing = await deps.itemStore.readItem(String(args.eventId))
+            if (existing !== undefined && existing.type !== 'task') {
+              const updated = await deps.itemStore.toggleItem(String(args.eventId))
+              return { eventId: updated.id, status: updated.status, ok: true }
+            }
+          }
           const updated = await ts.toggleEvent(args.eventId as string)
           return { eventId: updated.id, status: updated.status, ok: true }
         }
         case 'delete_event': {
           requireIds({ eventId: s(args.eventId) })
+          // 事件写 items 后，删除优先从 items 删；若不在 items（旧孤儿事件）则
+          // 回落 legacy case-timeline.json，保证两种来源都能删掉（备忘录 #3）。
+          if (deps.itemStore !== undefined) {
+            const existing = await deps.itemStore.readItem(String(args.eventId))
+            if (existing !== undefined && existing.type !== 'task') {
+              await deps.itemStore.deleteItem(String(args.eventId))
+              return { deleted: true }
+            }
+            // items 中不存在：顺手删 legacy（幂等）。
+            const legacyResult = await ts.deleteEvent(args.eventId as string)
+            return { deleted: true, legacy: legacyResult.deleted }
+          }
           await ts.deleteEvent(args.eventId as string)
           return { deleted: true }
         }

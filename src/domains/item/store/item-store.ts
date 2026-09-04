@@ -9,7 +9,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { JsonFileStore, clone } from '../../litigation/store/file-store.ts'
 import { childId, nowIso } from '../../litigation/store/id.ts'
 import type {
-  Item, ItemRegistry, ItemStatus, ItemType, TaskGroup, TaskGroupRegistry,
+  Item, ItemChecklist, ItemRegistry, ItemStatus, ItemSubtask, ItemType, TaskGroup, TaskGroupRegistry,
 } from './types.ts'
 
 export type { Item, ItemRegistry, TaskGroup, TaskGroupRegistry }
@@ -32,6 +32,21 @@ export interface ItemStore {
   upsertItem(input: Partial<Item>): Promise<Item>
   deleteItem(id: string): Promise<{ deleted: boolean }>
   toggleItem(id: string): Promise<Item>
+  /* ------------------------------ 任务子项（subtasks/checklist） ------------------------------ */
+  /**
+   * 以任务（type=task/both 的 item）为容器更新子任务/检查项。这是工具层
+   * upsert_subtask / upsert_check / toggle_check 的统一写入口：任务在 items.json，
+   * 其 subtasks/checklist 也存 items 上，不再回写 case-registry 的 taskGroups
+   * （0.2.0 split-brain：task 写 items 而 checklist 找 case-registry → not found）。
+   */
+  addSubtask(taskId: string, input: { id?: string; title: string; deadline?: string; done?: boolean }): Promise<Item>
+  updateSubtask(taskId: string, subtaskId: string, patch: Partial<ItemSubtask>): Promise<Item>
+  deleteSubtask(taskId: string, subtaskId: string): Promise<{ deleted: boolean }>
+  addChecklist(taskId: string, input: { id?: string; text: string; done?: boolean }): Promise<Item>
+  toggleChecklist(taskId: string, checklistId: string, done?: boolean): Promise<Item>
+  deleteChecklist(taskId: string, checklistId: string): Promise<{ deleted: boolean }>
+  /** 内部：定位 task item 并就地变更 subtasks/checklist（实现细节，接口暴露以便自调用）。 */
+  mutateTaskItems(taskId: string, mutateFn: (task: Item) => { item?: Item; deleted?: boolean }): Promise<Item | { deleted: boolean }>
   /* --------------------------- task groups --------------------------- */
   listGroups(ownerId?: string): Promise<TaskGroup[]>
   upsertGroup(input: Partial<TaskGroup>): Promise<TaskGroup>
@@ -76,6 +91,7 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
           const created: Item = {
             id: input.id !== undefined && input.id !== '' ? String(input.id) : childId('item'),
             ownerId: String(input.ownerId ?? ''),
+            ownerType: input.ownerType as Item['ownerType'],
             ownerName: s(input.ownerName),
             type: (input.type as ItemType) ?? 'task',
             title: String(input.title ?? '新事项'),
@@ -135,6 +151,135 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
       return result!
     },
 
+    /* ---------------- 任务子项（subtasks / checklist） ---------------- */
+
+    /** 定位一个 item 并对其 subtasks/checklist 做就地变更（写回 items.json）。 */
+    async mutateTaskItems(
+      taskId: string,
+      mutateFn: (task: Item) => { item?: Item; deleted?: boolean },
+    ): Promise<Item | { deleted: boolean }> {
+      let result: Item | { deleted: boolean } | undefined
+      await items.mutate((reg) => {
+        const task = reg.items.find((i) => i.id === taskId)
+        if (task === undefined) throw new Error(`task not found: ${taskId}`)
+        if (task.type === 'event') throw new Error(`item is not a task: ${taskId}`)
+        const next = clone(reg)
+        const target = next.items.find((i) => i.id === taskId)!
+        const outcome = mutateFn(target)
+        if (outcome.deleted === true) {
+          const removed = next.items.find((i) => i.id === taskId)
+          next.items = next.items.filter((i) => i.id !== taskId)
+          result = { deleted: true }
+          next.lastUpdated = removed?.updatedAt ?? nowIso()
+          return next
+        }
+        target.updatedAt = nowIso()
+        next.lastUpdated = target.updatedAt
+        result = clone(outcome.item ?? target)
+        return next
+      }, 'tasks', taskId, 'task-children-mutate')
+      return result!
+    },
+
+    async addSubtask(taskId: string, input: { id?: string; title: string; deadline?: string; done?: boolean }): Promise<Item> {
+      const now = nowIso()
+      const sid = input.id ?? childId('sub')
+      return this.mutateTaskItems(taskId, (task) => {
+        const subtasks = Array.isArray(task.subtasks) ? [...task.subtasks] : []
+        const existingIdx = subtasks.findIndex((st) => st.id === sid)
+        if (existingIdx >= 0) {
+          const row = { ...subtasks[existingIdx]! }
+          if (input.title !== undefined) row.title = String(input.title)
+          if (input.done !== undefined) row.done = input.done === true
+          if (input.deadline !== undefined) row.deadline = input.deadline === '' ? undefined : input.deadline
+          row.updatedAt = now
+          subtasks[existingIdx] = row
+        } else {
+          subtasks.push({
+            id: sid,
+            title: String(input.title ?? '子任务'),
+            done: input.done === true,
+            deadline: input.deadline === undefined ? undefined : String(input.deadline),
+            createdAt: now,
+            updatedAt: now,
+          })
+        }
+        task.subtasks = subtasks
+        return { item: task }
+      }) as Promise<Item>
+    },
+
+    async updateSubtask(taskId: string, subtaskId: string, patch: Partial<ItemSubtask>): Promise<Item> {
+      return this.mutateTaskItems(taskId, (task) => {
+        const subtasks = Array.isArray(task.subtasks) ? [...task.subtasks] : []
+        const idx = subtasks.findIndex((st) => st.id === subtaskId)
+        if (idx < 0) throw new Error(`subtask not found: ${subtaskId}`)
+        subtasks[idx] = { ...subtasks[idx]!, ...clone(patch), id: subtaskId, updatedAt: nowIso() }
+        task.subtasks = subtasks
+        return { item: task }
+      }) as Promise<Item>
+    },
+
+    async deleteSubtask(taskId: string, subtaskId: string): Promise<{ deleted: boolean }> {
+      const outcome = await this.mutateTaskItems(taskId, (task) => {
+        const before = Array.isArray(task.subtasks) ? task.subtasks.length : 0
+        task.subtasks = (task.subtasks ?? []).filter((st) => st.id !== subtaskId)
+        if ((task.subtasks?.length ?? 0) === before) throw new Error(`subtask not found: ${subtaskId}`)
+        return { item: task }
+      })
+      return { deleted: (outcome as { deleted: boolean }).deleted === true }
+    },
+
+    async addChecklist(taskId: string, input: { id?: string; text: string; done?: boolean }): Promise<Item> {
+      const now = nowIso()
+      const cid = input.id ?? childId('chk')
+      return this.mutateTaskItems(taskId, (task) => {
+        const checklist = Array.isArray(task.checklist) ? [...task.checklist] : []
+        const existingIdx = checklist.findIndex((c) => c.id === cid)
+        if (existingIdx >= 0) {
+          const row = { ...checklist[existingIdx]! }
+          if (input.text !== undefined) row.text = String(input.text)
+          if (input.done !== undefined) row.done = input.done === true
+          row.updatedAt = now
+          checklist[existingIdx] = row
+        } else {
+          checklist.push({
+            id: cid,
+            text: String(input.text ?? '检查项'),
+            done: input.done === true,
+            createdAt: now,
+            updatedAt: now,
+          })
+        }
+        task.checklist = checklist
+        return { item: task }
+      }) as Promise<Item>
+    },
+
+    async toggleChecklist(taskId: string, checklistId: string, done?: boolean): Promise<Item> {
+      return this.mutateTaskItems(taskId, (task) => {
+        const checklist = Array.isArray(task.checklist) ? [...task.checklist] : []
+        const idx = checklist.findIndex((c) => c.id === checklistId)
+        if (idx < 0) throw new Error(`checklist item not found: ${checklistId}`)
+        const target = checklist[idx]!
+        target.done = done === undefined ? !target.done : done === true
+        target.updatedAt = nowIso()
+        checklist[idx] = target
+        task.checklist = checklist
+        return { item: task }
+      }) as Promise<Item>
+    },
+
+    async deleteChecklist(taskId: string, checklistId: string): Promise<{ deleted: boolean }> {
+      const outcome = await this.mutateTaskItems(taskId, (task) => {
+        const before = Array.isArray(task.checklist) ? task.checklist.length : 0
+        task.checklist = (task.checklist ?? []).filter((c) => c.id !== checklistId)
+        if ((task.checklist?.length ?? 0) === before) throw new Error(`checklist item not found: ${checklistId}`)
+        return { item: task }
+      })
+      return { deleted: (outcome as { deleted: boolean }).deleted === true }
+    },
+
     async listGroups(ownerId?: string): Promise<TaskGroup[]> {
       const reg = await groups.read()
       const list = ownerId === undefined ? reg.groups : reg.groups.filter((g) => g.ownerId === ownerId)
@@ -155,6 +300,7 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
           const created: TaskGroup = {
             id: input.id !== undefined && input.id !== '' ? String(input.id) : childId('tg'),
             ownerId: String(input.ownerId ?? ''),
+            ownerType: input.ownerType as TaskGroup['ownerType'],
             name: String(input.name ?? '新阶段'),
             order: input.order ?? next.groups.length,
             createdAt: now,

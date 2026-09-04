@@ -160,6 +160,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
     addTask: addCaseTask, updateTask, deleteTask,
     addStandaloneTask, updateStandaloneTask, deleteStandaloneTask,
     updateProjectTask, deleteProjectTask,
+    addItem,
   } = useAgentLex();
 
   // ── State ──
@@ -179,6 +180,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
   const [newDeadline, setNewDeadline] = useState('');
   const [newTime, setNewTime] = useState('');
   const [newPriority, setNewPriority] = useState<TaskPriority>('medium');
+  const [newType, setNewType] = useState<'event' | 'task' | 'both'>('task');
 
   // ── Derived data ──
   const allTasks = useMemo(
@@ -392,24 +394,24 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
 
   const handleAdd = useCallback(() => {
     if (!newTitle.trim()) return;
-    const now = new Date().toISOString();
     const timeOrUndef = newTime.trim() || undefined;
-    if (newCaseId && newGroupId) {
-      void addCaseTask(newCaseId, newGroupId, newTitle.trim(), { deadline: newDeadline || undefined, time: timeOrUndef, priority: newPriority });
-    } else {
-      void addStandaloneTask({
-        id: `task-${Date.now()}`, caseId: '', caseName: '', groupTitle: '', groupOrder: 0,
-        title: newTitle.trim(), status: 'todo', priority: newPriority, deadline: newDeadline || undefined, time: timeOrUndef,
-        owner: '', creator: '我', stage: '', subtasks: [], checklist: [],
-        createdAt: now, updatedAt: now,
-      });
-    }
-    setNewTitle(''); setNewCaseId(''); setNewGroupId(''); setNewDeadline(''); setNewTime(''); setNewPriority('medium'); setShowAdd(false);
-  }, [newTitle, newCaseId, newGroupId, newDeadline, newTime, newPriority, addCaseTask, addStandaloneTask]);
+    // 统一事项：登记一个事项（type: event/task/both），自动分流到日程/时间轴/任务树。
+    void addItem({
+      ownerId: newCaseId || '',
+      ownerName: newCaseId ? cases.find(c => c.caseId === newCaseId)?.name : undefined,
+      type: newType,
+      title: newTitle.trim(),
+      date: newDeadline || undefined,
+      time: timeOrUndef,
+      priority: newPriority,
+      groupId: newGroupId || undefined,
+    });
+    setNewTitle(''); setNewCaseId(''); setNewGroupId(''); setNewDeadline(''); setNewTime(''); setNewPriority('medium'); setNewType('task'); setShowAdd(false);
+  }, [newTitle, newCaseId, newGroupId, newDeadline, newTime, newPriority, newType, addItem, cases]);
 
   const openAddPrefill = useCallback((deadline?: string) => {
     setNewDeadline(deadline ?? '');
-    setNewTitle(''); setNewCaseId(''); setNewGroupId(''); setNewTime(''); setNewPriority('medium');
+    setNewTitle(''); setNewCaseId(''); setNewGroupId(''); setNewTime(''); setNewPriority('medium'); setNewType('task');
     setShowAdd(true);
   }, []);
 
@@ -933,6 +935,18 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
               <div className="w-24">
                 <label className="mb-1.5 block text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">优先级</label>
                 <CustomSelect value={newPriority} onChange={(v) => setNewPriority(v as TaskPriority)} options={PRIORITY_OPTS} />
+              </div>
+              <div className="w-28">
+                <label className="mb-1.5 block text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">类型</label>
+                <CustomSelect
+                  value={newType}
+                  onChange={(v) => setNewType(v as 'event' | 'task' | 'both')}
+                  options={[
+                    { value: 'task', label: '任务' },
+                    { value: 'event', label: '事件' },
+                    { value: 'both', label: '事件+任务' },
+                  ]}
+                />
               </div>
             </div>
             <div className="flex justify-end gap-2">

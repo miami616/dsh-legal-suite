@@ -213,17 +213,25 @@ export function apply(ctx, config = {}) {
         path: '/api/agentlex/read',
         handler: async (_req, res) => {
             try {
-                const [caseReg, projectReg, taskList, timeline, schedules] = await Promise.all([
+                const [caseReg, projectReg, taskList, timeline, schedules, itemLegacy] = await Promise.all([
                     internalCall(ctx, '/api/agentlex-case/read'),
                     internalCall(ctx, '/api/agentlex-nonlitigation/projects'),
                     internalCall(ctx, '/api/agentlex-task/tasks'),
                     internalCall(ctx, '/api/agentlex-case/events'),
                     internalCall(ctx, '/api/agentlex-case/schedules'),
+                    internalCall(ctx, '/api/agentlex-item/legacy'),
                 ]);
+                // 统一事项：从 items.json 生成 timeline + taskGroups（数据源统一）。
+                const itemTimeline = (itemLegacy?.timeline ?? {}) as Record<string, unknown>;
+                const itemTaskGroups = (itemLegacy?.taskGroups ?? []) as Array<{ ownerId?: string; id: string; title: string; order: number; tasks: unknown[] }>;
                 const cases = {};
                 for (const [id, c] of Object.entries(caseReg.cases ?? {})) {
                     const legacy = toLegacyCase(c);
-                    if (Array.isArray(legacy.taskGroups)) {
+                    // 任务的 taskGroups 从统一事项生成（按 group 的 ownerId 归属）。
+                    const ownGroups = itemTaskGroups.filter((g) => String(g.ownerId ?? '') === id);
+                    if (ownGroups.length > 0) {
+                        legacy.taskGroups = ownGroups.map((g) => normalizeGroup(g));
+                    } else if (Array.isArray(legacy.taskGroups)) {
                         legacy.taskGroups = legacy.taskGroups.map((g) => normalizeGroup(g));
                     }
                     cases[id] = legacy;
@@ -231,15 +239,19 @@ export function apply(ctx, config = {}) {
                 const projects = {};
                 for (const [id, p] of Object.entries(projectReg.projects ?? {})) {
                     const legacy = toLegacyProject(p);
-                    if (Array.isArray(legacy.taskGroups)) {
+                    // 非诉项目的 taskGroups 也从统一事项生成。
+                    const projGroups = itemTaskGroups.filter((g) => String(g.ownerId ?? '') === id);
+                    if (projGroups.length > 0) {
+                        legacy.taskGroups = projGroups.map((g) => normalizeGroup(g));
+                    } else if (Array.isArray(legacy.taskGroups)) {
                         legacy.taskGroups = legacy.taskGroups.map((g) => normalizeGroup(g));
                     }
                     projects[id] = legacy;
                 }
+                // timeline 从统一事项生成（替代 case-timeline.json）。
                 const timelineMap = {};
-                for (const e of timeline ?? []) {
-                    const legacy = toLegacyTimelineEvent(e);
-                    timelineMap[legacy.id] = legacy;
+                for (const [eid, e] of Object.entries(itemTimeline)) {
+                    timelineMap[eid] = toLegacyTimelineEvent(e);
                 }
                 const standaloneMap = {};
                 for (const t of taskList ?? []) {

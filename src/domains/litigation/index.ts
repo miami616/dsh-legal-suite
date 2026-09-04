@@ -27,6 +27,7 @@ import { seedLitigationSample } from '../../shared/seed/index.ts'
 import { createCaseStore } from './store/case-store.ts'
 import { createScheduleStore } from './store/schedule-store.ts'
 import { createTimelineStore } from './store/timeline-store.ts'
+import { createItemStore } from '../item/store/item-store.ts'
 import { computeDeadlines } from './deadlines.ts'
 import { defaultSourcePath, importFromAgentLex } from './import/agentlex-migrate.ts'
 import { makeRoutes } from './routes.ts'
@@ -343,6 +344,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     const caseStore = createCaseStore(dataDir, ctx)
     const timelineStore = createTimelineStore(dataDir, ctx)
     const scheduleStore = createScheduleStore(dataDir, ctx)
+    // 统一事项 store：items.json 在 $DSH_HOME/agentlex/items（litigation 的父目录 + /items）。
+    const itemsDir = `${dataDir.replace(/[\\/]+litigation$/, '')}/items`
+    const itemStore = createItemStore(itemsDir, ctx)
     // 全新安装（空数据目录）时内置一份参考用例，让新用户开箱即见完整演示。
     // 仅当 registry 为空时播种，绝不覆盖已有数据；失败仅告警不致命。
     void seedLitigationSample(caseStore, timelineStore, scheduleStore)
@@ -364,6 +368,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       caseStore,
       timelineStore,
       scheduleStore,
+      itemStore,
       dataDir,
       // Deadline engine reads through the same stores (fresh each call).
       deadlines,
@@ -380,7 +385,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       // Import from ~/.myagents/agentlex (or an explicit dir), read-only source.
       importFromAgentLex: async (sourceDir?: string) => {
         const dir = sourceDir !== undefined && sourceDir !== '' ? sourceDir : defaultSourcePath()
-        const result = await importFromAgentLex(caseStore, timelineStore, dir)
+        const result = await importFromAgentLex(caseStore, itemStore, dir)
         // The import wrote many rows; a single change broadcast lets clients
         // refresh once instead of per-row. dispatch() only RESOLVES the
         // listeners — run them (same pattern as file-store).

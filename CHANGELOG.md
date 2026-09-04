@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.27（2026-09-03）
+
+### P0 · 统一事项模型重构（事件/任务统一为一个 Item）
+
+彻底重构「关键日程 / 时间轴 / 任务」三个概念，统一为「事项 Item」模型：
+
+- **一个事项一次登记，type 自动分流**：Item 有 `type: event/task/both`，登记一次
+  自动分流到日程/时间轴（event/both）与任务树（task/both）。纯事件（立案）只进
+  日程/时间轴，纯任务（起草起诉状）只进任务树，双重事项（开庭）两者都进。
+- **新增统一事项域 `src/domains/item/`**：item store（items.json 扁平列表）+
+  task-groups store + REST 路由 `/api/agentlex-item/*`。
+- **数据源统一**：`/api/agentlex/read` 聚合、`/api/agentlex-task/unified` 聚合、
+  期限推送 `collectAllDeadlines` 全部改为从 items.json 生成（替代从 case-timeline
+  + case-registry taskGroups + standalone-tasks 三源读取）。
+- **写路径统一**：useAgentLex 的 addTask/updateTask/deleteTask、addTimelineEvent/
+  updateTimelineEvent/deleteTimelineEvent、addStandaloneTask/updateStandaloneTask、
+  addTaskGroup/updateTaskGroup/deleteTaskGroup 全部重定向到 items.json；诉讼/非诉
+  管家 task 路由改写 items。
+- **登记入口统一**：TaskManager（含类型选择下拉 任务/事件/事件+任务）、
+  CaseDetailPage 新建事件 → 写统一事项。
+- **推送去重**：both 事项在同一 deadline 只推一次（作为事件），不再重复。
+- **任务管理模块**：unified 聚合改为从 items 读任务。
+- 说明：本机现有数据将重建，本版为新模型设计，不含旧数据迁移。
+
 ## 0.1.26（2026-09-03）
 
 ### P0 · 三模块时间体系补全（统一 time 字段）

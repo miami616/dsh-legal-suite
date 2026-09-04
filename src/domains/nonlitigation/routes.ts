@@ -13,6 +13,8 @@ export interface RouteDeps {
   serviceStore: ServiceStore
   /** Absolute data directory used as the module DSH workspace. */
   dataDir: string
+  /** 统一事项 store —— 任务写统一事项（v0.1.27 统一事项模型）。 */
+  itemStore?: import('../item/store/item-store.ts').ItemStore
 }
 
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -167,16 +169,31 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const id = String(b.projectId ?? '')
     const gid = String(b.groupId ?? '')
     if (id === '' || gid === '') return fail(res, 'projectId/groupId required')
-    // Transport spells the upsert id as `taskId`; store/browser use `id`.
-    const { projectId: _omit, groupId: _g, taskId, ...task } = b
-    if (taskId !== undefined) task.id = String(taskId)
-    ok(res, await d.projectStore.upsertTask(id, gid, task))
+    // 统一事项模型：任务写到 items.json（type=task）。
+    if (d.itemStore !== undefined) {
+      const created = await d.itemStore.upsertItem({
+        ownerId: id,
+        type: 'task',
+        title: String(b.title ?? b.taskTitle ?? '新事项'),
+        date: b.deadline === undefined ? undefined : String(b.deadline),
+        time: b.time === undefined ? undefined : String(b.time),
+        priority: (b.priority as never) ?? 'medium',
+        groupId: gid || undefined,
+        ...(b.taskId !== undefined ? { id: String(b.taskId) } : {}),
+      })
+      return ok(res, { id: created.id, projectId: id, groupId: gid, ok: true })
+    }
+    const { projectId: _omit, groupId: _g, taskId: _t, ...task } = b
+    ok(res, await d.projectStore.upsertTask(id, gid, { ...task, ...(b.taskId !== undefined ? { id: String(b.taskId) } : {}) }))
   })
   route('/api/agentlex-nonlitigation/delete-task', async (d, b, res) => {
     const id = String(b.projectId ?? '')
     const gid = String(b.groupId ?? '')
     const taskId = String(b.taskId ?? '')
     if (id === '' || gid === '' || taskId === '') return fail(res, 'projectId/groupId/taskId required')
+    if (d.itemStore !== undefined) {
+      return ok(res, await d.itemStore.deleteItem(taskId))
+    }
     ok(res, await d.projectStore.deleteTask(id, gid, taskId))
   })
   route('/api/agentlex-nonlitigation/move-task', async (d, b, res) => {

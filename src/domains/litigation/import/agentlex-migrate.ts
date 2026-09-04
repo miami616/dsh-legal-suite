@@ -137,19 +137,23 @@ async function importCase(store: CaseStore, source: CaseRecord): Promise<'added'
   return 'updated'
 }
 
-/** Import all source events that belong to an imported case. */
-async function importEvents(store: TimelineStore, events: TimelineEvent[], validCaseIds: Set<string>): Promise<{ imported: number; skipped: number }> {
+/** Import all source events that belong to an imported case → 统一事项（event）。 */
+async function importEvents(itemStore: import('../../item/store/item-store.ts').ItemStore, events: TimelineEvent[], validCaseIds: Set<string>): Promise<{ imported: number; skipped: number }> {
   let imported = 0
   let skipped = 0
   for (const e of events) {
     if (e.caseId === undefined || !validCaseIds.has(e.caseId)) { skipped++; continue }
-    const existing = await store.readEvent(e.id)
-    if (existing !== undefined) {
-      // Idempotent: keep our copy's edits if any, else refresh from source.
-      await store.upsertEvent({ ...e, id: e.id })
-    } else {
-      await store.upsertEvent(e)
-    }
+    await itemStore.upsertItem({
+      id: e.id,
+      ownerId: e.caseId,
+      ownerName: e.caseName,
+      type: 'event',
+      title: e.title || '',
+      date: e.date,
+      time: e.time,
+      detail: e.detail,
+      remindRules: e.remindRules,
+    })
     imported++
   }
   return { imported, skipped }
@@ -158,13 +162,13 @@ async function importEvents(store: TimelineStore, events: TimelineEvent[], valid
 /**
  * Run the import.
  * @param caseStore - plugin case store (destination).
- * @param timelineStore - plugin timeline store (destination).
+ * @param itemStore - 统一事项 store（destination：events + tasks）。
  * @param sourceDir - AgentLex data directory (source; read-only).
  * @returns counts.
  */
 export async function importFromAgentLex(
   caseStore: CaseStore,
-  timelineStore: TimelineStore,
+  itemStore: import('../../item/store/item-store.ts').ItemStore,
   sourceDir: string,
 ): Promise<ImportResult> {
   const { cases, events } = await readAgentLexData(sourceDir)
@@ -183,7 +187,7 @@ export async function importFromAgentLex(
     validCaseIds.add(c.caseId)
   }
 
-  const { imported: eventsImported, skipped: eventsSkipped } = await importEvents(timelineStore, events, validCaseIds)
+  const { imported: eventsImported, skipped: eventsSkipped } = await importEvents(itemStore, events, validCaseIds)
   if (eventsSkipped > 0) detail.push(`${eventsSkipped} 个时间轴事件因无对应案件而跳过`)
 
   return { added, updated, skipped, eventsImported, detail }

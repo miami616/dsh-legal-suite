@@ -33,6 +33,8 @@ export interface RouteDeps {
   scheduleStore: ScheduleStore
   /** Absolute data directory used as the module DSH workspace. */
   dataDir: string
+  /** 统一事项 store —— 任务写统一事项（v0.1.27 统一事项模型）。 */
+  itemStore?: import('../item/store/item-store.ts').ItemStore
   /** Announce the deadline engine's per-case summary (M4). */
   deadlines?(caseId?: string, opts?: { includeOverdue?: boolean }): unknown | Promise<unknown>
   /** Import from an AgentLex data directory (M5). */
@@ -250,12 +252,23 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const caseId = String(b.caseId ?? '')
     const groupId = String(b.groupId ?? '')
     if (caseId === '' || groupId === '') return fail(res, 'caseId/groupId required')
-    // Transport spells the upsert id as `taskId` (HTTP tool / curl); the store
-    // and browser half use `id`. Accept both so an update never becomes a
-    // silent new task (BUG-1).
-    const { caseId: _omit, groupId: _g, taskId, ...task } = b
-    if (taskId !== undefined) task.id = String(taskId)
-    ok(res, await d.caseStore.upsertTask(caseId, groupId, task))
+    // 统一事项模型：任务写到 items.json（type=task）。
+    if (d.itemStore !== undefined) {
+      const { caseId: _omit, groupId: _g, taskId, taskTitle: _tt, ...rest } = b
+      const created = await d.itemStore.upsertItem({
+        ownerId: caseId,
+        type: 'task',
+        title: String(b.title ?? b.taskTitle ?? '新事项'),
+        date: b.deadline === undefined ? undefined : String(b.deadline),
+        time: b.time === undefined ? undefined : String(b.time),
+        priority: (b.priority as never) ?? 'medium',
+        groupId: groupId || undefined,
+        ...(taskId !== undefined ? { id: String(taskId) } : {}),
+      })
+      return ok(res, { id: created.id, caseId, groupId, ok: true })
+    }
+    const { caseId: _omit2, groupId: _g2, taskId: _t2, ...task2 } = b
+    ok(res, await d.caseStore.upsertTask(caseId, groupId, { ...task2, ...(b.taskId !== undefined ? { id: String(b.taskId) } : {}) }))
   })
 
   route(`${API_PREFIX}/delete-task`, async (d, b, res) => {
@@ -263,6 +276,9 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const groupId = String(b.groupId ?? '')
     const taskId = String(b.taskId ?? '')
     if (caseId === '' || groupId === '' || taskId === '') return fail(res, 'caseId/groupId/taskId required')
+    if (d.itemStore !== undefined) {
+      return ok(res, await d.itemStore.deleteItem(taskId))
+    }
     ok(res, await d.caseStore.deleteTask(caseId, groupId, taskId))
   })
 

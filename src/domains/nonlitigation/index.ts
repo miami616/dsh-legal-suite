@@ -18,6 +18,7 @@ import type { Events } from '@deepseek-ai/cordis'
 import { syncShippedPreset } from '../../shared/preset-sync.ts'
 import { seedNonLitigationSample } from '../../shared/seed/index.ts'
 import { createProjectStore } from './store/project-store.ts'
+import { createItemStore } from '../item/store/item-store.ts'
 import { createServiceStore } from './store/service-store.ts'
 import { makeRoutes } from './routes.ts'
 import { registerNonLitigationHttpTool } from './tools.ts'
@@ -268,6 +269,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       })
     const projectStore = createProjectStore(dataDir, ctx)
     const serviceStore = createServiceStore(dataDir, ctx)
+    // 统一事项 store：$DSH_HOME/agentlex/items。
+    const itemsDir = `${dataDir.replace(/[\\/]+nonlitigation$/, '')}/items`
+    const itemStore = createItemStore(itemsDir, ctx)
     // 全新安装（空数据目录）时内置一份参考项目，让新用户开箱即见完整演示。
     // 仅当 registry 为空时播种，绝不覆盖已有数据；失败仅告警不致命。
     void seedNonLitigationSample(projectStore, serviceStore)
@@ -280,7 +284,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const disposers: Array<() => void> = [ctx.on('agentlex:registry-changed' as keyof Events, () => {
       void snapshotDataDir('nonlitigation', dataDir, home)
     })]
-    disposers.push(makeRoutes(ctx, { projectStore, serviceStore, dataDir }))
+    disposers.push(makeRoutes(ctx, { projectStore, serviceStore, itemStore, dataDir }))
     hostSurface = { token, dispose: () => { for (const dispose of disposers.splice(0).reverse()) dispose() } }
   }
 

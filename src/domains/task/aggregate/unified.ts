@@ -11,97 +11,58 @@ async function readJson<T>(file: string): Promise<T | undefined> {
   }
 }
 
-interface LitigationRegistryLike {
-  cases?: Record<string, {
-    caseId: string
-    name: string
-    taskGroups?: Array<{
-      id: string
-      name: string
-      tasks?: Array<{
-        id: string
-        title: string
-        status?: string
-        priority?: string
-        deadline?: string
-        time?: string
-        detail?: string
-      }>
-    }>
-  }>
+interface ItemLike {
+  id: string
+  ownerId?: string
+  ownerName?: string
+  type?: string
+  title: string
+  status?: string
+  priority?: string
+  date?: string
+  time?: string
+  detail?: string
+  groupId?: string
+  groupName?: string
 }
 
-interface NonLitigationRegistryLike {
-  projects?: Record<string, {
-    projectId: string
-    name: string
-    taskGroups?: Array<{
-      id: string
-      name: string
-      tasks?: Array<{
-        id: string
-        title: string
-        status?: string
-        priority?: string
-        deadline?: string
-        time?: string
-        detail?: string
-      }>
-    }>
-  }>
+interface ItemRegistryLike {
+  items?: ItemLike[]
 }
 
 /**
- * Read the litigation + non-litigation registries directly from disk (read-only)
- * and merge their task trees with standalone tasks into one unified list.
+ * 统一事项模型：从 items.json（$DSH_HOME/agentlex/items）读所有 type 为
+ * task/both 的事项，作为统一任务视图。替代从 case-registry/project-registry
+ * 读 taskGroups + standalone-tasks。一个事项一次登记，这里只取任务侧。
  */
 export async function aggregateUnifiedTasks(
   litigationDir: string,
   nonlitigationDir: string,
   standalone: TaskItem[],
 ): Promise<TaskItem[]> {
+  // standalone 参数兼容旧调用；新逻辑从 items 读。
+  const itemsDir = join(litigationDir, '..', 'items')
+  const reg = await readJson<ItemRegistryLike>(join(itemsDir, 'items.json'))
   const out: TaskItem[] = [...standalone]
 
-  const cases = await readJson<LitigationRegistryLike>(join(litigationDir, 'case-registry.json'))
-  for (const c of Object.values(cases?.cases ?? {})) {
-    for (const g of c.taskGroups ?? []) {
-      for (const t of g.tasks ?? []) {
-        out.push({
-          id: `lit-${c.caseId}-${t.id}`,
-          title: t.title,
-          detail: t.detail,
-          status: (t.status as TaskItem['status']) ?? 'todo',
-          priority: (t.priority as TaskItem['priority']) ?? 'medium',
-          deadline: t.deadline,
-          time: t.time,
-          source: 'litigation',
-          sourceId: c.caseId,
-          sourceName: c.name,
-          groupId: g.id,
-        })
-      }
-    }
-  }
-
-  const projects = await readJson<NonLitigationRegistryLike>(join(nonlitigationDir, 'project-registry.json'))
-  for (const p of Object.values(projects?.projects ?? {})) {
-    for (const g of p.taskGroups ?? []) {
-      for (const t of g.tasks ?? []) {
-        out.push({
-          id: `nl-${p.projectId}-${t.id}`,
-          title: t.title,
-          detail: t.detail,
-          status: (t.status as TaskItem['status']) ?? 'todo',
-          priority: (t.priority as TaskItem['priority']) ?? 'medium',
-          deadline: t.deadline,
-          time: t.time,
-          source: 'nonlitigation',
-          sourceId: p.projectId,
-          sourceName: p.name,
-          groupId: g.id,
-        })
-      }
-    }
+  for (const it of (reg?.items ?? [])) {
+    // 只取任务侧（task/both）。
+    if (it.type === 'event') continue
+    const ownerId = it.ownerId ?? ''
+    const source = ownerId === '' ? 'standalone' : 'litigation'
+    out.push({
+      id: it.id,
+      title: it.title,
+      detail: it.detail,
+      status: (it.status === 'doing' ? 'doing' : it.status === 'done' ? 'done' : 'todo') as TaskItem['status'],
+      priority: (it.priority as TaskItem['priority']) ?? 'medium',
+      deadline: it.date,
+      time: it.time,
+      source,
+      sourceId: ownerId || undefined,
+      sourceName: it.ownerName,
+      groupId: it.groupId,
+    })
   }
 
   return out

@@ -240,7 +240,7 @@ function AgentSessionButton({
 }
 
 export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpenCaseSession, onOpenCaseFolder, getArchivedSessionIds }: CaseDetailPageProps) {
-  const { cases, projects, timelineEvents, updateCase, pruneStaleSessions, addTimelineEvent, updateTimelineEvent, deleteTimelineEvent, toggleTimelineEvent } = useAgentLex();
+  const { cases, projects, timelineEvents, updateCase, pruneStaleSessions, addTimelineEvent, updateTimelineEvent, deleteTimelineEvent, toggleTimelineEvent, addItem } = useAgentLex();
   const entry = cases.find(c => c.caseId === caseId) ?? null;
 
   // Treat the bound case folder as a workspace root — same file-service surface
@@ -585,15 +585,19 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
   // ── Event CRUD ──
   const handleAddEvent = useCallback((d: EventFormData) => {
     if (!entry) return;
-    const now = new Date().toISOString();
-    addTimelineEvent({
-      id: '', caseId, caseName: entry.name, type: d.type,
-      label: d.label, date: d.date, time: d.time, source: 'manual',
-      status: d.status, remindRules: d.remindDays ? [{ type: 'before_event', minutes: d.remindDays * 1440, enabled: true }] : [],
-      createdAt: now, createdBy: '用户', updatedAt: now,
+    // 统一事项：登记为 event 事项（进关键日程/时间轴）。
+    void addItem({
+      ownerId: caseId,
+      ownerName: entry.name,
+      type: 'event',
+      title: d.label,
+      date: d.date,
+      time: d.time,
+      detail: d.detail,
+      remindRules: d.remindDays ? [{ type: 'before_event', minutes: d.remindDays * 1440, enabled: true }] : [],
     });
     setAddingEvent(false);
-  }, [entry, caseId, addTimelineEvent]);
+  }, [entry, caseId, addItem]);
   const handleSaveEvent = useCallback((d: EventFormData) => {
     if (!editingEvent) return;
     updateTimelineEvent(editingEvent.id, e => ({

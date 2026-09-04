@@ -1416,9 +1416,17 @@ async function toggleScheduleComplete(id: string): Promise<void> {
 // ── Timeline event actions (v1.1.0) ──
 
 async function addTimelineEvent(evt: TimelineEvent): Promise<void> {
-  await mutateDisk('cmd_agentlex_add_timeline_event', timelineEventToAddPayload(evt), prev => ({
-    ...prev, timelineEvents: [...prev.timelineEvents, evt],
-  }));
+  // 统一事项：登记为 event 事项（进关键日程/时间轴）。
+  await addItem({
+    ownerId: evt.caseId,
+    ownerName: evt.caseName,
+    type: 'event',
+    title: evt.label || evt.title,
+    date: evt.date,
+    time: evt.time,
+    detail: evt.detail,
+    remindRules: evt.remindRules,
+  });
 }
 
 /** Project-scoped timeline event. Routes to the project command so the event is
@@ -1437,49 +1445,97 @@ async function updateTimelineEvent(id: string, updater: (e: TimelineEvent) => Ti
   const current = state.timelineEvents.find(e => e.id === id);
   if (!current) return;
   const updated = updater(current);
-  await mutateDisk('cmd_agentlex_update_timeline_event', { eventId: id, patch: timelineEventToUpdatePatch(updated) }, prev => ({
-    ...prev, timelineEvents: prev.timelineEvents.map(e => e.id === id ? updated : e),
-  }));
+  await updateItem(id, {
+    title: updated.label || updated.title,
+    date: updated.date,
+    time: updated.time,
+    detail: updated.detail,
+    remindRules: updated.remindRules,
+  });
 }
 
 async function deleteTimelineEvent(id: string): Promise<void> {
-  await mutateDisk('cmd_agentlex_delete_timeline_event', { eventId: id }, prev => ({
-    ...prev, timelineEvents: prev.timelineEvents.filter(e => e.id !== id),
-  }));
+  await deleteItem(id);
 }
 
 async function toggleTimelineEvent(id: string): Promise<void> {
-  await mutateDisk('cmd_agentlex_toggle_timeline_event', { eventId: id }, prev => ({
-    ...prev,
-    timelineEvents: prev.timelineEvents.map(e => e.id === id
-      ? { ...e, status: (e.status === 'completed' ? 'pending' : 'completed') as TimelineEventStatus, completedAt: e.status !== 'completed' ? new Date().toISOString() : e.completedAt }
-      : e),
-  }));
+  await toggleItem(id);
 }
 
 // ── Standalone task actions (v1.1.0) ──
 
 async function addStandaloneTask(task: AgentLexStandaloneTask): Promise<void> {
-  await mutateDisk('cmd_agentlex_add_standalone_task', {
-    title: task.title, caseId: task.caseId || null, caseName: task.caseName || null,
-    deadline: task.deadline ?? null, time: task.time ?? null, priority: task.priority,
-    owner: task.owner || null, stage: task.stage || null, groupTitle: task.groupTitle || null,
-  }, prev => ({ ...prev, standaloneTasks: [...prev.standaloneTasks, task] }));
+  // 统一事项：独立任务 = ownerId 为空的任务。
+  await addItem({
+    ownerId: task.caseId || '',
+    ownerName: task.caseName || undefined,
+    type: 'task',
+    title: task.title,
+    date: task.deadline,
+    time: task.time,
+    priority: task.priority,
+    detail: task.stage || undefined,
+  });
 }
 
 async function updateStandaloneTask(id: string, updater: (t: AgentLexStandaloneTask) => AgentLexStandaloneTask): Promise<void> {
   const current = state.standaloneTasks.find(t => t.id === id);
   if (!current) return;
   const updated = updater(current);
-  await mutateDisk('cmd_agentlex_update_standalone_task', { taskId: id, patch: updated }, prev => ({
-    ...prev, standaloneTasks: prev.standaloneTasks.map(t => t.id === id ? updated : t),
-  }));
+  await updateItem(id, {
+    title: updated.title,
+    date: updated.deadline,
+    time: updated.time,
+    priority: updated.priority,
+    detail: updated.stage || undefined,
+  });
 }
 
 async function deleteStandaloneTask(id: string): Promise<void> {
   await mutateDisk('cmd_agentlex_delete_standalone_task', { taskId: id }, prev => ({
     ...prev, standaloneTasks: prev.standaloneTasks.filter(t => t.id !== id),
   }));
+}
+
+// ── 统一事项（v0.1.27 统一事项模型）──
+// 写统一事项 items.json。登记一个事项（type: event/task/both），
+// 自动分流到 timeline + taskGroups（由 /api/agentlex/read 聚合生成）。
+
+async function itemCall<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  const resp = await fetch(`/api/agentlex-item/${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const env = await resp.json().catch(() => null) as { success: boolean; data?: T; error?: string } | null;
+  if (!resp.ok || env === null || env.success === false) {
+    throw new Error(env?.error ?? `item request failed (${resp.status})`);
+  }
+  return env.data as T;
+}
+
+async function addItem(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const created = await itemCall<Record<string, unknown>>('item', input);
+  await reloadFromDisk();
+  return created;
+}
+
+async function updateItem(id: string, patch: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const updated = await itemCall<Record<string, unknown>>('item', { id, ...patch });
+  await reloadFromDisk();
+  return updated;
+}
+
+async function deleteItem(id: string): Promise<{ deleted: boolean }> {
+  const result = await itemCall<{ deleted: boolean }>('delete-item', { id });
+  await reloadFromDisk();
+  return result;
+}
+
+async function toggleItem(id: string): Promise<Record<string, unknown>> {
+  const result = await itemCall<Record<string, unknown>>('toggle-item', { id });
+  await reloadFromDisk();
+  return result;
 }
 
 // ── Contract + research actions (Phase 4: disk-first via Rust commands) ──
@@ -1610,22 +1666,29 @@ async function taskMutate(command: string, args: Record<string, unknown>): Promi
 }
 
 const addTaskGroup = (caseId: string, title: string, order?: number) =>
-  taskMutate('cmd_agentlex_add_task_group', { caseId, title, order });
+  itemCall('group', { ownerId: caseId, name: title, order }).then(() => reloadFromDisk());
 const updateTaskGroup = (caseId: string, groupId: string, patch: Partial<TaskGroup>) =>
-  taskMutate('cmd_agentlex_update_task_group', { caseId, groupId, patch });
+  itemCall('group', { id: groupId, ownerId: caseId, name: patch.title ?? patch.name }).then(() => reloadFromDisk());
 const deleteTaskGroup = (caseId: string, groupId: string) =>
-  taskMutate('cmd_agentlex_delete_task_group', { caseId, groupId });
+  itemCall('delete-group', { id: groupId }).then(() => reloadFromDisk());
 const reorderTaskGroups = (caseId: string, orderedIds: string[]) =>
-  taskMutate('cmd_agentlex_reorder_task_groups', { caseId, orderedIds });
+  Promise.all(orderedIds.map((id, index) => itemCall('group', { id, ownerId: caseId, order: index }))).then(() => reloadFromDisk());
 
 const addTask = (caseId: string, groupId: string, title: string, opts?: { detail?: string; deadline?: string; time?: string; priority?: TaskPriority; folder?: string }) =>
-  taskMutate('cmd_agentlex_add_task', { caseId, groupId, title, detail: opts?.detail, deadline: opts?.deadline, time: opts?.time, priority: opts?.priority, folder: opts?.folder });
+  addItem({ ownerId: caseId, type: 'task', title, detail: opts?.detail, date: opts?.deadline, time: opts?.time, priority: opts?.priority, groupId: groupId || undefined });
 const updateTask = (caseId: string, taskId: string, patch: Partial<Task>) =>
-  taskMutate('cmd_agentlex_update_task', { caseId, taskId, patch });
+  updateItem(taskId, {
+    ...(patch.title !== undefined ? { title: patch.title } : {}),
+    ...(patch.deadline !== undefined ? { date: patch.deadline } : {}),
+    ...(patch.time !== undefined ? { time: patch.time } : {}),
+    ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
+    ...(patch.status !== undefined ? { status: patch.status === 'done' ? 'done' : patch.status === 'in_progress' ? 'doing' : 'pending' } : {}),
+    ...(patch.detail !== undefined ? { detail: patch.detail } : {}),
+  });
 const deleteTask = (caseId: string, taskId: string) =>
-  taskMutate('cmd_agentlex_delete_task', { caseId, taskId });
+  deleteItem(taskId);
 const moveTask = (caseId: string, taskId: string, targetGroupId: string) =>
-  taskMutate('cmd_agentlex_move_task', { caseId, taskId, targetGroupId });
+  updateItem(taskId, { groupId: targetGroupId });
 
 const addSubtask = (caseId: string, taskId: string, title: string, opts?: { deadline?: string; priority?: TaskPriority }) =>
   taskMutate('cmd_agentlex_add_subtask', { caseId, taskId, title, deadline: opts?.deadline, priority: opts?.priority });
@@ -1709,6 +1772,11 @@ export function useAgentLex(): AgentLexState & {
   addChecklistItem: (caseId: string, taskId: string, text: string) => Promise<void>;
   toggleChecklistItem: (caseId: string, taskId: string, itemId: string, done?: boolean) => Promise<void>;
   deleteChecklistItem: (caseId: string, taskId: string, itemId: string) => Promise<void>;
+  // 统一事项（v0.1.27 统一事项模型）
+  addItem: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  updateItem: (id: string, patch: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  deleteItem: (id: string) => Promise<{ deleted: boolean }>;
+  toggleItem: (id: string) => Promise<Record<string, unknown>>;
 } {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
   const refresh = useCallback(() => { void reloadFromDisk(); }, []);
@@ -1730,5 +1798,6 @@ export function useAgentLex(): AgentLexState & {
     addTask, updateTask, deleteTask, moveTask,
     addSubtask, updateSubtask, deleteSubtask,
     addChecklistItem, toggleChecklistItem, deleteChecklistItem,
+    addItem, updateItem, deleteItem, toggleItem,
   };
 }

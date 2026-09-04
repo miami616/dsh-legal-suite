@@ -25,6 +25,7 @@ import * as workspaceSidebar from './domains/workspace-sidebar/index.ts'
 import * as skillsTools from './domains/skills-tools/index.ts'
 import * as memo from './domains/memo/index.ts'
 import * as push from './domains/push/index.ts'
+import * as item from './domains/item/index.ts'
 
 export const name = 'dsh-legal-suite'
 
@@ -88,4 +89,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.plugin(memo, {})
   // 期限 IM 推送域（关键日期快到期 → dsh-im 主动投递；定时复用 dsh-timer-agent）。
   ctx.plugin(push, {})
+  // 统一事项域（事件+任务统一模型，items.json；诉讼/非诉/任务管理共用）。
+  ctx.plugin(item, {})
 }

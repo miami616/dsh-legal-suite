@@ -23,8 +23,10 @@ import { createCaseStore } from '../litigation/store/case-store.ts'
 import { createTimelineStore } from '../litigation/store/timeline-store.ts'
 import { createProjectStore } from '../nonlitigation/store/project-store.ts'
 import { createTaskStore } from '../task/store/task-store.ts'
+import { createItemStore } from '../item/store/item-store.ts'
 import { sendFeishuCard } from './feishu-card.ts'
 import { ledgerKey, type PushConfig, type PushStore } from './store/push-config.ts'
+import { join } from 'node:path'
 
 /** 无具体时间的期限：提前 1 天，早上 8:00 提醒（避免 0 点被忽略）。 */
 export const DEFAULT_REMIND_HOUR = 8
@@ -295,69 +297,46 @@ export async function collectAllDeadlines(
 ): Promise<DeadlineItem[]> {
   const items: DeadlineItem[] = []
 
-  // 1. 诉讼：复用 computeDeadlines（含 keyDates + timeline + 任务 deadline）。
-  const caseStore = createCaseStore(litigationDir)
-  const timelineStore = createTimelineStore(litigationDir)
-  const [registry, events] = await Promise.all([caseStore.readRegistry(), timelineStore.listEvents()])
-  items.push(...computeDeadlines(registry, events))
-
-  // 2. 非诉：keyDates + 任务 deadline。
+  // 统一事项：从 items.json 读所有事项（event/task/both），自动分流。
+  // 一个事项一次登记，type 决定它进日程/时间轴还是任务树。
   try {
-    const projectStore = createProjectStore(nonlitigationDir, undefined as never)
-    const projectRegistry = await projectStore.readRegistry()
-    for (const rec of Object.values(projectRegistry.projects)) {
-      if (rec.status === 'archived' || rec.status === 'done') continue
-      for (const kd of rec.keyDates ?? []) {
-        if (kd.done || !kd.date) continue
+    const itemStore = createItemStore(join(litigationDir, '..', 'items'))
+    const all = await itemStore.listItems()
+    for (const it of all) {
+      if (it.status === 'done' || it.status === 'cancelled' || !it.date) continue
+      const ownerId = it.ownerId ?? ''
+      const ownerName = it.ownerName ?? ''
+      const isEvent = it.type === 'event' || it.type === 'both'
+      const isTask = it.type === 'task' || it.type === 'both'
+      // 事件 → 关键日程/时间轴（kind 按类型）。
+      if (isEvent) {
         items.push(makeItem({
-          caseId: rec.projectId,
-          caseName: rec.name,
-          date: datePart(kd.date),
-          label: kd.label,
-          kind: 'keydate',
-          source: 'nonlitigation',
-          time: timePart(kd.date),
+          caseId: ownerId,
+          caseName: ownerName,
+          date: datePart(it.date),
+          label: it.title,
+          kind: it.type === 'both' ? 'hearing' : 'keydate',
+          source: ownerId === '' ? 'standalone' : 'litigation',
+          time: timePart(it.date) ?? it.time,
+          detail: it.detail,
         }))
       }
-      for (const group of rec.taskGroups ?? []) {
-        for (const task of group.tasks) {
-          if (task.status === 'done' || !task.deadline) continue
-          items.push(makeItem({
-            caseId: rec.projectId,
-            caseName: rec.name,
-            date: datePart(task.deadline),
-            label: task.title,
-            kind: 'task',
-            source: 'nonlitigation',
-            // deadline 只存纯日期，具体时间单独存 time 字段（兜底再从 detail 提取）。
-            time: timePart(task.deadline) ?? task.time ?? extractTimeFromDetail(task.detail),
-          }))
-        }
+      // 任务 → 任务 deadline。both 事项只作为事件进一次（同一 deadline 不重复）。
+      if (isTask && it.type !== 'both') {
+        items.push(makeItem({
+          caseId: ownerId,
+          caseName: ownerName,
+          date: datePart(it.date),
+          label: it.title,
+          kind: 'task',
+          source: ownerId === '' ? 'standalone' : 'litigation',
+          time: timePart(it.date) ?? it.time ?? extractTimeFromDetail(it.detail),
+          detail: it.detail,
+        }))
       }
     }
   } catch (error) {
-    console.warn('[agentlex-push] 非诉期限读取失败:', error instanceof Error ? error.message : String(error))
-  }
-
-  // 3. 独立任务（standalone）：deadline 含具体时分。
-  try {
-    const taskStore = createTaskStore(tasksDir, undefined as never)
-    const taskRegistry = await taskStore.readRegistry()
-    for (const task of Object.values(taskRegistry.tasks)) {
-      if (task.status === 'done' || !task.deadline) continue
-      items.push(makeItem({
-        caseId: task.id,
-        caseName: task.title,
-        date: datePart(task.deadline),
-        label: task.title,
-        kind: 'task',
-        source: 'standalone',
-        // deadline 只存纯日期，具体时间单独存 time 字段（兜底再从 detail 提取）。
-        time: timePart(task.deadline) ?? task.time ?? extractTimeFromDetail(task.detail),
-      }))
-    }
-  } catch (error) {
-    console.warn('[agentlex-push] 独立任务期限读取失败:', error instanceof Error ? error.message : String(error))
+    console.warn('[agentlex-push] 统一事项期限读取失败:', error instanceof Error ? error.message : String(error))
   }
 
   return items

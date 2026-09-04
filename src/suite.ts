@@ -64,8 +64,16 @@ function normalizeGroup(group) {
 }
 
 function toLegacyCase(record) {
+    // 审级历程：前端依赖 instances 数组渲染审级历程面板。若 record 无
+    // instances（或为空）但 level 有值，生成一个含当前审级的 instances，
+    // 否则审级历程恒为空（即使 level 有值也不显示）。
+    let instances = Array.isArray(record.instances) ? record.instances : [];
+    if (instances.length === 0 && record.level) {
+        instances = [{ level: record.level, status: record.status ?? 'pending' }];
+    }
     return {
         ...record,
+        instances,
         alias: Array.isArray(record.alias) ? record.alias : [],
         keyDates: Array.isArray(record.keyDates) ? record.keyDates : [],
         boundSessions: Array.isArray(record.boundSessions) ? record.boundSessions : [],

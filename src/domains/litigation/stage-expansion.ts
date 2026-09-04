@@ -186,10 +186,38 @@ export async function applyStageExpansion(
   caseId: string,
   stageId: string,
   opts: StageExpandOptions = {},
+  itemStore?: import('../item/store/item-store.ts').ItemStore,
 ): Promise<StagePlan & { groupId?: string }> {
   const plan = await planStageExpansion(caseStore, caseId, stageId, { ...opts, dryRun: false })
   if (plan.tasks.length === 0) return plan
   const stage = getLitigationStage(stageId)!
+
+  // 统一事项模型：任务写 items.json（type=task，带 groupId）。
+  if (itemStore !== undefined) {
+    // 任务组：懒创建（同名组存在则复用）。
+    const groups = await itemStore.listGroups(caseId)
+    let group = groups.find((g) => g.name === stage.name)
+    if (group === undefined) {
+      group = await itemStore.upsertGroup({ ownerId: caseId, name: stage.name })
+    }
+    for (const t of plan.tasks) {
+      await itemStore.upsertItem({
+        ownerId: caseId,
+        type: 'task',
+        title: t.title,
+        status: 'pending',
+        priority: t.priority,
+        date: t.deadline,
+        detail: t.detail,
+        groupId: group.id,
+        groupName: group.name,
+        templateTitle: t.title,
+        subtasks: t.subtasks.map((st) => ({ id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: st, done: false })),
+        checklist: t.checklist.map((c) => ({ id: `chk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text: c, done: false })),
+      })
+    }
+    return { ...plan, groupId: group.id }
+  }
 
   const record = await caseStore.upsertTaskGroup(caseId, { name: stage.name })
   const group = record.taskGroups!.find((g) => g.name === stage.name)!

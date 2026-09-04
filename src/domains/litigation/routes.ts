@@ -262,6 +262,8 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
         date: b.deadline === undefined ? undefined : String(b.deadline),
         time: b.time === undefined ? undefined : String(b.time),
         priority: (b.priority as never) ?? 'medium',
+        // 透传 status（todo/doing/done → pending/doing/done）。
+        status: (b.status === 'done' ? 'done' : b.status === 'doing' || b.status === 'in_progress' ? 'doing' : b.status === 'todo' ? 'pending' : undefined) as never,
         groupId: groupId || undefined,
         ...(taskId !== undefined ? { id: String(taskId) } : {}),
       })
@@ -346,18 +348,38 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   })
 
   route(`${API_PREFIX}/event`, async (d, b, res) => {
+    // 统一事项模型：时间轴事件写 items.json（type=event）。
+    if (d.itemStore !== undefined) {
+      const created = await d.itemStore.upsertItem({
+        ownerId: String(b.caseId ?? ''),
+        type: 'event',
+        title: String(b.title ?? b.label ?? '新事件'),
+        date: b.date === undefined ? undefined : String(b.date),
+        time: b.time === undefined ? undefined : String(b.time),
+        detail: b.detail === undefined ? undefined : String(b.detail),
+        status: (b.status as never) ?? 'pending',
+        ...(b.eventId !== undefined ? { id: String(b.eventId) } : {}),
+      })
+      return ok(res, created)
+    }
     ok(res, await d.timelineStore.upsertEvent(b as Parameters<TimelineStore['upsertEvent']>[0]))
   })
 
   route(`${API_PREFIX}/delete-event`, async (d, b, res) => {
     const eventId = String(b.eventId ?? '')
     if (eventId === '') return fail(res, 'eventId required')
+    if (d.itemStore !== undefined) {
+      return ok(res, await d.itemStore.deleteItem(eventId))
+    }
     ok(res, await d.timelineStore.deleteEvent(eventId))
   })
 
   route(`${API_PREFIX}/toggle-event`, async (d, b, res) => {
     const eventId = String(b.eventId ?? '')
     if (eventId === '') return fail(res, 'eventId required')
+    if (d.itemStore !== undefined) {
+      return ok(res, await d.itemStore.toggleItem(eventId))
+    }
     ok(res, await d.timelineStore.toggleEvent(eventId))
   })
 
@@ -406,7 +428,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (b.dryRun === true) {
       ok(res, await planStageExpansion(d.caseStore, caseId, stageId, { ...opts, dryRun: true }))
     } else {
-      ok(res, await applyStageExpansion(d.caseStore, caseId, stageId, opts))
+      ok(res, await applyStageExpansion(d.caseStore, caseId, stageId, opts, d.itemStore))
     }
   })
 

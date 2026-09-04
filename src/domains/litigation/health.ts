@@ -54,7 +54,7 @@ function hasKeyDate(record: CaseRecord, labels: string[]): boolean {
  */
 export const FIELD_RULES: FieldRule[] = [
   { fromOrder: 1, field: 'type', label: '案件类型', why: '决定适用的程序规则与阶段模板', read: (r) => s(r.type) },
-  { fromOrder: 1, field: 'ourSide', label: '我方身份', why: '原被告身份决定举证责任与期限起算点', read: (r) => s(r.ourSide) },
+  { fromOrder: 1, field: 'ourSide', label: '我方身份', why: '原被告身份决定举证责任与期限起算点', read: (r) => s(r.ourSide) || s(r.parties?.ourSide) },
   { fromOrder: 1, field: 'parties', label: '当事人信息', why: '起诉状与授权手续的基础信息', read: (r) => ((r.parties?.details ?? []).length > 0 ? 'ok' : '') },
   { fromOrder: 2, field: 'claimAmount', label: '标的额', why: '关系到诉讼费计算、级别管辖与保全担保', read: (r) => s(r.claimAmount) },
   { fromOrder: 3, field: 'court', label: '受理法院', why: '立案后必须登记，是后续所有程序动作的对象', read: (r) => s(r.court) },

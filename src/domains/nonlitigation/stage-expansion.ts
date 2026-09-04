@@ -175,10 +175,40 @@ export async function applyStageExpansion(
   projectId: string,
   stageId: string,
   opts: ProjectStageExpandOptions = {},
+  itemStore?: import('../item/store/item-store.ts').ItemStore,
 ): Promise<ProjectStagePlan & { groupId?: string }> {
   const plan = await planStageExpansion(projectStore, projectId, stageId, { ...opts, dryRun: false })
   if (plan.tasks.length === 0) return plan
   const stage = getProjectStage(stageId)!
+
+  // 统一事项模型：任务写 items.json（type=task，带 groupId）。
+  if (itemStore !== undefined) {
+    const groups = await itemStore.listGroups(projectId)
+    let group = groups.find((g) => g.name === stage.name)
+    if (group === undefined) {
+      group = await itemStore.upsertGroup({ ownerId: projectId, name: stage.name })
+    }
+    for (const t of plan.tasks) {
+      const detail = t.deliverable !== undefined
+        ? `${t.detail ?? ''}${t.detail !== undefined ? '；' : ''}交付物：${t.deliverable}`
+        : t.detail
+      await itemStore.upsertItem({
+        ownerId: projectId,
+        type: 'task',
+        title: t.title,
+        status: 'pending',
+        priority: t.priority,
+        date: t.deadline,
+        detail,
+        groupId: group.id,
+        groupName: group.name,
+        templateTitle: t.title,
+        subtasks: t.subtasks.map((st) => ({ id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: st, done: false })),
+        checklist: t.checklist.map((c) => ({ id: `chk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text: c, done: false })),
+      })
+    }
+    return { ...plan, groupId: group.id }
+  }
 
   const record = await projectStore.upsertTaskGroup(projectId, { name: stage.name })
   const group = record.taskGroups!.find((g) => g.name === stage.name)!

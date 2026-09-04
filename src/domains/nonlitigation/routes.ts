@@ -288,7 +288,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (b.dryRun === true) {
       ok(res, await planStageExpansion(d.projectStore, projectId, stageId, { ...opts, dryRun: true }))
     } else {
-      ok(res, await applyStageExpansion(d.projectStore, projectId, stageId, opts))
+      ok(res, await applyStageExpansion(d.projectStore, projectId, stageId, opts, d.itemStore))
     }
   })
 

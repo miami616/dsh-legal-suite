@@ -25,6 +25,8 @@ import { computeCaseHealth, computeRegistryHealth } from './health.ts'
 export interface ToolDeps {
   caseStore: CaseStore
   timelineStore: TimelineStore
+  /** 统一事项 store —— 时间轴事件/任务写统一事项（v0.1.27）。 */
+  itemStore?: import('../item/store/item-store.ts').ItemStore
   /** Deadline engine summary (optional when unavailable). */
   deadlines?(caseId?: string, opts?: { includeOverdue?: boolean }): unknown | Promise<unknown>
 }
@@ -260,7 +262,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           const stageId = args.stageId as string
           const plan = args.dryRun === true
             ? await planStageExpansion(cs, caseId, stageId, { ...opts, dryRun: true })
-            : await applyStageExpansion(cs, caseId, stageId, opts)
+            : await applyStageExpansion(cs, caseId, stageId, opts, deps.itemStore)
           return clean(plan)
         }
         case 'case_health': {
@@ -409,6 +411,20 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         /* ---------------------------- timeline -------------------------- */
         case 'upsert_event': {
           requireIds({ caseId: s(args.caseId) })
+          // 统一事项模型：时间轴事件写 items.json（type=event）。
+          if (deps.itemStore !== undefined) {
+            const created = await deps.itemStore.upsertItem({
+              ownerId: String(args.caseId),
+              type: 'event',
+              title: s(args.title) ?? '新事件',
+              date: s(args.date),
+              time: s(args.time),
+              detail: s(args.detail),
+              status: (s(args.status) as never) ?? 'pending',
+              ...(args.eventId !== undefined ? { id: String(args.eventId) } : {}),
+            })
+            return { eventId: created.id, ok: true }
+          }
           const event: Record<string, unknown> = {
             caseId: String(args.caseId),
             title: s(args.title),

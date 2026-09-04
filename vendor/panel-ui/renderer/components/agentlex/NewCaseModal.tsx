@@ -1,11 +1,14 @@
 /**
- * AgentLex NewCaseModal — Manual case registration (v1.2.1).
+ * AgentLex NewCaseModal — Manual case registration (v1.2.1, 备忘录 #6).
  *
- * AI 智能注册模式已移除，仅保留手动注册表单。表单只采集核心卡片信息，
- * 法院/法官/标的额/立案日期/概述交给注册后的 agent 会话按 SOP 补全。
+ * 两个提交模式：
+ *  - 「智能注册」：落库后跳 agent 会话，由 agent 按 SOP 补全法院/法官/标的额/
+ *    立案日期/概述等信息；
+ *  - 「普通注册」：仅落库不跳会话，供纯手动登记。
+ * 案件编号可编辑；用户手填后不被自动分配覆盖（备忘录 #8）。
  */
 
-import { memo, useState, useCallback, useEffect, useMemo } from 'react';
+import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { X, FolderOpen } from 'lucide-react';
 import { isTauriEnvironment } from '@/utils/browserMock';
 import { listenWithCleanup } from '@/utils/tauriListen';
@@ -19,8 +22,11 @@ import { TAG_PRESETS } from '@/utils/caseTags';
 interface NewCaseModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: CaseFormData) => void;
-  /** Existing cases for auto-ID generation */
+  /** 智能注册：落库后跳 agent 会话补全信息。可抛错（如编号冲突），错误在表单内展示。 */
+  onSubmit: (data: CaseFormData) => Promise<void> | void;
+  /** 普通注册：仅落库，不跳会话。可抛错（如编号冲突）。 */
+  onSubmitPlain: (data: CaseFormData) => Promise<void> | void;
+  /** Existing cases for auto-ID generation + 重复编号即时提醒 */
   existingCases?: CaseEntry[];
 }
 
@@ -61,7 +67,7 @@ function generateCaseId(existingCases: CaseEntry[]): string {
 
 
 export default memo(function NewCaseModal({
-  isOpen, onClose, onSubmit, existingCases,
+  isOpen, onClose, onSubmit, onSubmitPlain, existingCases,
 }: NewCaseModalProps) {
   const [form, setForm] = useState<CaseFormData>({
     caseId: '', caseNumber: '', name: '', type: '民商', cause: '', folder: '',
@@ -78,15 +84,24 @@ export default memo(function NewCaseModal({
     [existingCases],
   );
 
-  // Auto-generate case ID on open
+  // 自动分配编号（仅空时）；caseIdTouchedRef 防「手填被自动生成覆盖」（#8）。
+  // 组件常驻挂载（关闭只返回 null），state 跨开合保留 → 关闭时重置 touched，
+  // 重开时若仍空才重新自动分配；用户手填过的编号绝不因 existingCases 刷新而改写。
+  const caseIdTouchedRef = useRef(false);
+
   useEffect(() => {
     if (isOpen) {
-      setForm(prev => ({
-        ...prev,
-        caseId: generateCaseId(existingCases ?? []),
-      }));
+      setForm(prev => {
+        if (caseIdTouchedRef.current) return prev
+        if (prev.caseId !== undefined && prev.caseId.trim() !== '') return prev
+        return { ...prev, caseId: generateCaseId(existingCases ?? []) }
+      })
+    } else {
+      caseIdTouchedRef.current = false
+      setSubmitError(null)
+      setSubmitting(false)
     }
-  }, [isOpen, existingCases]);
+  }, [isOpen, existingCases])
 
   // ---- Folder picker ----
   // DSH web 下没有 Tauri 运行时：优先走插件 client 发布的 DSH 原生目录选择
@@ -117,14 +132,40 @@ export default memo(function NewCaseModal({
   }, [isOpen]);
 
   // ---- Manual form handlers ----
+  const canSubmit = form.caseId !== '' && form.name !== '';
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // 编号重复即时提醒（基于已有案件；手填或自动号都提示）。
+  const idTaken = (form.caseId !== '') && (existingCases ?? []).some(c => c.caseId === form.caseId);
+
+  const doSubmit = async (mode: 'smart' | 'plain') => {
+    if (!canSubmit || submitting) return;
+    // 客户端先拦重复编号（服务器同样会拦截，双保险）。
+    if (idTaken) {
+      setSubmitError(`案件编号 ${form.caseId} 已存在，请更换编号后再注册`);
+      return;
+    }
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      if (mode === 'smart') await onSubmit(form);
+      else await onSubmitPlain(form);
+      onClose();
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.caseId || !form.name) return;
-    onSubmit(form);
-    onClose();
+    void doSubmit('smart');
   };
 
   const update = (field: keyof CaseFormData, value: string) => {
+    if (field === 'caseId') caseIdTouchedRef.current = true
     setForm(prev => ({ ...prev, [field]: value }));
   };
 
@@ -160,6 +201,12 @@ export default memo(function NewCaseModal({
                 className={inputCls}
                 required
               />
+              {/* 重复编号即时提醒：绝不静默覆盖既有案件（备忘录 #8 后续要求） */}
+              {idTaken && (
+                <p className="mt-1.5 text-xs text-red-500">
+                  编号 {form.caseId} 已被使用（{existingCases?.find(c => c.caseId === form.caseId)?.name}），请更换编号
+                </p>
+              )}
             </div>
 
             {/* Case Number + Name */}
@@ -286,16 +333,28 @@ export default memo(function NewCaseModal({
               </p>
             </div>
 
+            {/* 提交错误（如编号冲突/服务器拒绝）—— 弹窗保持打开，不覆盖数据 */}
+            {submitError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600" role="alert">
+                {submitError}
+              </div>
+            )}
+
             {/* Submit */}
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={onClose}
                 className="px-4 py-2 rounded-lg text-sm text-[var(--ink-muted)] hover:bg-[var(--paper-inset)]">
                 取消
               </button>
+              <button type="button" onClick={() => void doSubmit('plain')}
+                className="px-4 py-2 rounded-lg bg-[var(--paper-inset)] text-[var(--ink)] text-sm font-medium hover:bg-[var(--paper)] disabled:opacity-50"
+                disabled={!canSubmit || submitting || idTaken}>
+                普通注册
+              </button>
               <button type="submit"
                 className="px-4 py-2 rounded-lg bg-[var(--ink)] text-[var(--paper)] text-sm font-medium hover:opacity-90 disabled:opacity-50"
-                disabled={!form.caseId || !form.name}>
-                注册案件
+                disabled={!canSubmit || submitting || idTaken}>
+                {submitting ? '提交中…' : '智能注册'}
               </button>
             </div>
           </form>

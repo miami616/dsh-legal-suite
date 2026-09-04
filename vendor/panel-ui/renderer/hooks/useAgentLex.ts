@@ -1148,13 +1148,24 @@ async function readCase(caseId: string): Promise<{ case: CaseEntry; timeline: Ti
 }
 
 async function addCase(c: CaseEntry): Promise<void> {
-  // Plan A: in remote mode, register on the host (upsert parity preserved).
+  // 新建案件登记（备忘录 #8 后续要求）：编号冲突必须报错、绝不静默覆盖既有案件。
+  // 早前版本在 register 失败时回落 update（upsert parity），会把新卡片整个盖到
+  // 旧案件上 → 数据丢失。现在冲突即抛错，由调用方（新建表单）提示用户改号。
   const target = getClientRemoteTarget();
+  const existing = state.cases.find(x => x.caseId === c.caseId);
+  if (existing) {
+    throw new Error(`案件编号 ${c.caseId} 已存在（${existing.name}），请换一个编号`);
+  }
+  const friendly = (e: unknown) => {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/collision/i.test(msg)) return `案件编号 ${c.caseId} 已被占用，请更换编号（未覆盖任何数据）`;
+    return msg;
+  };
   if (target.isRemote && target.origin) {
     try {
       await tryRemoteAgentlex('cmd_agentlex_register_case', { caseId: c.caseId, record: c });
-    } catch {
-      await tryRemoteAgentlex('cmd_agentlex_update_case', { caseId: c.caseId, patch: c });
+    } catch (e) {
+      throw new Error(friendly(e));
     }
     await reloadFromDisk();
     return;
@@ -1163,9 +1174,8 @@ async function addCase(c: CaseEntry): Promise<void> {
     const { invoke } = await import('@tauri-apps/api/core');
     try {
       await invoke('cmd_agentlex_register_case', { caseId: c.caseId, record: c });
-    } catch {
-      // Already on disk → upsert parity with the pre-1.1.0 hook.
-      await invoke('cmd_agentlex_update_case', { caseId: c.caseId, patch: c });
+    } catch (e) {
+      throw new Error(friendly(e));
     }
     await reloadFromDisk();
   } else {

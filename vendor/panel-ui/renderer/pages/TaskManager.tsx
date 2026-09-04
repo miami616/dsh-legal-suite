@@ -18,7 +18,7 @@
  *   - 状态行内改为 pill + 下拉菜单（Popover），避免 v4 行内 76px 下拉占位。
  */
 
-import { memo, useMemo, useState, useCallback, useRef } from 'react';
+import { memo, useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import {
   Plus, Check, Trash2, ChevronLeft, ChevronRight, X, ListChecks, Search,
 } from 'lucide-react';
@@ -197,6 +197,9 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
     return c;
   }, [allTasks]);
 
+  // 待办数（不含已办）——备忘录 #7：「全部」等数字基数应为待办。
+  const openTaskCount = useMemo(() => allTasks.filter(t => t.status !== 'done').length, [allTasks]);
+
   // ── 过滤（搜索真实生效） ──
   const filtered = useMemo(
     () =>
@@ -306,6 +309,24 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
   }, [calYear, calMonth]);
 
   const popupItems = useMemo(() => (popupDate ? calByDate.get(popupDate) ?? [] : []), [popupDate, calByDate]);
+
+  // ── 日历日弹层：点击弹层外部自动关闭（备忘录 #9：不能只能靠 X 关闭）──
+  // popupDate 打开期间，捕获 document pointerdown：点在天格（开弹层）、弹层内
+  // 或「关键日程」等同卡内容都不关；点其它任意处关闭。
+  const popupRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!popupDate) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      if (popupRef.current?.contains(t)) return;
+      // 天格按钮自带 data-calday（开弹层/新建），点它不关。
+      if (t.closest('[data-calday]')) return;
+      setPopupDate(null);
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [popupDate]);
 
   // ── Calendar nav ──
   const calPrev = useCallback(() => {
@@ -620,7 +641,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                 }`}
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: bucketFilter === 'all' ? 'currentColor' : 'var(--ink-subtle)' }} />
-                全部 <b className="tabular-nums">{allTasks.length}</b>
+                全部 <b className="tabular-nums">{openTaskCount}</b>
               </button>
               {BUCKETS.map(b => {
                 const n = bucketCounts[b.key] ?? 0;
@@ -758,6 +779,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                       <div key={i} className="flex flex-col items-center py-px">
                         {day ? (
                           <button
+                            data-calday=""
                             onClick={() => items.length > 0 ? setPopupDate(ds) : openAddPrefill(ds)}
                             title={items.length ? items.map(it => it.label).join('、') : `在 ${fmtMD(ds)} 新建任务`}
                             className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs transition-all ${
@@ -797,7 +819,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
 
                 {/* 日历日弹层（inline） */}
                 {popupDate && popupItems.length > 0 && (
-                  <div className="absolute inset-x-4 top-[104px] z-20 rounded-xl border border-[var(--line-strong)] bg-[var(--paper-elevated)] p-3.5 shadow-xl">
+                  <div ref={popupRef} className="absolute inset-x-4 top-[104px] z-20 rounded-xl border border-[var(--line-strong)] bg-[var(--paper-elevated)] p-3.5 shadow-xl">
                     <div className="mb-2 flex items-center justify-between">
                       <h3 className="text-sm font-bold text-[var(--ink)]">
                         {fmtMD(popupDate)} <span className="ml-1.5 font-normal text-[var(--ink-muted)]">{weekdayOf(popupDate)}</span>

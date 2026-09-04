@@ -86,6 +86,31 @@ function buildPartiesFromRows(rows: Array<{ side: 'our' | 'their'; role: string;
   };
 }
 
+/** 由表单数据构建 CaseEntry（模块级纯函数：新建的卡片，未采集字段留空交给后续）。 */
+function buildCaseEntry(data: CaseFormData): CaseEntry {
+  const now = new Date().toISOString();
+  return {
+    caseId: data.caseId,
+    caseNumber: data.caseNumber,
+    name: data.name,
+    alias: [],
+    type: data.type,
+    cause: data.cause,
+    status: 'intake',
+    folder: data.folder,
+    parties: buildPartiesFromRows(data.partyRows),
+    court: '',
+    keyDates: [],
+    boundSessions: [],
+    linkedContracts: [],
+    linkedResearch: [],
+    tags: data.tags ?? [],
+    taskGroups: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export default memo(function CaseManager({ isActive: _isActive, onOpenCaseSession, onCaseRegistered, selectedCaseId, onSelectCase, trafficInset = 0, hasDockedSession = false, dockedSessionTitle, onCloseDockedSession, onMoveDockedToWorkspace, onOpenCalendar, onOpenCaseAgent, onOpenCaseFolder, getArchivedSessionIds }: CaseManagerProps) {
   const mobile = useIsMobile();
   const { cases, timelineEvents, addCase, updateCase, deleteCase, bindSession, unbindSession, unbindProjectSession, pruneStaleSessions, projects } = useAgentLex();
@@ -197,39 +222,28 @@ export default memo(function CaseManager({ isActive: _isActive, onOpenCaseSessio
     return () => window.removeEventListener('session:sidecar-terminal', handler);
   }, [updateCase, projects, unbindProjectSession]);
 
-  const handleCaseSubmit = useCallback((data: CaseFormData) => {
-    const now = new Date().toISOString();
-    const entry: CaseEntry = {
-      caseId: data.caseId,
-      caseNumber: data.caseNumber,
-      name: data.name,
-      alias: [],
-      type: data.type,
-      cause: data.cause,
-      status: 'intake',
-      folder: data.folder,
-      // 法院/法官/标的额/立案日期/概述不随表单采集，交给注册后的 agent 会话补全。
-      // 当事人：我方/对方两组行 → details（我方行 ourClient:true）；ourSide 由我方
-      // 首行的角色推导；首级 plaintiff/defendant 仅作兼容冗余。
-      parties: buildPartiesFromRows(data.partyRows),
-      court: '',
-      keyDates: [],
-      boundSessions: [],
-      linkedContracts: [],
-      linkedResearch: [],
-      tags: data.tags ?? [],
-      taskGroups: [],
-      createdAt: now,
-      updatedAt: now,
-    };
-    addCase(entry);
+  const finishCaseSubmit = useCallback((entry: CaseEntry) => {
     setNewCaseModalOpen(false);
-    onCaseRegistered(data.caseId, data.folder, data.name);
-    onSelectCase(data.caseId);
-    // 提交即带着案件卡片进入「案件管理」agent 新会话,由 agent 按 SOP 补全全部信息。
-    // 需要文件夹才有素材可解析;无文件夹(纯手填)也进会话,agent 据卡片信息继续。
+    onCaseRegistered(entry.caseId, entry.folder, entry.name);
+    onSelectCase(entry.caseId);
+  }, [onCaseRegistered, onSelectCase]);
+
+  // 智能注册：落库后带着案件卡片进入「案件管理」agent 新会话，由 agent 按 SOP
+  // 补全全部信息（法院/法官/标的额/立案日期/概述等）。
+  // 编号冲突（addCase 抛错）向上抛给表单提示，不关闭、不覆盖数据（备忘录 #8）。
+  const handleCaseSubmit = useCallback(async (data: CaseFormData) => {
+    const entry = buildCaseEntry(data);
+    await addCase(entry);
+    finishCaseSubmit(entry);
     onOpenCaseSession(entry, undefined, true);
-  }, [addCase, onCaseRegistered, onSelectCase, onOpenCaseSession]);
+  }, [addCase, finishCaseSubmit, onOpenCaseSession]);
+
+  // 普通注册：仅落库（不跳 agent 会话），供手动登记 / 无需 agent 补全的场景。
+  const handleCaseSubmitPlain = useCallback(async (data: CaseFormData) => {
+    const entry = buildCaseEntry(data);
+    await addCase(entry);
+    finishCaseSubmit(entry);
+  }, [addCase, finishCaseSubmit]);
 
   const handleDeleteCase = useCallback((caseId: string) => {
     void deleteCase(caseId);
@@ -379,6 +393,7 @@ export default memo(function CaseManager({ isActive: _isActive, onOpenCaseSessio
         isOpen={newCaseModalOpen}
         onClose={() => setNewCaseModalOpen(false)}
         onSubmit={handleCaseSubmit}
+        onSubmitPlain={handleCaseSubmitPlain}
         existingCases={cases}
       />
     </div>

@@ -479,8 +479,8 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
                 {/* 左轨：编号（年份小号 + 序号大字）+ 审级历程 */}
                 <div className="py-3 border-r border-[var(--paper-inset)]" style={{ background: 'color-mix(in srgb, var(--paper-inset) 80%, transparent)' }}>
                   <div className="px-2 leading-tight break-words">
-                    {head && <div className="font-mono text-xs text-[var(--ink-subtle)] tracking-[0.02em]">{head}</div>}
-                    <div className="font-mono text-lg font-bold text-[var(--ink)] tracking-[0.02em]">{tail}</div>
+                    {head && <div className="text-xs text-[var(--ink-subtle)] tracking-[0.02em]" style={{ fontFamily: "'Microsoft YaHei','微软雅黑',sans-serif" }}>{head}</div>}
+                    <div className="text-lg font-bold text-[var(--ink)] tracking-[0.02em]" style={{ fontFamily: "'Microsoft YaHei','微软雅黑',sans-serif" }}>{tail}</div>
                   </div>
                   <div className="relative mt-2">
                     {levels.length === 0 ? (

@@ -727,7 +727,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
           </div>
 
           <div className="flex items-baseline gap-3 mt-4 flex-wrap">
-            <span className="font-mono text-lg font-bold tracking-[0.02em] text-[var(--ink-subtle)]">{idHead}<b className="text-[var(--ink)]">{idTail}</b></span>
+            <span className="text-lg font-bold tracking-[0.02em] text-[var(--ink-subtle)]" style={{ fontFamily: "'Microsoft YaHei','微软雅黑',sans-serif" }}>{idHead}<b className="text-[var(--ink)]">{idTail}</b></span>
             <h1 className="text-3xl font-extrabold text-[var(--ink)] tracking-[-0.01em] leading-tight">{entry.name}</h1>
           </div>
 

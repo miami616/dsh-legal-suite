@@ -1,14 +1,19 @@
 /**
- * Case status workflow — 5 stages simplified from the original 11.
- * For display only (no LLM inference — user sets status manually).
+ * Case status workflow — per-procedure status ladders for the GUI pill /
+ * dropdown / filter / left-track rendering.
  *
  * Two orthogonal axes:
- *   — status (状态): 收案 → 庭前准备 → 待开庭 → 庭后管理 → 已结案
- *   — level/procedure (程序): 一审/二审/执行/仲裁 (stored in CaseEntry.level)
+ *   — status (状态): per-level ladder, id must match shared playbook
+ *   — level/procedure (程序): 一审/二审/再审/劳动仲裁/商事仲裁/首次执行/恢复执行/刑事
  *
  * 2026-08 配色（对齐任务模块「呼吸感」）：状态只用主题语义色，形成
  * 中性(收案)→info(庭前)→accent(待开庭·峰值)→描边中性(庭后)→success(已结)
  * 的生命周期弧；不再使用 cool Tailwind 撞暖纸主题。
+ *
+ * 2026-09（0.2.4）：与 shared playbook 的多轨阶梯对齐——补 再审/劳动仲裁/
+ * 商事仲裁/刑事 全套；二审 reviewing→appellate（二审审理）；一审 execution
+ * 档保留（存量兼容）；执行新增 terminated（终本）。id/标签必须与
+ * src/shared/playbook/litigation.ts 的 STATUS_LADDERS 完全一致（同一套词汇）。
  */
 
 export interface CaseStatusDef {
@@ -21,9 +26,10 @@ export interface CaseStatusDef {
 }
 
 /**
- * 状态阶梯按审级分套（一审 8 档 / 二审 6 档 / 执行 5 档；再审/仲裁回退一审）。
- * 与 src/shared/playbook/litigation.ts 的 STATUS_LADDERS 保持同一套 id/标签。
- * status 轴与 level（审级）轴正交：显示与筛选按 case.level 取对应阶梯。
+ * 状态阶梯按审级分套（一审 8 档 / 二审 5 档 / 再审 4 档 / 执行 6 档 /
+ * 劳动仲裁 6 档 / 商事仲裁 6 档 / 刑事 6 档）。与 src/shared/playbook/litigation.ts
+ * 的 STATUS_LADDERS 保持同一套 id/标签。status 轴与 level（审级）轴正交：
+ * 显示与筛选按 case.level 取对应阶梯。
  */
 const PILL = (bg: string, text: string) => ({ color: `${bg} ${text}`, dot: bg, barColor: bg });
 const INFO_PILL = 'bg-[var(--info-bg)] text-[var(--info)]';
@@ -33,48 +39,102 @@ const WARNING_PILL = 'bg-[var(--warning-bg)] text-[var(--warning)]';
 const SUCCESS_PILL = 'bg-[var(--success-bg)] text-[var(--success)]';
 
 export const STATUS_LADDERS: Record<string, CaseStatusDef[]> = {
+  /** 民商 · 一审（docx）：收案 → 诉前准备 → 立案中 → 庭前准备 → 庭后管理 → 上诉期 → 二审中 → 已结案。 */
   一审: [
     { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
-    { id: 'pre_filing', label: '诉前', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'pre_filing', label: '诉前准备', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
     { id: 'filing', label: '立案中', ...PILL(INFO_PILL, INFO_PILL), order: 3 },
     { id: 'pretrial', label: '庭前准备', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 4 },
-    { id: 'awaiting_trial', label: '待开庭', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 5 },
-    { id: 'post_trial', label: '庭后管理', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 6 },
-    { id: 'execution', label: '执行中', ...PILL(WARNING_PILL, WARNING_PILL), order: 7 },
+    { id: 'post_trial', label: '庭后管理', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 5 },
+    { id: 'appeal_window', label: '上诉期', ...PILL(WARNING_PILL, WARNING_PILL), order: 6 },
+    { id: 'second_instance', label: '二审中', ...PILL(WARNING_PILL, WARNING_PILL), order: 7 },
     { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
   ],
+  /** 民商 · 二审（docx）：收案 → 诉前准备 → 上诉立案 → 庭前准备 → 庭后管理 → 已结案。 */
   二审: [
     { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
-    { id: 'appeal_filed', label: '上诉立案', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
-    { id: 'reviewing', label: '审查中', ...PILL(INFO_PILL, INFO_PILL), order: 3 },
-    { id: 'awaiting_trial', label: '待开庭', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 4 },
-    { id: 'post_judgment', label: '二审判决', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 5 },
+    { id: 'pre_filing', label: '诉前准备', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'appeal_filed', label: '上诉立案', ...PILL(INFO_PILL, INFO_PILL), order: 3 },
+    { id: 'pretrial', label: '庭前准备', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 4 },
+    { id: 'post_trial', label: '庭后管理', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 5 },
     { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
   ],
+  /** 再审（docx）：收案 → 申请与审查 → 再审审理 → 已结案。 */
+  再审: [
+    { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
+    { id: 'retrial_apply', label: '申请与审查', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'retrial_trial', label: '再审审理', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 3 },
+    { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
+  ],
+  /** 执行（docx）：收案 → 立案 → 执行中 → 终本 → 恢复执行 → 已结案。首次/恢复共用。 */
   首次执行: [
     { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
-    { id: 'investigation', label: '财产查控', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
-    { id: 'disposal', label: '处置中', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 3 },
-    { id: 'distribution', label: '分配发还', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 4 },
+    { id: 'filing', label: '立案', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'executing', label: '执行中', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 3 },
+    { id: 'terminated', label: '终本', ...PILL(WARNING_PILL, WARNING_PILL), order: 4 },
+    { id: 'recovery', label: '恢复执行', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 5 },
     { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
   ],
   恢复执行: [
     { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
-    { id: 'investigation', label: '财产查控', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
-    { id: 'disposal', label: '处置中', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 3 },
-    { id: 'distribution', label: '分配发还', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 4 },
+    { id: 'filing', label: '立案', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'executing', label: '执行中', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 3 },
+    { id: 'terminated', label: '终本', ...PILL(WARNING_PILL, WARNING_PILL), order: 4 },
+    { id: 'recovery', label: '恢复执行', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 5 },
+    { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
+  ],
+  /** 劳动仲裁（docx）：收案 → 仲裁申请 → 庭前准备 → 庭后管理 → 起诉期 → 已结案。 */
+  劳动仲裁: [
+    { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
+    { id: 'arb_apply', label: '仲裁申请', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'pretrial', label: '庭前准备', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 3 },
+    { id: 'post_trial', label: '庭后管理', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 4 },
+    { id: 'appeal_window', label: '起诉期', ...PILL(WARNING_PILL, WARNING_PILL), order: 5 },
+    { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
+  ],
+  /** 商业仲裁（docx）：收案 → 仲裁申请 → 组庭与答辩 → 庭前准备 → 庭后管理 → 已结案。 */
+  商事仲裁: [
+    { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
+    { id: 'arb_apply', label: '仲裁申请', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'arb_tribunal', label: '组庭与答辩', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 3 },
+    { id: 'pretrial', label: '庭前准备', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 4 },
+    { id: 'post_trial', label: '庭后管理', ...PILL(OUTLINE_PILL, OUTLINE_PILL), order: 5 },
+    { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
+  ],
+  /** 刑事：收案 → 侦查 → 审查起诉 → 一审 → 二审 → 已结案（独立轨）。 */
+  刑事: [
+    { id: 'intake', label: '收案', ...PILL(INFO_PILL, INFO_PILL), order: 1 },
+    { id: 'investigation_c', label: '侦查', ...PILL(INFO_PILL, INFO_PILL), order: 2 },
+    { id: 'prosecution_c', label: '审查起诉', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 3 },
+    { id: 'trial_c', label: '一审', ...PILL(ACCENT_PILL, ACCENT_PILL), order: 4 },
+    { id: 'appeal_c', label: '二审', ...PILL(WARNING_PILL, WARNING_PILL), order: 5 },
     { id: 'closed', label: '已结案', ...PILL(SUCCESS_PILL, SUCCESS_PILL), order: 99 },
   ],
 };
 
 const FALLBACK_LADDER = '一审';
 
-/** 未定制的程序（再审/仲裁等）回退一审套；口语「执行」归一为首次执行。 */
+/** 未定制的程序回退一审套；口语「执行」归一为首次执行。 */
 function ladderKey(level: string | null | undefined): string {
   const key = (level ?? '').trim();
   if (key === '执行' || key === '执行中') return '首次执行';
   return STATUS_LADDERS[key] !== undefined ? key : FALLBACK_LADDER;
 }
+
+/** 存量状态 id 归并（docx 档位重排后，把旧阶梯 id 映射到新档，避免读侧回落 intake）。 */
+const STATUS_LEGACY_MERGE: Record<string, string> = {
+  // 二审旧档 → docx 二审：审查中→庭前准备、二审审理/二审判决→庭后管理
+  reviewing: 'pretrial',
+  appellate: 'post_trial',
+  post_judgment: 'post_trial',
+  // 一审旧「待开庭」→ 庭前准备（docx 庭前含开庭）；旧「执行中」→ 执行轨 executing
+  awaiting_trial: 'pretrial',
+  execution: 'executing',
+  // 执行旧 查控/处置/分配 → docx 执行中
+  investigation: 'executing',
+  disposal: 'executing',
+  distribution: 'executing',
+};
 
 /** 某审级的状态阶梯选项（下拉/筛选用）。 */
 export function getStatusOptions(level?: string | null): CaseStatusDef[] {
@@ -88,15 +148,17 @@ const STATUS_MAP = new Map(CASE_STATUSES.map(s => [s.id, s]));
 
 /** 按审级解析状态定义（未知回落一审套，避免旧数据变未知）。 */
 export function getStatusDef(statusId: string | undefined | null, level?: string | null): CaseStatusDef | undefined {
-  const hit = getStatusOptions(level).find(s => s.id === (statusId ?? ''));
+  const id = (statusId ?? '');
+  const merged = STATUS_LEGACY_MERGE[id] ?? id;
+  const hit = getStatusOptions(level).find(s => s.id === merged);
   if (hit) return hit;
-  return STATUS_MAP.get(statusId ?? '');
+  return STATUS_MAP.get(merged);
 }
 
 /**
  * Procedure (审级) tag colors — displayed separately from status.
- * 2026-08: 审级轴 = 一审/二审/再审/劳动仲裁/商事仲裁/首次执行/恢复执行（仲裁拆分为劳/商，
- * 新增再审；执行拆分为首次/恢复）。标签一律中性（身份色只出现在左轨节点与筛选色点，
+ * 审级轴 = 一审/二审/再审/劳动仲裁/商事仲裁/首次执行/恢复执行/刑事（仲裁拆分为劳/商，
+ * 新增再审/刑事；执行拆分为首次/恢复）。标签一律中性（身份色只出现在左轨节点与筛选色点，
  * 见 PROCEDURE_LEVEL_DOTS），不再按审级彩虹配色。
  */
 export const PROCEDURE_TAGS: Record<string, string> = {
@@ -107,10 +169,11 @@ export const PROCEDURE_TAGS: Record<string, string> = {
   '商事仲裁': 'bg-[color-mix(in_srgb,#2f7d77_13%,transparent)] text-[color-mix(in_srgb,#2f7d77_62%,var(--ink))]',
   '首次执行': 'bg-[color-mix(in_srgb,#4d7a4f_13%,transparent)] text-[color-mix(in_srgb,#4d7a4f_62%,var(--ink))]',
   '恢复执行': 'bg-[color-mix(in_srgb,#2f7d77_13%,transparent)] text-[color-mix(in_srgb,#2f7d77_62%,var(--ink))]',
+  '刑事': 'bg-[color-mix(in_srgb,#8c2f28_13%,transparent)] text-[color-mix(in_srgb,#8c2f28_62%,var(--ink))]',
 };
 
 /** 审级轴的规范顺序（筛选行 / 选项列表用）。 */
-export const PROCEDURE_LEVELS: string[] = ['一审', '二审', '再审', '劳动仲裁', '商事仲裁', '首次执行', '恢复执行'];
+export const PROCEDURE_LEVELS: string[] = ['一审', '二审', '再审', '劳动仲裁', '商事仲裁', '首次执行', '恢复执行', '刑事'];
 
 /** 审级 8px 色点 hex —— 左轨节点 / 筛选色点 / 历程时间线的审级唯一色（冷色族身份色）。 */
 export const PROCEDURE_LEVEL_DOTS: Record<string, string> = {
@@ -121,6 +184,7 @@ export const PROCEDURE_LEVEL_DOTS: Record<string, string> = {
   '商事仲裁': '#2f7d77',
   '首次执行': '#4d7a4f',
   '恢复执行': '#2f7d77',
+  '刑事': '#8c2f28',
 };
 
 /** 左轨等窄位审级缩写：劳动仲裁→劳仲、商事仲裁→商仲、执行程序统一→执行（tooltip 保留全称）。 */
@@ -186,15 +250,30 @@ export function normalizeStatus(raw: string, level?: string | null): string {
     if (options.some(s => s.id === 'filing')) return 'filing';
     return 'pretrial';
   }
-  if (/查控|冻结|查封|investigation/.test(t)) return options.some(s => s.id === 'investigation') ? 'investigation' : 'post_trial';
-  if (/处置|拍卖|变卖|disposal/.test(t)) return options.some(s => s.id === 'disposal') ? 'disposal' : 'post_trial';
-  if (/分配|发还|distribution/.test(t)) return options.some(s => s.id === 'distribution') ? 'distribution' : 'post_trial';
-  if (/开庭|等待开庭|排期|awaiting_hearing/.test(t)) return 'awaiting_trial';
-  if (/审理|庭审|质证|辩论|举证/.test(t)) return 'post_trial';
-  if (/待判|等待判决|合议|judged|二审判决|post_judgment/.test(t)) return options.some(s => s.id === 'post_judgment') ? 'post_judgment' : 'post_trial';
-  if (/执行|execution/.test(t)) return options.some(s => s.id === 'execution') ? 'execution' : 'post_trial';
+  // 上诉期（一审 docx：收到裁判文书后）。
+  if (/上诉期|上诉期限|收到判决|裁判送达/.test(t)) return options.some(s => s.id === 'appeal_window') ? 'appeal_window' : 'post_trial';
+  // 二审中（一审 docx：任一方上诉后）。level 通常随即切到 二审。
+  if (/二审中|已上诉|正在上诉/.test(t)) return options.some(s => s.id === 'second_instance') ? 'second_instance' : 'post_trial';
+  // 执行（docx 档：立案→执行中→终本→恢复执行）。
+  if (/执行立案|申请执行|受理执行/.test(t)) return options.some(s => s.id === 'filing') ? 'filing' : 'executing';
+  if (/执行中|查控|冻结|查封|处置|拍卖|变卖|分配|发还|investigation|disposal|distribution/.test(t)) return options.some(s => s.id === 'executing') ? 'executing' : 'post_trial';
+  if (/终本|terminated/.test(t)) return options.some(s => s.id === 'terminated') ? 'terminated' : 'post_trial';
+  if (/恢复执行|recovery/.test(t)) return options.some(s => s.id === 'recovery') ? 'recovery' : 'executing';
+  // 侦查/审查起诉（刑事轨）。
+  if (/侦查|investigation_c/.test(t)) return options.some(s => s.id === 'investigation_c') ? 'investigation_c' : 'intake';
+  if (/审查起诉|起诉意见|prosecution_c/.test(t)) return options.some(s => s.id === 'prosecution_c') ? 'prosecution_c' : 'intake';
+  // 开庭/审理：docx 一审无独立开庭档，庭前准备含开庭；二审/再审有独立审理档则用之。
+  if (/开庭|等待开庭|排期|awaiting_hearing|待开庭/.test(t)) return options.some(s => s.id === 'pretrial') ? 'pretrial' : 'post_trial';
+  if (/审理|庭审|质证|辩论|举证|二审审理|appellate/.test(t)) return options.some(s => s.id === 'pretrial') ? 'pretrial' : 'post_trial';
+  if (/待判|等待判决|合议|judged|二审判决|post_judgment/.test(t)) return options.some(s => s.id === 'post_trial') ? 'post_trial' : 'post_trial';
+  if (/组庭|选定仲裁员|arb_tribunal/.test(t)) return options.some(s => s.id === 'arb_tribunal') ? 'arb_tribunal' : 'pretrial';
+  if (/仲裁申请|arb_apply/.test(t)) return options.some(s => s.id === 'arb_apply') ? 'arb_apply' : 'pretrial';
+  if (/再审申请|再审审查|retrial_apply/.test(t)) return options.some(s => s.id === 'retrial_apply') ? 'retrial_apply' : 'post_trial';
+  if (/起诉期|裁决后起诉|appeal_window/.test(t)) return options.some(s => s.id === 'appeal_window') ? 'appeal_window' : 'post_trial';
+  if (/执行|execution/.test(t)) return options.some(s => s.id === 'executing') ? 'executing' : 'post_trial';
   if (/撤诉|撤回|withdrawn/.test(t)) return 'closed';
   if (/结案|驳回起诉|调解|和解|closed/.test(t)) return 'closed';
   if (/仲裁/.test(t)) return 'pretrial';
   return 'intake';
 }
+

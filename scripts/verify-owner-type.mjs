@@ -75,7 +75,7 @@ try {
   // ---- 案件 2026-001 的任务组只吃 litigation ----
   const case1 = Object.values(reg.cases).find((c) => c.caseId === '2026-001')
   const caseGroups = allGroups.filter((g) => g.ownerId === '2026-001' && (g.ownerType ?? 'litigation') === 'litigation')
-  check('案件 2026-001 任务组=litigation 3 组(立案/庭前/开庭)', caseGroups.length === 3,
+  check('案件 2026-001 任务组=litigation (立案/庭前)', caseGroups.length === 2,
     JSON.stringify(caseGroups.map((g) => g.title)))
   const caseGroupTitles = caseGroups.map((g) => g.title).join(',')
   check('案件 2026-001 不含非诉组', !caseGroupTitles.includes('日常履约'), caseGroupTitles)

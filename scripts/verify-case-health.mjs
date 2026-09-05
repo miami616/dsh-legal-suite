@@ -52,18 +52,18 @@ try {
   await seedNonLitigationSample(projectStore, serviceStore)
 
   /* ══════════════ 1. 完整度按阶段动态计算 ══════════════ */
-  // 同一个「什么都不填」的案件，诉前 vs 待开��，应填字段数不同
+  // 同一个「什么都不填」的案件，诉前 vs 庭前（docx 一审档），应填字段数不同
   const bare = await caseStore.registerCase({ name: '甲与乙纠纷', type: '民商' })
   const asPreFiling = await caseStore.updateCase(bare.caseId, { status: 'pre_filing' })
   const h1 = await computeCaseHealth(asPreFiling)
-  const asAwaiting = await caseStore.updateCase(bare.caseId, { status: 'awaiting_trial' })
-  const h2 = await computeCaseHealth(asAwaiting)
+  const asPretrial = await caseStore.updateCase(bare.caseId, { status: 'pretrial' })
+  const h2 = await computeCaseHealth(asPretrial)
 
   check('诉前案件的应填字段更少', h1.completeness.total < h2.completeness.total,
-    `诉前=${h1.completeness.total} 待开庭=${h2.completeness.total}`)
+    `诉前=${h1.completeness.total} 庭前=${h2.completeness.total}`)
   check('诉前不罚「缺案号」', !gapFields(h1).includes('caseNumber'), gapFields(h1).join(','))
-  check('待开庭才要求案号', gapFields(h2).includes('caseNumber'), gapFields(h2).join(','))
-  check('待开庭要求开庭关键日期', gapFields(h2).includes('keyDate:开庭'), gapFields(h2).join(','))
+  check('庭前才要求案号', gapFields(h2).includes('caseNumber'), gapFields(h2).join(','))
+  check('庭前要求开庭关键日期', gapFields(h2).includes('keyDate:开庭'), gapFields(h2).join(','))
   check('诉前要求标的额', gapFields(h1).includes('claimAmount'), gapFields(h1).join(','))
 
   /* ══════════════ 2. 补齐后分数上升、缺口消失 ══════════════ */
@@ -88,14 +88,14 @@ try {
   check('缺口带 why 说明', typeof gapWithWhy?.why === 'string' && gapWithWhy.why.length > 0, String(gapWithWhy?.why))
 
   /* ══════════════ 4. 阶段进度 ══════════════ */
-  const g = await caseStore.upsertTaskGroup(bare.caseId, { name: '一审 · 开庭审理' })
+  const g = await caseStore.upsertTaskGroup(bare.caseId, { name: '一审 · 庭前准备' })
   const gid = g.taskGroups.at(-1).id
   const t1 = await caseStore.upsertTask(bare.caseId, gid, { title: '核对证据原件', status: 'done' })
   await caseStore.upsertTask(bare.caseId, gid, { title: '制作庭审提纲', status: 'todo' })
   const h5 = await computeCaseHealth(await caseStore.readCase(bare.caseId))
   check('阶段进度统计正确', h5.stage.total === 2 && h5.stage.done === 1 && h5.stage.open === 1,
     JSON.stringify(h5.stage))
-  check('阶段名正确', h5.stage.name === '一审 · 开庭审理', String(h5.stage.name))
+  check('阶段名正确（docx 一审·庭前准备）', h5.stage.name === '一审 · 庭前准备', String(h5.stage.name))
   void t1
 
   /* ══════════════ 5. 建议同源 + 扫描排序 + 跳过已结案 ══════════════ */
@@ -111,16 +111,16 @@ try {
   check('按完整度升序', scores.every((v, i) => i === 0 || scores[i - 1] <= v), scores.join(','))
 
   /* ══════════════ 6. 内置参考案例的体检结果合理 ══════════════ */
-  // 注：内置参考案例现为 待开庭 + 执行 两条（备忘录 #3 起诉讼/非诉各 2 个）。
+  // 注：内置参考案例现为 庭前(含开庭) + 执行中 两条（备忘录 #3 起诉讼/非诉各 2 个）。
   const seededAwaiting = Object.values((await caseStore.readRegistry()).cases)
-    .find((c) => c.status === 'awaiting_trial')
-  check('内置参考案例含待开庭案', seededAwaiting !== undefined)
+    .find((c) => c.status === 'pretrial')
+  check('内置参考案例含庭前案', seededAwaiting !== undefined)
   const hSeed = await computeCaseHealth(seededAwaiting)
-  check('待开庭参考案例完整度较高', hSeed.completeness.score >= 55,
+  check('庭前参考案例完整度较高', hSeed.completeness.score >= 55,
     `score=${hSeed.completeness.score} gaps=${gapFields(hSeed).join(',')}`)
 
   const seededExecution = Object.values((await caseStore.readRegistry()).cases)
-    .find((c) => c.status === 'investigation')
+    .find((c) => c.status === 'executing')
   const hExec = await computeCaseHealth(seededExecution)
   check('执行参考案例要求执行阶段标识', gapFields(hExec).includes('level') === false,
     gapFields(hExec).join(','))

@@ -15,7 +15,7 @@ import type { CaseEntry, TimelineEvent } from '@/hooks/useAgentLex';
 import StatusBadge from '@/components/agentlex/StatusBadge';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import CaseBoard from '@/components/agentlex/CaseBoard';
-import { normalizeStatus, normalizeLevel, getStatusDef, getProcedureShort, PROCEDURE_LEVELS, getProcedureDot } from '@/utils/caseStatus';
+import { normalizeStatus, normalizeLevel, getStatusDef, getStatusOptions, getProcedureShort, PROCEDURE_LEVELS, getProcedureDot } from '@/utils/caseStatus';
 import { formatAmount, parseAmountValue, daysUntil, todayStr, timeAgo, ourPartyList, theirPartyList } from '@/utils/caseFormat';
 import { CASE_TYPES, getCaseTypeDot } from '@/utils/caseTypes';
 import { TAG_CATEGORIES, tagCategoryOf, getTagCategoryLabel } from '@/utils/caseTags';
@@ -119,6 +119,27 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
 
   const archivedCount = useMemo(() => cases.filter(c => c.archived).length, [cases]);
   const visibleCases = useMemo(() => showArchived ? cases : cases.filter(c => !c.archived), [cases, showArchived]);
+
+  // 状态筛选项：选中某审级 → 该轨完整阶梯；未选中 → 跨轨通用并集
+  // （按各轨 order 稳定排序，closed 恒末位，剔除每轨独有的 intake 重复）。
+  const statusOptions = useMemo(() => {
+    const pick = (level: string | null): { id: string; order: number }[] => {
+      const ladder = getStatusOptions(level);
+      if (!ladder || ladder.length === 0) return [];
+      return ladder.map(x => ({ id: x.id, order: x.order }));
+    };
+    if (levelFilter) return pick(levelFilter);
+    // 跨轨并集：任一轨出现过的档位都列出，按首次出现的 order 排序。
+    const union = new Map<string, number>();
+    for (const lv of PROCEDURE_LEVELS) {
+      for (const sDef of pick(lv)) {
+        if (!union.has(sDef.id)) union.set(sDef.id, sDef.order);
+      }
+    }
+    return [...union.entries()]
+      .map(([id, order]) => ({ id, order }))
+      .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  }, [levelFilter]);
 
   const tagPool = useMemo(() => [...new Set(visibleCases.flatMap(c => c.tags ?? []))].sort((a, b) => a.localeCompare(b)), [visibleCases]);
 
@@ -375,7 +396,8 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
           </button>
           {openMenu === 'status' && (
             <MenuPanel>
-              {['intake', 'pretrial', 'awaiting_trial', 'post_trial', 'closed'].map(sid => {
+              {statusOptions.map(so => {
+                const sid = so.id;
                 const d = getStatusDef(sid);
                 if (!d) return null;
                 return (

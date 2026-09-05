@@ -4,10 +4,16 @@
  * 两个能力：
  *
  * 1. planStageExpansion / applyStageExpansion —— 把 playbook 里的阶段模板
- *    （LITIGATION_STAGES）实例化到具体案件。模板只提供**骨架**：标准动作的
- *    标题、优先级、交付提示与相对锚点的提前量；管家可用 only/skip 裁剪，
- *    落地后仍可按案情增删改。规范约束的是「标准动作怎么说」，不是「不许
- *    有模板外的任务」。
+ *    （STAGE_TRACKS / SIDE_STAGES）实例化到具体案件。模板只提供**骨架**：
+ *    标准动作的标题、优先级、交付提示与相对锚点的提前量；管家可用 only/skip
+ *    裁剪，落地后仍可按案情增删改。规范约束的是「标准动作怎么说」，不是
+ *    「不许有模板外的任务」。
+ *
+ *    v0.3.0：展开按案件自适应——
+ *    - 选轨：按案件 level（一审/二审/再审/执行/劳动仲裁/商事仲裁/刑事）取该轨模板；
+ *    - 选阶段：按案件 status 命中轨内阶段；status 为空回落 intake；
+ *    - 裁任务：模板任务按 我方身份(side) + 案件类型(appliesTo) 过滤；
+ *      条件任务(optional) 默认不展开，只有 only 点名才建。
  *
  * 2. detectStageSuggestions —— 只读的阶段推进检测。回答两类问题：
  *    a) 当前阶段任务已全部完成，是否该展开下一阶段（或建议结案）；
@@ -20,9 +26,15 @@
  */
 
 import {
+  STAGE_TRACKS,
+  SIDE_STAGES,
   LITIGATION_STAGES,
   getLitigationStage,
   getLitigationStatus,
+  getStageOnTrack,
+  stageForStatus,
+  stageOrderOnTrack,
+  templateTaskApplies,
   daysBefore,
   type StageTemplate,
   type TaskTemplate,
@@ -33,26 +45,58 @@ import type { CaseRecord, CaseRegistry, CaseTask } from './store/types.ts'
 /* ------------------------------------------------------------ 阶段映射 */
 
 /**
- * 案件状态 → 对应的阶段模板 id。
- * intake（收案）与 pre_filing（诉前）共用诉前模板。
+ * 状态 id → 该轨内的阶段模板 id。
+ * 一审：intake/pre_filing 共用诉前模板；execution 兼容档（存量）映射到执行轨立案模板。
+ * 由于各轨 status 集合不同，按轨查 stageForStatus 最稳，这里仅保留
+ * STATUS_TO_STAGE 兼容导出（一审主轨），并新增按案件的 resolveStageForCase。
  */
 export const STATUS_TO_STAGE: Record<string, string> = {
   intake: 'pre_filing',
   pre_filing: 'pre_filing',
   filing: 'filing',
   pretrial: 'pretrial',
-  awaiting_trial: 'trial',
+  awaiting_trial: 'pretrial',
   post_trial: 'post_trial',
-  execution: 'execution',
+  execution: 'exec_apply',
+  appeal_window: 'post_trial',
+  second_instance: 'post_trial',
 }
 
-/** 阶段推进顺序（对应 LITIGATION_STAGES 数组顺序）。 */
-export const STAGE_ORDER: string[] = LITIGATION_STAGES.map((s) => s.id)
+/**
+ * 案件 → 当前应展开/体检的阶段模板。
+ * 按 record.level 选轨 → 按 status 取轨内阶段；未命中（如 closed、旁路）返回 undefined。
+ * level 为空时按一审轨解释。
+ */
+export function resolveStageForCase(record: Pick<CaseRecord, 'level' | 'status'>): StageTemplate | undefined {
+  const statusId = (record.status ?? 'intake').trim()
+  if (statusId === 'closed') return undefined
+  // intake（收案）与诉前共用诉前模板——只对一审轨成立；其他轨 intake 无独立模板，
+  // 展开/体检时按该轨第一个有任务的阶段处理。
+  const ladder = getLitigationStatus(statusId, record.level)
+  const stage = stageForStatus(record.level, statusId)
+  if (stage !== undefined) return stage
+  // 兜底：该轨第一个线性阶段（intake 未单列模板的案件）。
+  return stageOrderOnTrack(record.level).find((s) => s.status !== 'closed' && s.status !== '')
+}
 
-/** 下一阶段的模板 id；已是最后一个阶段返回 undefined。 */
+/** 取某案件轨内的阶段推进序列。 */
+export function stageOrderForCase(record: Pick<CaseRecord, 'level'>): StageTemplate[] {
+  return stageOrderOnTrack(record.level)
+}
+
+/** 下一阶段模板 id（同轨内线性顺序）。 */
+export function nextStageOnTrack(level: string | undefined | null, stageId: string): string | undefined {
+  const order = stageOrderOnTrack(level)
+  const idx = order.findIndex((s) => s.id === stageId)
+  return idx >= 0 && idx + 1 < order.length ? order[idx + 1]!.id : undefined
+}
+
+/** 兼容导出：一审轨内的阶段推进顺序。 */
+export const STAGE_ORDER: string[] = STAGE_TRACKS['一审'].map((s) => s.id)
+
+/** 兼容导出：旧 nextStageId（一审轨）。 */
 export function nextStageId(stageId: string): string | undefined {
-  const idx = STAGE_ORDER.indexOf(stageId)
-  return idx >= 0 && idx + 1 < STAGE_ORDER.length ? STAGE_ORDER[idx + 1] : undefined
+  return nextStageOnTrack('一审', stageId)
 }
 
 /* ---------------------------------------------------------- 展开（plan/apply） */
@@ -80,16 +124,18 @@ export interface PlannedTask {
 export interface StagePlan {
   caseId: string
   stageId: string
+  /** 命中的轨道（level）。 */
+  level?: string
   groupName: string
   dryRun: boolean
   anchorDate?: string
-  /** 将创建的任务（已扣除已存在与被过滤的）。 */
+  /** 将创建的任务（已扣除已存在、被过滤与不适用者）。 */
   tasks: PlannedTask[]
   /** 已存在、被跳过的标题。 */
   skippedExisting: string[]
-  /** 被 only/skip 过滤掉的标题。 */
+  /** 被 only/skip/条件/阵营/类型 过滤掉的标题。 */
   skippedByFilter: string[]
-  /** 模板阶段对应的标准状态与案件当前状态不一致时的提示。 */
+  /** 阶段模板对应的标准状态与案件当前状态不一致时的提示。 */
   suggestStatus?: string
   warnings: string[]
 }
@@ -106,13 +152,32 @@ export async function planStageExpansion(
   opts: StageExpandOptions = {},
   itemStore?: import('../item/store/item-store.ts').ItemStore,
 ): Promise<StagePlan> {
-  const stage = getLitigationStage(stageId)
-  if (stage === undefined) {
-    throw new Error(`unknown stageId: ${stageId}（可选：${STAGE_ORDER.join(' / ')}）`)
-  }
   const record = await caseStore.readCase(caseId)
   if (record === undefined) throw new Error(`case not found: ${caseId}`)
+  // 选轨 + 选阶段：
+  // - stageId 显式给定 → 必须是有效 id（跨轨全集查找），否则报错而不是静默回退；
+  // - stageId 为空（''）→ 按案件 level/status 自动解析「当前应展开的阶段」。
+  let stage: StageTemplate | undefined
+  if (stageId !== undefined && stageId !== '') {
+    stage = getStageOnTrack(record.level, stageId) ?? getLitigationStage(stageId)
+    if (stage === undefined) {
+      const order = stageOrderForCase(record).map((s) => s.id).join(' / ')
+      throw new Error(`unknown stageId: ${stageId}（案件 ${caseId} level=${record.level ?? ''} 轨内可选：${order}）`)
+    }
+  } else {
+    stage = resolveStageForCase(record)
+    if (stage === undefined) throw new Error(`案件 ${caseId}（status=${record.status ?? ''}, level=${record.level ?? ''}）无法解析当前应展开的阶段`)
+  }
+  return planStageOnRecord(record, stage, opts, itemStore)
+}
 
+/** 按案件记录 + 已解析阶段展开（体检/建议共用同一实现）。 */
+export async function planStageOnRecord(
+  record: CaseRecord,
+  stage: StageTemplate,
+  opts: StageExpandOptions = {},
+  itemStore?: import('../item/store/item-store.ts').ItemStore,
+): Promise<StagePlan> {
   const warnings: string[] = []
   // 0.2.2：任务组/任务已存在性判断一律读 items（写路径唯一真相源），不再从
   // case-registry 的 taskGroups 判断（registry 副本已下岗）。
@@ -120,8 +185,8 @@ export async function planStageExpansion(
   let existingTemplateTitles: Set<string>
   if (itemStore !== undefined) {
     const { buildOwnerTaskGroups } = await import('../item/shape.ts')
-    const [groups, items] = await Promise.all([itemStore.listGroups(caseId), itemStore.listItems(caseId)])
-    const own = buildOwnerTaskGroups(caseId, 'litigation', groups, items)
+    const [groups, items] = await Promise.all([itemStore.listGroups(record.caseId), itemStore.listItems(record.caseId)])
+    const own = buildOwnerTaskGroups(record.caseId, 'litigation', groups, items)
     const stageGroup = own.find((g) => g.name === stage.name)
     const rows = stageGroup?.tasks ?? []
     existingTitles = new Set(rows.map((t) => String((t as { title?: unknown }).title ?? '')))
@@ -144,13 +209,9 @@ export async function planStageExpansion(
     const legacyGroup = (record.taskGroups ?? []).find((g) => g.name === stage.name)
     const rows = legacyGroup?.tasks ?? []
     existingTitles = new Set(rows.map((t) => t.title))
-    // 管家把模板任务改名后（如「出庭参加庭审」→「出庭参加第二次庭审」），标题
-    // 对不上但 templateTitle 仍指向模板原标题——据此认定已展开过，避免重复
-    // 展开时又插入一个原名副本，把人工调整冲掉。
     existingTemplateTitles = new Set(
       rows.map((t) => t.templateTitle).filter((v): v is string => v !== undefined && v !== ''),
     )
-    // 同上：散落在别组的同源模板任务也算已展开（备忘录 #10）。
     const stageTitleSet = new Set(stage.tasks.map((x) => x.title))
     for (const g of record.taskGroups ?? []) {
       if (g.name === stage.name) continue
@@ -170,6 +231,7 @@ export async function planStageExpansion(
     }
   }
 
+  const ctx = { type: record.type, ourSide: record.ourSide ?? record.parties?.ourSide }
   const tasks: PlannedTask[] = []
   const skippedExisting: string[] = []
   const skippedByFilter: string[] = []
@@ -177,9 +239,13 @@ export async function planStageExpansion(
     if (only !== undefined && !only.has(t.title)) { skippedByFilter.push(t.title); continue }
     if (skip.has(t.title)) { skippedByFilter.push(t.title); continue }
     // 条件任务（备忘录 #10）：optional 任务只有被 only 显式点名才展开。
-    // 不传 only 时默认跳过——否则「大获全胜的案件还铺上诉三件套」这类
-    // 噪音会把任务树变成僵尸清单。
     if (t.optional === true && only === undefined) {
+      skippedByFilter.push(t.title)
+      continue
+    }
+    // v0.3.0 自适应：阵营/案件类型不适用 → 不展开（即便 only 点名也尊重 appliesTo，
+    // 但 only 点名可覆盖 side 约束——管家显式点名意味着确实要做）。
+    if (!templateTaskApplies(t, ctx) && !(only !== undefined && only.has(t.title))) {
       skippedByFilter.push(t.title)
       continue
     }
@@ -191,8 +257,9 @@ export async function planStageExpansion(
   }
 
   const plan: StagePlan = {
-    caseId,
-    stageId,
+    caseId: record.caseId,
+    stageId: stage.id,
+    level: stage.level,
     groupName: stage.name,
     dryRun: opts.dryRun === true,
     anchorDate: opts.anchorDate,
@@ -202,8 +269,7 @@ export async function planStageExpansion(
     warnings,
   }
   // 阶段模板自带的标准状态与案件现状不一致 → 提示管家可考虑推进 status
-  // （只提示，不代改：状态推进属于案件判断，不是模板该替模型做的决定）。
-  if (record.status !== undefined && record.status !== '' && record.status !== stage.status) {
+  if (record.status !== undefined && record.status !== '' && record.status !== stage.status && stage.status !== '') {
     plan.suggestStatus = stage.status
   }
   return plan
@@ -236,11 +302,10 @@ export async function applyStageExpansion(
 ): Promise<StagePlan & { groupId?: string }> {
   const plan = await planStageExpansion(caseStore, caseId, stageId, { ...opts, dryRun: false }, itemStore)
   if (plan.tasks.length === 0) return plan
-  const stage = getLitigationStage(stageId)!
+  const stage = getLitigationStage(plan.stageId)!
 
   // 统一事项模型：任务写 items.json（type=task，带 groupId）。
   if (itemStore !== undefined) {
-    // 任务组：懒创建（同名组存在则复用）。
     const groups = await itemStore.listGroups(caseId)
     let group = groups.find((g) => g.name === stage.name)
     if (group === undefined) {
@@ -355,12 +420,13 @@ export function detectStageSuggestions(
 function suggestForCase(record: CaseRecord, statusId: string): StageSuggestion[] {
   const suggestions: StageSuggestion[] = []
   if (statusId === 'closed') return suggestions
-  if (STATUS_TO_STAGE[statusId] === undefined) return suggestions
 
   const statusDef = getLitigationStatus(statusId, record.level)
-  const stageId = STATUS_TO_STAGE[statusId]
-  const stage = getLitigationStage(stageId)!
-  const uniqueTasks = stageTasksOf(record, stageId)
+  // 该轨当前状态对应的阶段（如 一审·庭前准备 / 劳动仲裁·庭前准备）。
+  const stage = resolveStageForCase(record)
+  if (stage === undefined) return suggestions
+
+  const uniqueTasks = stageTasksOf(record, stage.id, record.level)
   const openTasks = uniqueTasks.filter((t) => t.status !== 'done')
 
   // 1) 信息缺口：进入立案后应有而缺失的登记字段
@@ -368,7 +434,7 @@ function suggestForCase(record: CaseRecord, statusId: string): StageSuggestion[]
     .filter((c) => statusDef.order >= c.fromOrder)
     .filter((c) => record[c.field] === undefined || record[c.field] === '')
     .map((c) => c.label)
-  if (statusId === 'awaiting_trial') {
+  if (statusId === 'pretrial' || statusId === 'trial_c') {
     const hasHearingKeyDate = (record.keyDates ?? []).some((k) => k.label === '开庭' && k.done !== true)
     if (!hasHearingKeyDate) gaps.push('开庭关键日期')
   }
@@ -384,26 +450,28 @@ function suggestForCase(record: CaseRecord, statusId: string): StageSuggestion[]
   if (uniqueTasks.length === 0) {
     suggestions.push({
       type: 'expand_current',
-      stageId,
+      stageId: stage.id,
       stageName: stage.name,
       reason: `案件处于「${statusDef.label}」但「${stage.name}」还没有任务，建议按模板展开当前阶段`,
-      preview: expandablePreview(stage),
+      preview: expandablePreview(stage, record),
     })
     return suggestions
   }
 
   // 3) 当前阶段任务全部完成 → 展开下一阶段（或建议结案）
   if (openTasks.length === 0) {
-    const next = nextStageId(stageId)
+    const next = nextStageOnTrack(record.level, stage.id)
     if (next === undefined) {
       suggestions.push({
         type: 'close_out',
-        reason: '「执行 · 强制执行」阶段任务已全部完成，建议跟进回款后结案归档，并将状态改为「已结案」',
+        reason: `「${stage.name}」阶段任务已全部完成，建议结案归档，并将状态改为「已结案」`,
       })
       return suggestions
     }
-    const nextStage = getLitigationStage(next)!
+    const nextStage = getStageOnTrack(record.level, next) ?? getLitigationStage(next)
+    if (nextStage === undefined) return suggestions
     const nextStatusDef = getLitigationStatus(nextStage.status, record.level)
+    const preview = expandablePreview(nextStage, record)
     suggestions.push({
       type: 'expand_next',
       stageId: next,
@@ -411,7 +479,7 @@ function suggestForCase(record: CaseRecord, statusId: string): StageSuggestion[]
       suggestStatus: nextStage.status,
       suggestStatusLabel: nextStatusDef.label,
       reason: `「${stage.name}」任务已全部完成，建议展开「${nextStage.name}」并将状态推进到「${nextStatusDef.label}」`,
-      preview: expandablePreview(nextStage),
+      preview,
       anchorDate: findAnchorDate(record, next),
     })
     return suggestions
@@ -420,17 +488,22 @@ function suggestForCase(record: CaseRecord, statusId: string): StageSuggestion[]
   return suggestions
 }
 
-/** 预览标题：默认展开会创建的任务（optional 需 only 点名，不列入预览）。 */
-function expandablePreview(stage: StageTemplate): string[] {
-  return stage.tasks.filter((t) => t.optional !== true).slice(0, 5).map((t) => t.title)
+/** 预览标题：默认展开会创建的任务（optional 需 only 点名；含阵营/类型过滤）。 */
+function expandablePreview(stage: StageTemplate, record: Pick<CaseRecord, 'type' | 'ourSide' | 'parties'>): string[] {
+  const ctx = { type: record.type, ourSide: record.ourSide ?? record.parties?.ourSide }
+  return stage.tasks
+    .filter((t) => t.optional !== true && templateTaskApplies(t, ctx))
+    .slice(0, 5)
+    .map((t) => t.title)
 }
 
 /**
  * 取某案件某阶段的实际任务（含散落在别组但 templateTitle 属本阶段的，
  * 备忘录 #10）。health 的 stage 进度与 suggestForCase 共用同一判定。
+ * level 用于跨轨同名阶段（如 pretrial 一审/劳动仲裁）精确取模板。
  */
-export function stageTasksOf(record: CaseRecord, stageId: string): CaseTask[] {
-  const stage = getLitigationStage(stageId)
+export function stageTasksOf(record: CaseRecord, stageId: string, level?: string): CaseTask[] {
+  const stage = level !== undefined ? (getStageOnTrack(level, stageId) ?? getLitigationStage(stageId)) : getLitigationStage(stageId)
   if (stage === undefined) return []
   const stageTitles = new Set(stage.tasks.map((t) => t.title))
   const taskGroups = (record.taskGroups ?? []) as Array<{ name: string; tasks: CaseTask[] }>
@@ -449,9 +522,9 @@ export function stageTasksOf(record: CaseRecord, stageId: string): CaseTask[] {
   })
 }
 
-/** 为下一阶段展开寻找锚点日期：下一阶段是开庭且有「开庭」关键日期时用它。 */
+/** 为下一阶段展开寻找锚点日期：下一阶段含开庭动作且有「开庭」关键日期时用它。 */
 function findAnchorDate(record: CaseRecord, nextStageIdValue: string): string | undefined {
-  if (nextStageIdValue !== 'trial') return undefined
+  if (nextStageIdValue !== 'pretrial' && nextStageIdValue !== 'cr_trial' && nextStageIdValue !== 'retrial_trial' && nextStageIdValue !== 'appellate') return undefined
   const keyDate = (record.keyDates ?? []).find((k) => k.label === '开庭' && k.done !== true)
   return keyDate?.date
 }

@@ -168,7 +168,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCase, setFilterCase] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
-  const [showDone, setShowDone] = useState(true);
+  const [showDone, setShowDone] = useState(false); // 备忘录 #16：默认隐藏已完成，聚焦待办
   const [editTask, setEditTask] = useState<UnifiedTask | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());

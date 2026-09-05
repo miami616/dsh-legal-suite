@@ -561,10 +561,11 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   /* ----------------------- stage templates & suggestions -------------- */
   // 阶段模板展开：dryRun=true 只返回计划（预览），否则落库。模板是骨架，
   // only/skip 供管家按案情裁剪；已存在的任务按标题跳过，天然幂等。
+  // stageId 可空（''）：缺省按案件 level/status 自动展开当前阶段。
   route(`${API_PREFIX}/stage-template`, async (d, b, res) => {
     const caseId = String(b.caseId ?? '')
-    const stageId = String(b.stageId ?? '')
-    if (caseId === '' || stageId === '') return fail(res, 'caseId/stageId required')
+    if (caseId === '') return fail(res, 'caseId required')
+    const stageId = b.stageId === undefined ? '' : String(b.stageId)
     const opts = {
       anchorDate: b.anchorDate === undefined ? undefined : String(b.anchorDate),
       only: Array.isArray(b.only) ? (b.only as unknown[]).map(String) : undefined,

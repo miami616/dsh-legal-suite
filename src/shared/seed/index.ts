@@ -5,7 +5,7 @@
  * and two non-litigation projects covering **different stages / types**, so a
  * new user immediately sees what the same product looks like at different
  * points in a matter's life — rather than rows that all look the same.
- *（诉讼各阶段齐全的两条主线：待开庭 / 执行中；非诉两类业务：常法 / 专项。）
+ *（诉讼各阶段齐全的两条主线：庭前准备 / 执行中；非诉两类业务：常法 / 专项。）
  *
  * Seeding is strictly first-boot-only: it runs only when the target registry
  * is empty and never overwrites existing user data. Deleting the sample rows
@@ -123,7 +123,7 @@ export async function seedLitigationSample(
   // 统一事项：有 itemStore 时任务/事件写 items.json（与运行时一致，播种后界面即可见）。
   const taskWriter = itemStore !== undefined ? itemSeedWriter(itemStore, 'litigation') : caseSeedWriter(caseStore)
   const eventWriter = itemStore !== undefined ? itemEventWriter(itemStore, 'litigation') : timelineEventWriter(timelineStore)
-  // 两组案例覆盖两种截然不同的阶段：待开庭（主干，功能演示最全）与执行中
+  // 两组案例覆盖两种截然不同的阶段：庭前准备（主干，功能演示最全）与执行中
   // （展示执行阶段独有的任务类型）。不再铺 3 个（备忘录 #3：演示太多）。
   const primaryId = await seedAwaitingTrialCase(caseStore, timelineStore, scheduleStore, taskWriter, eventWriter, D)
   await seedExecutionCase(caseStore, timelineStore, scheduleStore, taskWriter, eventWriter, D)
@@ -363,7 +363,7 @@ async function buildProjectGroup(
 /* ============================================================ 诉讼 · 案例二 */
 
 /**
- * 案例二：待开庭（awaiting_trial）。
+ * 案例二：庭前准备（pretrial，含开庭在即，docx 一审庭前含开庭）。
  * 主干案例：已立案、开庭日期已定，演示「以开庭日为锚点倒排任务」的排期方式。
  */
 async function seedAwaitingTrialCase(
@@ -384,7 +384,7 @@ async function seedAwaitingTrialCase(
     name: '某科技公司与某贸易公司买卖合同纠纷',
     type: '民商',
     cause: '合同纠纷',
-    status: 'awaiting_trial',
+    status: 'pretrial',
     court: '北京市海淀区人民法院',
     judge: '王法官',
     level: '一审',
@@ -414,10 +414,6 @@ async function seedAwaitingTrialCase(
       title: '缴纳诉讼费', status: 'done', priority: 'medium', deadline: d(-29),
       detail: '收到缴费通知后缴纳',
     },
-    {
-      title: '登记举证期限与开庭安排', status: 'done', priority: 'high', deadline: d(-28),
-      detail: '电子送达受理/举证通知书后登记举证期限与开庭',
-    },
   ])
 
   await buildCaseGroup(writer, caseId, '一审 · 庭前准备', [
@@ -446,9 +442,7 @@ async function seedAwaitingTrialCase(
       title: '申请调查令', status: 'todo', priority: 'low', deadline: d(3),
       detail: '申请调取对方收货后的销售记录，佐证货物无质量问题',
     },
-  ])
-
-  await buildCaseGroup(writer, caseId, '一审 · 开庭审理', [
+    // 开庭在即（docx：庭前准备含开庭）——收到开庭传票后管家展开以下动作。
     {
       title: '核对证据原件', status: 'doing', priority: 'high',
       deadline: daysBefore(hearingDate, 7),
@@ -472,7 +466,6 @@ async function seedAwaitingTrialCase(
         { text: '携带证据原件与代理手续', done: false },
       ],
     },
-    { title: '提交书面代理词', status: 'todo', priority: 'high', deadline: d(19), detail: '庭后按法庭指定期限提交' },
     { title: '校对并签署庭审笔录', status: 'todo', priority: 'medium', deadline: hearingDate },
   ])
 
@@ -525,7 +518,7 @@ async function seedExecutionCase(
     name: '某贸易公司与陈某民间借贷纠纷执行案',
     type: '执行',
     cause: '金钱给付',
-    status: 'investigation',
+    status: 'executing',
     court: '北京市朝阳区人民法院',
     judge: '刘执行员',
     level: '首次执行',
@@ -547,7 +540,7 @@ async function seedExecutionCase(
   })
   const caseId = record.caseId
 
-  await buildCaseGroup(writer, caseId, '执行 · 强制执行', [
+  await buildCaseGroup(writer, caseId, '执行 · 执行中', [
     {
       title: '申请强制执行', status: 'done', priority: 'high', deadline: d(-25),
       detail: '提交执行申请书、生效裁判文书、送达证明与财产线索',

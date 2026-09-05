@@ -44,7 +44,7 @@ export function isKnownStatus(statusId: string | undefined | null): boolean {
 }
 
 /** Procedure (审级) tags — neutral, independent of status. */
-export const PROCEDURE_LEVELS = ['一审', '二审', '再审', '劳动仲裁', '商事仲裁', '首次执行', '恢复执行']
+export const PROCEDURE_LEVELS = ['一审', '二审', '再审', '劳动仲裁', '商事仲裁', '首次执行', '恢复执行', '刑事']
 
 /** Normalize a stored level string into a canonical procedure tag ('' if none). */
 export function normalizeLevel(level: string | number | undefined | null, type?: string): string {
@@ -56,6 +56,7 @@ export function normalizeLevel(level: string | number | undefined | null, type?:
   if (/一审/.test(trimmed)) return '一审'
   if (/二审/.test(trimmed)) return '二审'
   if (/再审/.test(trimmed)) return '再审'
+  if (/刑事/.test(trimmed) || type === '刑事') return '刑事'
   if (/劳动/.test(trimmed) || /仲裁/.test(trimmed)) return type === '劳动争议' ? '劳动仲裁' : '商事仲裁'
   if (/执行/.test(trimmed)) return /恢复/.test(trimmed) ? '恢复执行' : '首次执行'
   return trimmed
@@ -71,6 +72,7 @@ export function getProcedureShort(level: string | number | undefined | null): st
 const PROCEDURE_LEVEL_DOTS: Record<string, string> = {
   '一审': '#4a7ab5', '二审': '#7d6ab0', '再审': '#b0648a',
   '劳动仲裁': '#3a7d6b', '商事仲裁': '#2f7d77', '首次执行': '#4d7a4f', '恢复执行': '#2f7d77',
+  '刑事': '#8c2f28',
 }
 
 /** Dot color for a procedure level (fallback neutral). */

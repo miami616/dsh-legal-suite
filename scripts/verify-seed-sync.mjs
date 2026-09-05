@@ -71,8 +71,8 @@ try {
   const statuses = cases.map((c) => c.status)
   check('2 distinct case statuses', new Set(statuses).size === 2, statuses.join(','))
   check(
-    'statuses cover 待开庭/财产查控',
-    ['awaiting_trial', 'investigation'].every((s) => statuses.includes(s)),
+    'statuses cover 庭前准备/执行中 (docx 档位)',
+    ['pretrial', 'executing'].every((s) => statuses.includes(s)),
     statuses.join(','),
   )
 
@@ -98,10 +98,11 @@ try {
   })
   check('all case keydate labels canonical', badKeyDates.length === 0, badKeyDates.join(' | '))
 
-  // ---- 主案例结构完整性 ----
-  check('primary case has >= 3 task groups', (caseRec?.taskGroups?.length ?? 0) >= 3, `groups=${caseRec?.taskGroups?.length}`)
-  const trialGroup = caseRec?.taskGroups?.find((g) => g.name === '一审 · 开庭审理')
+  // ---- 主案例结构完整性（docx：庭前准备含开庭动作） ----
+  check('primary case has >= 2 task groups', (caseRec?.taskGroups?.length ?? 0) >= 2, `groups=${caseRec?.taskGroups?.length}`)
+  const trialGroup = caseRec?.taskGroups?.find((g) => g.name === '一审 · 庭前准备')
   const trialTask = trialGroup?.tasks.find((t) => t.title === '制作庭审提纲')
+  check('庭前准备组含 制作庭审提纲（docx 庭前含开庭）', trialTask !== undefined, JSON.stringify(trialGroup?.tasks.map((t) => t.title)))
   check('trial task has subtasks', (trialTask?.subtasks?.length ?? 0) >= 2, `subtasks=${trialTask?.subtasks?.length}`)
   check('trial task has checklist', (trialTask?.checklist?.length ?? 0) >= 1, `checklist=${trialTask?.checklist?.length}`)
   check('primary case has keydates', (caseRec?.keyDates?.length ?? 0) >= 2, `keyDates=${caseRec?.keyDates?.length}`)
@@ -111,7 +112,7 @@ try {
   check('primary case schedules', schedules.length >= 1, `schedules=${schedules.length}`)
 
   // 执行案例应有自己独有的任务（与诉讼阶段不重叠）
-  const execCase = cases.find((c) => c.status === 'investigation')
+  const execCase = cases.find((c) => c.status === 'executing')
   const execTitles = allTaskTitles(execCase)
   check('execution case has stage-unique tasks', execTitles.includes('提供被执行人财产线索'), execTitles.join(','))
 

@@ -297,6 +297,15 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
           updatedAt: now,
         }
         normalizeKeyDates(created)
+        // 建案即建首个审级节点：level 已定且未显式传 instances 时自动生成，
+        // 回填案号/法院/承办法官/立案日期/双方当事人（备忘录 #14 审级历程缺信息——
+        // 新建案件信息齐全却审级面板缺数据，根因之一就是 register 不建首节点）。
+        const regLevel = String(input.level ?? '').trim()
+        const hasExplicitInstances = Array.isArray(input.instances) && input.instances.length > 0
+        if (regLevel !== '' && !hasExplicitInstances) {
+          const node = buildInstanceNodeFromRecord(created, regLevel, input.status === undefined ? undefined : String(input.status))
+          if (Object.keys(node).length > 1) created.instances = [node] // 至少含 level+1 字段才有意义
+        }
         next.cases[caseId] = created
         next.lastUpdated = now
         record = clone(created)
@@ -331,28 +340,7 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
           const instances = merged.instances ?? []
           const has = instances.some((inst) => String(inst.level ?? '').trim() === levelValue)
           if (!has) {
-            const node: Record<string, unknown> = { level: levelValue }
-            if (patch.status !== undefined) node.status = patch.status
-            if (merged.caseNumber !== undefined) node.caseNo = merged.caseNumber
-            if (merged.court !== undefined) node.court = merged.court
-            if (merged.judge !== undefined) node.judge = merged.judge
-            if (merged.filingDate !== undefined) node.filedAt = merged.filingDate
-            const ourRow = findOurPartyRowFromRecord(merged)
-            if (ourRow !== undefined) {
-              const canonical = canonicalRoleOf(ourRow.role)
-              const sideIsPlaintiff = ['原告', '申请人', '申请执行人'].includes(canonical)
-              const sideIsDefendant = ['被告', '被申请人', '被执行人'].includes(canonical)
-              // 原告/被告 存首级字段；上诉人/被上诉人 是二审特有，也按我方落位。
-              if (sideIsPlaintiff) {
-                if (node.plaintiff === undefined) node.plaintiff = ourRow.name
-              } else if (sideIsDefendant) {
-                if (node.defendant === undefined) node.defendant = ourRow.name
-              } else if (canonical === '上诉人') {
-                node.plaintiff = ourRow.name
-              } else if (canonical === '被上诉人') {
-                node.defendant = ourRow.name
-              }
-            }
+            const node = buildInstanceNodeFromRecord(merged, levelValue, patch.status === undefined ? undefined : String(patch.status))
             merged.instances = [...instances, node]
           }
         }
@@ -759,4 +747,30 @@ function findOurPartyRowFromRecord(record: { parties?: Parties | null; ourSide?:
     if (hit) return { name: String(p.name ?? ''), role: String(p.role ?? '') }
   }
   return undefined
+}
+
+/**
+ * 从案件记录构建一个审级历程节点（备忘录 #14：审级历程缺信息）。
+ * 回填：案号/法院/承办法官/立案日期 + **双方**当事人姓名。
+ * 双方抽取不依赖「我方」判断：从 parties.details 按角色侧分别取原告与被告；
+ * 某侧缺失且无法判定时留空（不臆断），由 InstanceForm/管家后续补全。
+ */
+function buildInstanceNodeFromRecord(record: CaseRecord, level: string, status?: string): Record<string, unknown> {
+  const node: Record<string, unknown> = { level }
+  if (status !== undefined && status !== '') node.status = status
+  if (record.caseNumber !== undefined && String(record.caseNumber).trim() !== '') node.caseNo = String(record.caseNumber).trim()
+  if (record.court !== undefined && String(record.court).trim() !== '') node.court = String(record.court).trim()
+  if (record.judge !== undefined && String(record.judge).trim() !== '') node.judge = String(record.judge).trim()
+  if (record.filingDate !== undefined && String(record.filingDate).trim() !== '') node.filedAt = String(record.filingDate).trim()
+  const details = Array.isArray(record.parties?.details) ? record.parties!.details! : []
+  const partyOfSide = (sideRoles: string[]): { name?: unknown; role?: unknown } | undefined =>
+    details.find((p) => {
+      const roles = Array.isArray(p.roles) ? (p.roles as unknown[]).map(String) : [p.role]
+      return roles.some((r) => sideRoles.includes(canonicalRoleOf(String(r))))
+    })
+  const plaintiffRow = partyOfSide(['原告', '申请人', '申请执行人', '上诉人'])
+  const defendantRow = partyOfSide(['被告', '被申请人', '被执行人', '被上诉人'])
+  if (plaintiffRow !== undefined && String(plaintiffRow.name ?? '').trim() !== '') node.plaintiff = String(plaintiffRow.name).trim()
+  if (defendantRow !== undefined && String(defendantRow.name ?? '').trim() !== '') node.defendant = String(defendantRow.name).trim()
+  return node
 }

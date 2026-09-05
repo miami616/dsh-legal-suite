@@ -13,9 +13,8 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { CaseStore } from './store/case-store.ts'
 import type { TimelineStore } from './store/timeline-store.ts'
 import type { ScheduleStore } from './store/schedule-store.ts'
-import { LITIGATION_STATUSES, STATUS_LADDERS, getLitigationStatus } from '../../shared/playbook/litigation.ts'
+import { STATUS_LADDERS, STAGE_TRACKS, SIDE_STAGES, defaultLevelForType, getLitigationStatus } from '../../shared/playbook/litigation.ts'
 import {
-  STAGE_ORDER,
   applyStageExpansion,
   detectStageSuggestions,
   planStageExpansion,
@@ -66,6 +65,8 @@ type Action = typeof ACTIONS[number]
 
 const LADDER_LABELS = Object.entries(STATUS_LADDERS).map(([k, v]) => `${k}: ${v.map((s) => s.id).join('/')}`).join('；')
 
+/** 全部阶段模板 id（主轨+旁路），用于 stageId 参数描述。 */
+const ALL_STAGE_IDS = [...Object.values(STAGE_TRACKS).flat(), ...SIDE_STAGES].map((s) => s.id).join('/')
 /** Tool parameters (shared by both registrations). */
 const PARAMETERS = {
   action: { type: 'string', required: true, description: `要执行的操作：${ACTIONS.join(' / ')}` },
@@ -77,7 +78,7 @@ const PARAMETERS = {
   status: { type: 'string', description: `进度，取值须与审级 level 匹配的规范阶梯：${LADDER_LABELS}。level 未指明时按一审阶梯校验` },
   court: { type: 'string', description: '受理法院' },
   judge: { type: 'string', description: '承办法官' },
-  level: { type: 'string', description: '审级：一审/二审/再审/劳动仲裁/商事仲裁/首次执行/恢复执行。update_case 设 level 时自动追加到审级历程（instances）' },
+  level: { type: 'string', description: '审级/程序：一审/二审/再审/劳动仲裁/商事仲裁/首次执行/恢复执行/刑事。update_case 设 level 时自动追加到审级历程（instances）。转二审/再审/执行 = 切 level（任务在对应轨模板展开），不是堆任务' },
   instances: { type: 'json', description: '审级历程数组（可选，update_case 传则整体覆盖）：[{ level, status?, caseNo?, court?, plaintiff?, defendant?, result? }]，按时间先后排列。通常不传，靠 level 自动同步' },
   claimAmount: { type: 'string', description: '标的额，如 84000 或 8.4万' },
   filingDate: { type: 'string', description: '立案日期 YYYY-MM-DD' },
@@ -106,7 +107,7 @@ const PARAMETERS = {
   title: { type: 'string', description: '时间轴事件名称，如 第一次开庭' },
   detail: { type: 'string', description: '事件详情' },
   includeOverdue: { type: 'boolean', description: 'deadlines 是否包含已过期历史事项（默认 false，只返回未到期）' },
-  stageId: { type: 'string', description: `apply_stage_template 的阶段模板 id：${STAGE_ORDER.join('/')}。模板只给骨架，落地后可按案情增删改用 only/skip 裁剪` },
+  stageId: { type: 'string', description: 'apply_stage_template 的阶段模板 id（跨轨全集：' + ALL_STAGE_IDS + '）。省略或空串 = 按案件 level/status 自动展开「当前应展开的阶段」。展开按案件 level 命中对应轨模板，按 type/我方身份自动过滤不适用的任务；模板是骨架，落地后可增删改，用 only/skip 裁剪' },
   anchorDate: { type: 'string', description: 'apply_stage_template 的锚点日期 YYYY-MM-DD（如开庭日）：模板中带提前量的任务据此推算 deadline' },
   only: { type: 'json', description: 'apply_stage_template 只展开这些任务标题的数组，如 ["提交证据","申请财产保全"]' },
   skip: { type: 'json', description: 'apply_stage_template 跳过这些任务标题的数组（本案不适用的标准动作）' },
@@ -121,7 +122,26 @@ const DESCRIPTION = [
   '任务树（阶段→任务→子任务→检查项）、时间轴（开庭/举证/上诉等节点与提醒）、关键日期、期限汇总。',
   '当用户提到具体案件、要求登记/更新案件、安排任务、记录开庭/举证/上诉等节点、查询期限时调用。',
   'action 必填；各 action 所需字段见 parameters。列表/查询类只读，变更类会立即持久化并刷新界面。',
-  '写入纪律：任务名写「动作」不写「状态」（用「出庭参加庭审」，不用「等待开庭」）；',
+  '',
+  '【按案件自适应选轨与裁任务（v0.3.0 核心）】',
+  '案件有三条正交轴：type（民商/刑事/行政/劳动争议/知识产权/执行）、level（审级/程序：一审/二审/再审/',
+  '劳动仲裁/商事仲裁/首次执行/恢复执行/刑事）、status（该 level 阶梯内的档位）。三者决定案件生命周期路径：',
+  '- 建案/更新时先定 level：刑事→「刑事」；劳动争议→「劳动仲裁」；执行→「首次执行」；其余→「一审」；',
+  '  有仲裁协议的民商→「商事仲裁」。user 没明说 level 时按 type 推断，不要瞎猜更不要默认塞进一审。',
+  '- apply_stage_template 只按 stageId 展开；先按 level 命中该轨模板，再按案件 type/我方身份(side)',
+  '  自动过滤不适用的任务（如行政起诉期限任务只出现在行政案件、答辩状任务只在我方为被告时出现）。',
+  '- 展开新案件只铺当前阶段任务，不要把全流程一次性铺出来；任务模板是参考骨架，可增删改。',
+  '',
+  '【管家自动程序动作（不要派成律师任务）】',
+  '收到法院文书/通知后的登记是管家职责，用关键日期+时间轴表达，不创建任务：',
+  '- 收到受理/举证通知书 → add_keydate「举证期限届满」+ upsert_event（举证通知/开庭传票）；',
+  '- 收到应诉通知/起诉状副本 → 若我方为被告 add_keydate「答辩期届满」；对方管辖异议/我方提异议走事件；',
+  '- 收到开庭传票 → upsert_event（开庭）+ add_keydate「开庭」；裁判文书送达 → add_keydate「裁判文书送达」',
+  '  +「上诉期届满」；判决生效后若对方未履行 → add_keydate「申请执行期限届满」。',
+  '不要在任务树里建「登记××」「锁定三大期限并倒排」这类登记/提醒任务——它们没有律师交付物。',
+  '',
+  '【写入纪律】',
+  '任务名写「动作」不写「状态」（用「出庭参加庭审」，不用「等待开庭」）；',
   '同一事项不得同时登记为任务 deadline、关键日期与时间轴事件，只登记必要的体系；',
   '新建案件时只铺当前阶段，不要一次性生成全流程任务。',
   '当事人纪律（备忘录 #5）：角色只能用规范词表（原告/被告/申请人/被申请人/上诉人/被上诉人/申请执行人/被执行人/第三人），',
@@ -129,13 +149,14 @@ const DESCRIPTION = [
   '阶段推进：apply_stage_template 按阶段模板展开标准任务（dryRun=true 先预览、only/skip 裁剪、anchorDate 推算 deadline）；',
   'stage_suggestions 只读检测「当前阶段已完成→该展开下一阶段」与缺失的登记字段；',
   'update_case 改变 status 时响应会内联返回 stageSuggestions，据此向用户提出下一步建议。',
+  '案件转二审/再审/执行 = update_case 切 level（如 level=二审），instances 自动记录审级历程，',
+  '任务在对应轨模板展开——「二审中」只是状态不是任务，不要在二审状态里硬塞一审的任务组。',
   'case_health 只读体检：信息完整度按当前阶段动态计算（诉前不罚缺案号），附缺口清单与阶段进度。',
-  '模板里的「条件任务」（如 缴纳诉讼费/分析上诉可行性/提交上诉状）默认展开不会创建——只在触发条件出现',
-  '（收到缴费通知 / 裁判对我方不利且需评估上诉）时用 only 点名展开。我方全胜、调解结案、对方不上诉的案子',
-  '不要铺上诉类任务。立案的 受理/举证通知书 大多电子送达，不是「领取」任务——举证期限登记为关键日期即可。',
+  '模板里的「条件任务」（如 缴纳诉讼费/申请财产保全/分析上诉可行性/刑事取保候审）默认展开不会创建——',
+  '只在触发条件出现（收到缴费通知 / 有转移财产风险 / 裁判不利需评估上诉 / 符合取保情形）时用 only 点名展开。',
   '案件文件夹记忆文件：处理具体案件前用 case_info 读 案件信息.md（没有则 ensure），有新进展同步补写，',
   '用 file-write 落盘。',
-].join('')
+].join('\n')
 
 /** Validate ids are non-empty strings for mutation actions. */
 function requireIds(ids: Record<string, string | undefined>): void {
@@ -282,14 +303,15 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           return clean({ count: found.length, cases: found })
         }
         case 'apply_stage_template': {
-          requireIds({ caseId: s(args.caseId), stageId: s(args.stageId) })
+          // stageId 可空：缺省时按案件 level/status 自动展开「当前应展开的阶段」。
+          requireIds({ caseId: s(args.caseId) })
           const opts = {
             anchorDate: s(args.anchorDate),
             only: toStringArray(args.only),
             skip: toStringArray(args.skip),
           }
           const caseId = args.caseId as string
-          const stageId = args.stageId as string
+          const stageId = args.stageId === undefined ? '' : String(args.stageId)
           const plan = args.dryRun === true
             ? await planStageExpansion(cs, caseId, stageId, { ...opts, dryRun: true })
             : await applyStageExpansion(cs, caseId, stageId, opts, deps.itemStore)
@@ -356,13 +378,29 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           const input: Record<string, unknown> = {
             name: s(args.name), type: s(args.type), cause: s(args.cause),
             status: s(args.status), court: s(args.court), judge: s(args.judge),
-            level: s(args.level), claimAmount: s(args.claimAmount),
+            level: s(args.level) ?? defaultLevelForType(s(args.type)),
+            claimAmount: s(args.claimAmount),
             filingDate: s(args.filingDate), ourSide: s(args.ourSide),
             caseNumber: s(args.caseNumber), summary: s(args.summary),
           }
           if (args.parties !== undefined) input.parties = clean(normalizeParties(args.parties))
           const record = await cs.registerCase(input)
-          return { caseId: record.caseId, name: record.name, ok: true }
+          const out: Record<string, unknown> = { caseId: record.caseId, name: record.name, ok: true, level: input.level }
+          // 建案后内联返回「当前应展开的阶段」dryRun 计划（备忘录 #19：管家不主动建任务）。
+          // 让管家在同一次响应里就知道该铺哪些标准任务——确认后 apply_stage_template 落库。
+          if (record.status !== undefined && record.status !== '' && record.status !== 'closed') {
+            try {
+              const plan = await planStageExpansion(cs, record.caseId, '', { dryRun: true }, deps.itemStore)
+              out.nextStage = clean({
+                stageId: plan.stageId,
+                stageName: plan.groupName,
+                tasks: plan.tasks.map((t) => t.title),
+                skippedExisting: plan.skippedExisting,
+                hint: '案件刚建好，请按此清单展开当前阶段任务（apply_stage_template 落库，可按 only/skip 裁剪）',
+              })
+            } catch { /* 无法解析阶段时不阻塞建案 */ }
+          }
+          return clean(out)
         }
         case 'update_case': {
           requireIds({ caseId: s(args.caseId) })
@@ -370,6 +408,13 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           for (const key of ['name', 'type', 'cause', 'status', 'court', 'judge', 'level', 'claimAmount', 'filingDate', 'ourSide', 'caseNumber', 'summary', 'folder'] as const) {
             const value = s(args[key])
             if (value !== undefined) patch[key] = value
+          }
+          // level 缺省但 type 变化（如 劳动争议→已起诉转民事一审）时按新 type 推断 level。
+          if (patch.level === undefined && patch.type !== undefined) {
+            const current = await cs.readCase(args.caseId as string)
+            if (current !== undefined && (current.level === undefined || current.level === '')) {
+              patch.level = defaultLevelForType(String(patch.type))
+            }
           }
           if (args.parties !== undefined) patch.parties = clean(normalizeParties(args.parties))
           const record = await cs.updateCase(args.caseId as string, patch)

@@ -315,6 +315,8 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
         groupId: groupId || undefined,
         ...(taskId !== undefined ? { id: String(taskId) } : {}),
       })
+      // 备忘 #21：任务增改后 bump 案件 updatedAt，让案件卡片按「最近更新」置顶。
+      await d.caseStore.updateCase(caseId, {})
       return ok(res, { id: created.id, caseId, groupId, ok: true })
     }
     const { caseId: _omit2, groupId: _g2, taskId: _t2, ...task2 } = b
@@ -327,7 +329,10 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const taskId = String(b.taskId ?? '')
     if (caseId === '' || groupId === '' || taskId === '') return fail(res, 'caseId/groupId/taskId required')
     if (d.itemStore !== undefined) {
-      return ok(res, await d.itemStore.deleteItem(taskId))
+      const r = await d.itemStore.deleteItem(taskId)
+      // 备忘 #21：任务删除后同样 bump 案件 updatedAt。
+      await d.caseStore.updateCase(caseId, {})
+      return ok(res, r)
     }
     ok(res, await d.caseStore.deleteTask(caseId, groupId, taskId))
   })
@@ -496,6 +501,8 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
         status: (b.status as never) ?? 'pending',
         ...(b.eventId !== undefined ? { id: String(b.eventId) } : {}),
       })
+      // 备忘 #21：事件增改后 bump 案件 updatedAt（与任务一致，卡片按最近更新置顶）。
+      await d.caseStore.updateCase(String(b.caseId ?? ''), {})
       return ok(res, created)
     }
     ok(res, await d.timelineStore.upsertEvent(b as Parameters<TimelineStore['upsertEvent']>[0]))
@@ -508,6 +515,10 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       const existing = await d.itemStore.readItem(eventId)
       if (existing !== undefined && existing.type !== 'task') {
         const r = await d.itemStore.deleteItem(eventId)
+        // 备忘 #21：事件删除后 bump 案件 updatedAt。
+        if (existing.ownerId !== undefined && existing.ownerId !== '') {
+          await d.caseStore.updateCase(existing.ownerId, {})
+        }
         return ok(res, r)
       }
       // items 中不存在（旧孤儿事件）→ 走 legacy 删除，保证删得掉。
@@ -522,7 +533,12 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (d.itemStore !== undefined) {
       const existing = await d.itemStore.readItem(eventId)
       if (existing !== undefined && existing.type !== 'task') {
-        return ok(res, await d.itemStore.toggleItem(eventId))
+        const updated = await d.itemStore.toggleItem(eventId)
+        // 备忘 #21：事件状态切换后 bump 案件 updatedAt。
+        if (existing.ownerId !== undefined && existing.ownerId !== '') {
+          await d.caseStore.updateCase(existing.ownerId, {})
+        }
+        return ok(res, updated)
       }
     }
     ok(res, await d.timelineStore.toggleEvent(eventId))

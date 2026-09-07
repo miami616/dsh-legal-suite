@@ -579,8 +579,34 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
     if (!entry) return;
     updateCase(entry.caseId, c => ({ ...c, parties: { ...c.parties, details }, updatedAt: new Date().toISOString() }));
   }, [entry, updateCase]);
-  const updateParty = (i: number, patch: Partial<CaseEntry['parties']['details'][number]>) =>
-    updateParties(entry!.parties.details.map((d, j) => (j === i ? { ...d, ...patch } : d)));
+  /** 角色 → ourSide 键（与 setOurParty 同表）。 */
+  const ourSideOfRole = (role: string): string => {
+    const sideMap: Record<string, string> = {
+      原告: 'plaintiff', 申请人: 'applicant', 上诉人: 'appellant', 申请执行人: 'executionApplicant',
+      被告: 'defendant', 被申请人: 'respondent', 被上诉人: 'appellee', 被执行人: 'executionRespondent',
+    };
+    const canonicalOf = (r: string) => r.replace(/^(一审|二审|再审|原审|终审)/, '').replace(/(第?[一二三四五六七八九十百\d]+)/, '');
+    return sideMap[canonicalOf(role) || role] ?? '';
+  };
+  /** 更新第 i 行当事人。若该行是我方当事人且角色变化，同步推导 ourSide——
+   *  备忘 #20：改角色后「我方/对方」分组与诉讼地位标签必须实时更新。 */
+  const updateParty = (i: number, patch: Partial<CaseEntry['parties']['details'][number]>) => {
+    if (!entry) return;
+    const next = entry.parties.details.map((d, j) => (j === i ? { ...d, ...patch } : d));
+    const row = next[i];
+    const isOur = row?.ourClient === true;
+    const roleChanged = patch.role !== undefined && patch.role !== entry.parties.details[i]?.role;
+    const side = isOur && roleChanged ? ourSideOfRole(safeStr(row?.role)) : '';
+    updateCase(entry.caseId, c => ({
+      ...c,
+      parties: {
+        ...c.parties,
+        details: next,
+        ...(side ? { ourSide: side } : {}),
+      },
+      updatedAt: new Date().toISOString(),
+    }));
+  };
   /** 把第 i 行设为我方当事人：该行 ourClient=true，其余行清 false；同步
    *  parties.ourClientName；若 ourSide 未定/与行角色侧不符则按其角色侧修正
    *  ourSide（我方诉讼地位与 myClient 保持一致）。 */
@@ -589,13 +615,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
     const name = safeStr(entry.parties.details[i]?.name);
     if (!name) return;
     const rowRole = safeStr(entry.parties.details[i]?.role) || '';
-    const sideMap: Record<string, string> = {
-      原告: 'plaintiff', 申请人: 'applicant', 上诉人: 'appellant', 申请执行人: 'executionApplicant',
-      被告: 'defendant', 被申请人: 'respondent', 被上诉人: 'appellee', 被执行人: 'executionRespondent',
-    };
-    const canonicalOf = (r: string) => r.replace(/^(一审|二审|再审|原审|终审)/, '').replace(/(第?[一二三四五六七八九十百\d]+)/, '');
-    const canon = canonicalOf(rowRole) || rowRole;
-    const side = sideMap[canon];
+    const side = ourSideOfRole(rowRole);
     updateCase(entry.caseId, c => ({
       ...c,
       parties: {

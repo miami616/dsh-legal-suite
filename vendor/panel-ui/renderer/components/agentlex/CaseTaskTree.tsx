@@ -139,11 +139,12 @@ const TaskRow = memo(function TaskRow({ caseId, task, isProject }: { caseId: str
             <div className="absolute right-0 top-full mt-1 w-44 bg-[var(--paper-elevated)] border border-[var(--paper-inset)] rounded-xl shadow-xl z-50 py-1">
               <div className="px-2 py-1.5 space-y-2">
                 <label className="block text-xs text-[var(--ink-muted)]">截止日期</label>
-                <div className="flex gap-1.5">
+                {/* 备忘 #20：date+time 横排会溢出 w-44 菜单框 → 改竖排，各占整行。 */}
+                <div className="space-y-1.5">
                   <input type="date" value={task.deadline ?? ''} onChange={e => uTask(caseId, task.id, { deadline: e.target.value || undefined })}
                     className="w-full px-2 py-1 rounded text-xs bg-[var(--paper-inset)] outline-none text-[var(--ink)]" />
                   <input type="time" value={task.time ?? ''} onChange={e => uTask(caseId, task.id, { time: e.target.value || undefined })}
-                    className="w-24 px-2 py-1 rounded text-xs bg-[var(--paper-inset)] outline-none text-[var(--ink)]" />
+                    className="w-full px-2 py-1 rounded text-xs bg-[var(--paper-inset)] outline-none text-[var(--ink)]" />
                 </div>
               </div>
               <div className="px-2 py-1.5 flex items-center justify-between">

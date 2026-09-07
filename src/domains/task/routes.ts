@@ -11,6 +11,9 @@ export interface RouteDeps {
   taskStore: TaskStore
   litigationDir: string
   nonlitigationDir: string
+  /** 备忘 #21：写穿诉讼/非诉任务后 bump 来源案件/项目 updatedAt（卡片置顶）。 */
+  caseStore?: import('../litigation/store/case-store.ts').CaseStore
+  projectStore?: import('../nonlitigation/store/project-store.ts').ProjectStore
 }
 
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -154,6 +157,12 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
         groupId,
         ...(groupId !== undefined ? { groupName: (await itemStore.listGroups(sourceId)).find((g) => g.id === groupId)?.name } : {}),
       })
+      // 备忘 #21：任务增改后 bump 来源案件/项目 updatedAt，让卡片按最近更新置顶。
+      if (source === 'litigation') {
+        await d.caseStore?.updateCase(sourceId, {})
+      } else {
+        await d.projectStore?.updateProject(sourceId, {})
+      }
       return ok(res, { id: created.id, source, sourceId, ok: true, updatedAt: created.updatedAt })
     }
 
@@ -174,7 +183,14 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       // 任务域视图 id 可能带 <src>-<sourceId>- 前缀 → 还原真实 item id。
       const prefix = `${source === 'litigation' ? 'lit' : 'nl'}-${sourceId}-`
       const realId = id.startsWith(prefix) ? id.slice(prefix.length) : id
-      ok(res, await itemStore.deleteItem(realId))
+      const r = await itemStore.deleteItem(realId)
+      // 备忘 #21：任务删除后 bump 来源案件/项目 updatedAt。
+      if (source === 'litigation') {
+        await d.caseStore?.updateCase(sourceId, {})
+      } else {
+        await d.projectStore?.updateProject(sourceId, {})
+      }
+      ok(res, r)
       return
     }
     ok(res, await d.taskStore.deleteTask(id))

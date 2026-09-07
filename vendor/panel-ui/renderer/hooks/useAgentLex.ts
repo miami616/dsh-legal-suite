@@ -1514,12 +1514,35 @@ async function updateStandaloneTask(id: string, updater: (t: AgentLexStandaloneT
   const current = state.standaloneTasks.find(t => t.id === id);
   if (!current) return;
   const updated = updater(current);
+  // 备忘 #20：独立任务双写（standalone-tasks.json 旧数据源 + items.json 统一事项）。
+  // 新建的独立任务只存 items.json，standalone-tasks.json 里没有 → update-standalone-task
+  // 会抛 not found；必须忽略该错误，确保 items.json 的 status 更新（TaskManager 显示源）。
+  const statusItem = updated.status === 'done' ? 'done' : updated.status === 'in_progress' ? 'doing' : 'pending';
+  try {
+    await mutateDisk('cmd_agentlex_update_standalone_task', {
+      taskId: id,
+      patch: {
+        title: updated.title,
+        deadline: updated.deadline,
+        time: updated.time,
+        priority: updated.priority,
+        detail: updated.stage || undefined,
+        status: updated.status,
+      },
+    }, prev => ({
+      ...prev,
+      standaloneTasks: prev.standaloneTasks.map(t => t.id === id ? updated : t),
+    }));
+  } catch {
+    // 新建独立任务不在 standalone-tasks.json → 忽略，items.json 才是真相源。
+  }
   await updateItem(id, {
     title: updated.title,
     date: updated.deadline,
     time: updated.time,
     priority: updated.priority,
     detail: updated.stage || undefined,
+    status: statusItem,
   });
 }
 

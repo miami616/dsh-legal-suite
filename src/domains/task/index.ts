@@ -11,6 +11,8 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { createTaskStore } from './store/task-store.ts'
 import { makeRoutes } from './routes.ts'
+import { createCaseStore } from '../litigation/store/case-store.ts'
+import { createProjectStore } from '../nonlitigation/store/project-store.ts'
 import { installSettingsSection } from '../../shared/settings-adapter.ts'
 
 export const name = 'task'
@@ -95,12 +97,18 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (!value.enabled) return
     const dataDir = resolveDataDir(value.dataDir)
     const taskStore = createTaskStore(dataDir, ctx)
+    const litigationDir = siblingDir('litigation', value.litigationDir)
+    const nonlitigationDir = siblingDir('nonlitigation', value.nonlitigationDir)
     activeSurface = {
       token,
       dispose: makeRoutes(ctx, {
         taskStore,
-        litigationDir: siblingDir('litigation', value.litigationDir),
-        nonlitigationDir: siblingDir('nonlitigation', value.nonlitigationDir),
+        litigationDir,
+        nonlitigationDir,
+        // 备忘 #21：任务面板勾选诉讼/非诉任务后 bump 来源案件/项目 updatedAt，
+        // 让案件卡片按「最近更新」置顶（与 litigation 域路由同一 store）。
+        caseStore: createCaseStore(litigationDir, ctx),
+        projectStore: createProjectStore(nonlitigationDir, ctx),
       }),
     }
   }

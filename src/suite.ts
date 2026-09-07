@@ -265,6 +265,30 @@ export function apply(ctx, config = {}) {
                     const legacy = toLegacyStandaloneTask(t);
                     standaloneMap[legacy.id] = legacy;
                 }
+                // 备忘 #20：独立任务现在也存 items.json（ownerId 空 + ownerType
+                // standalone），但 TaskManager 从 standaloneTasks 读 → 新建的独立
+                // 任务不显示。这里把 items 的独立任务并入 standaloneMap
+                // （standalone-tasks.json 优先，避免覆盖旧数据）。
+                for (const it of itemItems) {
+                    if (it.type === 'event') continue;
+                    const ownerType = it.ownerType ?? (it.ownerId === '' || it.ownerId === undefined ? 'standalone' : 'litigation');
+                    if (ownerType !== 'standalone') continue;
+                    if (standaloneMap[it.id] !== undefined) continue;
+                    standaloneMap[it.id] = toLegacyStandaloneTask({
+                        id: it.id,
+                        title: it.title,
+                        // item 状态语义 pending/doing/done → legacy todo/in_progress/done。
+                        status: it.status === 'done' ? 'done' : it.status === 'doing' ? 'in_progress' : 'todo',
+                        priority: it.priority ?? 'medium',
+                        deadline: it.date,
+                        time: it.time,
+                        detail: it.detail,
+                        subtasks: it.subtasks,
+                        checklist: it.checklist,
+                        createdAt: it.createdAt,
+                        updatedAt: it.updatedAt,
+                    });
+                }
                 sendJson(res, {
                     success: true,
                     data: {

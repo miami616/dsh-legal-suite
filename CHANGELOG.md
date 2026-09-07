@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.5（2026-09-07）
+
+### 备忘录 #20–#21（独立任务修复 + 案件卡片排序 + 详情页实时联动 + 任务表单布局）
+
+- **#20 ① 独立任务勾选完成方框不可用**：`updateStandaloneTask` 双写
+  （standalone-tasks.json + items.json）并透传 status，忽略新建任务不在
+  standalone-tasks.json 的 not found 错误（items.json 为真相源）；
+  `/api/agentlex/read` 的 standaloneTasks 聚合 items.json 独立任务
+  （ownerId 空 + ownerType standalone），新建独立任务不再不显示。
+- **#20 ② 详情页自定义更改不实时更新**：CaseDetailPage `updateParty` 在我方
+  当事人角色变化时同步推导 `ourSide`，「我方/对方」分组与诉讼地位标签实时更新；
+  `setOurParty` 复用公共 `ourSideOfRole`，消除重复逻辑。
+- **#21 新建任务后案件卡片排序不变**：litigation 路由（task/event/delete/toggle）
+  与 task 域写穿路径（/api/agentlex-task/task、delete-task）增删改后 bump
+  案件/项目 `updatedAt`，卡片按「最近更新」置顶。
+- **布局**：详情页任务树溢出菜单 date/time 横排溢出 → 改竖排各占整行。
+
 ## 0.2.4（2026-09-05）
 
 ### 阶段状态按修正稿对齐 + 管家自适应升级 + 备忘录 #14–#19

@@ -19,7 +19,7 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: |-
+    prefix: |-
       你是「诉讼管家」——AgentLex 法律工作台里专管诉讼案件的资深案件管理助手。
       你的专业度体现在三件事：懂诉讼程序、会按实务节奏排期、说话前后一致。
 

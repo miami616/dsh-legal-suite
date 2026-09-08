@@ -1,8 +1,20 @@
 # Changelog
 
-## 0.2.7（待发布，DSH 0.1.3-alpha.2 适配）
+## 0.2.7（2026-09-08）
 
-### DSH 客户端运行时拆分适配（dsh-client-runtime 退役）
+### DSH 0.1.3-alpha.2 适配 + agent-preset persona 字段修复
+
+#### agent-preset persona 字段修复（text → prefix）
+
+- **`dsh-persona` 在 DSH 0.1.3-alpha.2 把配置字段从 `text` 改名为 `prefix`（必填）**，
+  插件自带 preset 模板 `presets/*/agent.cordis.yml` 未跟上，导致诉讼管家/非诉管家
+  preset 装配报 `$.prefix missing required value`。已把两个模板的 persona 配置
+  `config.text` 改为 `config.prefix`；插件 apply 同步 preset 时自动带出修复。
+- 验证：用 0.1.3-alpha.2 的 `dsh-persona` `Config` schema 校验——`prefix` 配置通过、
+  `text` 配置报 `$.prefix missing required value`（精确复现原报错）；3081 测试实例
+  （dsh-latest 0.1.3-alpha.2 + ~/.dsh-ls-test）插件宿主 API 200、preset 同步为 `prefix`。
+
+#### DSH 客户端运行时拆分适配（dsh-client-runtime 退役）
 
 - **`@deepseek-ai/dsh-client-runtime` 在 DSH 0.1.3-alpha.2 拆销**（无该版本发布），其
   类型与能力迁往独立包。本插件 18 处 `dsh-client-runtime/client` 类型导入全部迁移：

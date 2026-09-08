@@ -2,7 +2,7 @@
  * v0.3.0 自适应阶段/任务验证脚本：
  *  1. 建案按 type 推断 level（刑事→刑事 / 劳动争议→劳动仲裁 / 民商→一审）。
  *  2. apply_stage_template 按 level 选轨展开：刑事案展开刑事轨、劳动仲裁案展开劳动仲裁轨。
- *  3. 任务按我方身份裁剪：被告案不含 提交答辩状 的 plaintiff-only 冲突项、
+ *  3. 任务按我方身份裁剪：被告案不含 准备答辩状 的 plaintiff-only 冲突项、
  *     原告案不含 查阅对方答辩状（defendant）…… 实际是 side 语义：
  *     side:'defendant' 的任务只在我方为被告时出现；side:'plaintiff' 只在原告时出现。
  *  4. optional 默认不展开；only 点名可展开。
@@ -67,7 +67,7 @@ try {
   const crPreview = await planStageExpansion(caseStore, cr.caseId, 'cr_investigation', { dryRun: true })
   check('刑事轨展开含 会见在押当事人', crPreview.tasks.some((t) => t.title === '会见在押当事人') === true,
     crPreview.tasks.map((t) => t.title).join(','))
-  check('刑事轨不含 提交答辩状（民事任务不外溢）', crPreview.tasks.some((t) => t.title === '提交答辩状') === false, '')
+  check('刑事轨不含 准备答辩状（民事任务不外溢）', crPreview.tasks.some((t) => t.title === '准备答辩状') === false, '')
   check('刑事侦查展开不含 optional 取保候审', crPreview.tasks.some((t) => t.title === '申请取保候审') === false, '')
 
   /* ── 5. 我方身份裁剪：一审庭前准备，我方=被告 vs 原告 ── */
@@ -75,7 +75,7 @@ try {
     name: '甲诉乙案(我方被告)', type: '民商', cause: '合同', status: 'pretrial', ourSide: 'defendant',
   })
   const defPreview = await planStageExpansion(caseStore, def.caseId, 'pretrial', { dryRun: true })
-  check('被告展开含 提交答辩状', defPreview.tasks.some((t) => t.title === '提交答辩状') === true,
+  check('被告展开含 准备答辩状', defPreview.tasks.some((t) => t.title === '准备答辩状') === true,
     defPreview.tasks.map((t) => t.title).join(','))
   check('被告展开不含 查阅对方答辩状(原告向)', defPreview.tasks.some((t) => t.title === '查阅对方答辩状') === false,
     defPreview.tasks.map((t) => t.title).join(','))
@@ -84,7 +84,7 @@ try {
     name: '甲诉乙案(我方原告)', type: '民商', cause: '合同', status: 'pretrial', ourSide: 'plaintiff',
   })
   const plPreview = await planStageExpansion(caseStore, pl.caseId, 'pretrial', { dryRun: true })
-  check('原告展开不含 提交答辩状(被告向)', plPreview.tasks.some((t) => t.title === '提交答辩状') === false,
+  check('原告展开不含 准备答辩状(被告向)', plPreview.tasks.some((t) => t.title === '准备答辩状') === false,
     plPreview.tasks.map((t) => t.title).join(','))
   check('原告展开默认不含 optional 查阅对方答辩状(需 only)', plPreview.tasks.some((t) => t.title === '查阅对方答辩状') === false,
     plPreview.tasks.map((t) => t.title).join(','))

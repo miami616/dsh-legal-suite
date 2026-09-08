@@ -32,7 +32,7 @@ try{
   const rec2=Object.values(hyd2.cases)[0]
   const g=rec2.taskGroups.find(x=>x.name==='一审 · 庭前准备')
   const titles=g.tasks.map(t=>t.title)
-  check('被告展开含提交答辩状', titles.includes('提交答辩状'), titles.join(','))
+  check('被告展开含准备答辩状', titles.includes('准备答辩状'), titles.join(','))
   check('被告展开不含查阅对方答辩状', !titles.includes('查阅对方答辩状'), '')
   // case_health 看阶段进度
   const h=await computeCaseHealth(Object.values(hyd2.cases)[0])

@@ -193,27 +193,61 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   })
 
   route(`${API_PREFIX}/register-case`, async (d, b, res) => {
-    ok(res, await d.caseStore.registerCase(b))
+    const record = await d.caseStore.registerCase(b)
+    // 建案即打起点节点：收案事件（纪年史头，status=done 只进时间轴）。
+    try {
+      const { ensureCaseOpenEvent } = await import('./case-open.ts')
+      await ensureCaseOpenEvent(d.itemStore, record.caseId, {
+        name: record.name,
+        date: new Date().toISOString().slice(0, 10),
+      })
+    } catch { /* 打点失败不阻塞建案 */ }
+    ok(res, record)
   })
 
   route(`${API_PREFIX}/update-case`, async (d, b, res) => {
     const caseId = String(b.caseId ?? '')
     if (caseId === '') return fail(res, 'caseId required')
     const { caseId: _omit, ...patch } = b
+    const prev = await d.caseStore.readCase(caseId)
     const record = await d.caseStore.updateCase(caseId, patch)
-    // 同回合钩子：status 被更新时，在响应里内联返回阶段推进建议——
-    // 调用方（管家/浏览器）在同一轮交互里就能拿到「接下来该展开什么」，
-    // 不必等下一次体检。任务组一律从 items 重建（0.2.2）。
-    if (patch.status !== undefined) {
+    const out: Record<string, unknown> = { ...record }
+    if (patch.status !== undefined && record.status !== prev?.status) {
+      // 同回合钩子：status 被更新时，响应内联返回阶段推进建议 + 三态展开
+      // 处理（pendingExpand）——调用方（管家/浏览器/UI 手动改）同一轮收尾，
+      // 不必等下一次体检。任务组一律从 items 重建（0.2.2）。
       const registry = await d.caseStore.readRegistry()
       const hydrated = d.itemStore !== undefined
         ? await hydrateRegistryTaskGroups(registry, d.caseStore, d.itemStore)
         : registry
       const found = detectStageSuggestions(hydrated, caseId)[0]
-      ok(res, { ...record, stageSuggestions: found?.suggestions ?? [] })
-    } else {
-      ok(res, record)
+      out.stageSuggestions = found?.suggestions ?? []
+      if (d.itemStore !== undefined) {
+        const { handleStatusTransition } = await import('./status-transition.ts')
+        const modeCandidate = String(patch.expandOnStatus ?? record.expandOnStatus ?? 'confirm')
+        const mode = (['confirm', 'agent', 'off'].includes(modeCandidate) ? modeCandidate : 'confirm') as never
+        const trans = await handleStatusTransition({
+          caseStore: d.caseStore,
+          itemStore: d.itemStore,
+          caseId,
+          prevStatus: prev?.status,
+          nextStatus: record.status,
+          level: record.level,
+          mode,
+        })
+        if (trans.pendingExpand !== undefined) out.pendingExpand = trans.pendingExpand
+        if (trans.notice !== undefined) out.notice = trans.notice
+      }
     }
+    ok(res, out)
+  })
+
+  route(`${API_PREFIX}/resolve-pending-expand`, async (d, b, res) => {
+    const caseId = String(b.caseId ?? '')
+    if (caseId === '') return fail(res, 'caseId required')
+    const action = String(b.action ?? '') === 'expand' ? 'expand' : 'ignore'
+    const { resolvePendingExpand } = await import('./status-transition.ts')
+    ok(res, await resolvePendingExpand(d.caseStore, d.itemStore, caseId, action))
   })
 
   route(`${API_PREFIX}/delete-case`, async (d, b, res) => {

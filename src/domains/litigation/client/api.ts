@@ -108,6 +108,11 @@ export function deleteCase(caseId: string): Promise<{ deleted: boolean }> {
   return call('delete-case', { caseId })
 }
 
+/** 状态变更三态收尾：expand（按挂起的阶段模板落库任务+事件）/ ignore（仅清除）。 */
+export function resolvePendingExpand(caseId: string, action: 'expand' | 'ignore'): Promise<{ ok: boolean; expanded?: boolean; notice?: string; preview?: string[] }> {
+  return call('resolve-pending-expand', { caseId, action })
+}
+
 /* ------------------------------ key dates ----------------------------- */
 
 export function addKeyDate(caseId: string, label: string, date: string): Promise<CaseRecord> {

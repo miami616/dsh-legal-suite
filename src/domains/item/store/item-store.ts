@@ -185,6 +185,7 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
             ownerName: s(input.ownerName),
             type: (input.type as ItemType) ?? 'task',
             title: String(input.title ?? '新事项'),
+            kind: s(input.kind),
             date: s(input.date),
             time: s(input.time),
             detail: s(input.detail),

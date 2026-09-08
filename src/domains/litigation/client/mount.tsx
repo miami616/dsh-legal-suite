@@ -15,6 +15,7 @@
 import { createRoot, type Root } from 'react-dom/client'
 import type { PanelController } from './controller.ts'
 import { OriginalLitigationPanel } from './OriginalLitigationPanel.tsx'
+import { PendingExpandBar } from './PendingExpandBar.tsx'
 import css from './panel.module.css'
 
 /** The injected panel container (kept in the DOM, hidden when inactive). */
@@ -65,6 +66,9 @@ export function mountPanel(
   let host: HTMLDivElement | undefined
   let closeBtn: HTMLButtonElement | undefined
   let handle: HTMLDivElement | undefined
+  /** 待展开阶段确认条（状态变更三态 UI）的独立 React root。 */
+  let pendingRoot: Root | undefined
+  let pendingHost: HTMLDivElement | undefined
 
   /** Panel width in px (persisted). */
   const readWidth = (): number => {
@@ -85,6 +89,9 @@ export function mountPanel(
       if (container.isConnected) return
       root?.unmount()
       root = undefined
+      pendingRoot?.unmount()
+      pendingRoot = undefined
+      pendingHost = undefined
       host = undefined
       closeBtn = undefined
       handle = undefined
@@ -144,6 +151,13 @@ export function mountPanel(
     window.addEventListener('pointerup', onPointerUp)
     container.appendChild(handle)
 
+    // 待展开阶段确认弹窗（状态变更三态 UI）：modal 是 fixed 全屏覆盖，
+    // 容器无需定位，直接 append 即可（弹窗自身 z-index 9999 浮于一切之上）。
+    pendingHost = document.createElement('div')
+    container.appendChild(pendingHost)
+    pendingRoot = createRoot(pendingHost)
+    pendingRoot.render(<PendingExpandBar />)
+
     // React tree host fills the panel.
     host = document.createElement('div')
     host.className = css.host
@@ -191,6 +205,8 @@ export function mountPanel(
     document.documentElement.removeAttribute(ACTIVE_ATTR)
     root?.unmount()
     root = undefined
+    pendingRoot?.unmount()
+    pendingRoot = undefined
     container?.remove()
     container = undefined
   }

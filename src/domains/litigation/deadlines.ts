@@ -46,6 +46,7 @@ export function eventTypeLabel(type: string): string {
     defense_deadline: '答辩期', evidence_deadline: '举证期限', mediation: '调解',
     other: '其他', appeal_deadline: '上诉期', judgment: '判决', ruling: '裁定',
     appeal: '上诉', verdict: '宣判', execution: '执行', deadline: '期限',
+    engagement: '收案', close: '结案', archive: '归档',
   }
   return map[type] ?? type
 }

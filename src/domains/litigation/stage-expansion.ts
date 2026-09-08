@@ -41,6 +41,7 @@ import {
 } from '../../shared/playbook/litigation.ts'
 import type { CaseStore } from './store/case-store.ts'
 import type { CaseRecord, CaseRegistry, CaseTask } from './store/types.ts'
+import type { Item } from '../item/store/types.ts'
 
 /* ------------------------------------------------------------ 阶段映射 */
 
@@ -51,14 +52,14 @@ import type { CaseRecord, CaseRegistry, CaseTask } from './store/types.ts'
  * STATUS_TO_STAGE 兼容导出（一审主轨），并新增按案件的 resolveStageForCase。
  */
 export const STATUS_TO_STAGE: Record<string, string> = {
-  intake: 'pre_filing',
-  pre_filing: 'pre_filing',
+  intake: 'pre_filing',       // 收案 → 收案（委托登记）
+  pre_filing: 't1_prep',      // 诉前准备 → 诉前准备（起草起诉状/整理证据）
   filing: 'filing',
   pretrial: 'pretrial',
   awaiting_trial: 'pretrial',
   post_trial: 'post_trial',
   execution: 'exec_apply',
-  appeal_window: 'post_trial',
+  appeal_window: 'appeal_window',
   second_instance: 'post_trial',
 }
 
@@ -121,6 +122,15 @@ export interface PlannedTask {
   checklist: string[]
 }
 
+/** 计划创建的事件（模板 events 骨架，已扣除已存在的标题）。 */
+export interface PlannedEvent {
+  title: string
+  kind?: string
+  /** 由 leadDays + anchorDate 推算；无锚/无 leadDays 时留空，管家补录。 */
+  date?: string
+  detail?: string
+}
+
 export interface StagePlan {
   caseId: string
   stageId: string
@@ -131,6 +141,8 @@ export interface StagePlan {
   anchorDate?: string
   /** 将创建的任务（已扣除已存在、被过滤与不适用者）。 */
   tasks: PlannedTask[]
+  /** 将创建的事件（模板事件骨架；已扣除已存在者）。 */
+  events: PlannedEvent[]
   /** 已存在、被跳过的标题。 */
   skippedExisting: string[]
   /** 被 only/skip/条件/阵营/类型 过滤掉的标题。 */
@@ -183,9 +195,11 @@ export async function planStageOnRecord(
   // case-registry 的 taskGroups 判断（registry 副本已下岗）。
   let existingTitles: Set<string>
   let existingTemplateTitles: Set<string>
+  let caseItems: Item[] | undefined
   if (itemStore !== undefined) {
     const { buildOwnerTaskGroups } = await import('../item/shape.ts')
     const [groups, items] = await Promise.all([itemStore.listGroups(record.caseId), itemStore.listItems(record.caseId)])
+    caseItems = items
     const own = buildOwnerTaskGroups(record.caseId, 'litigation', groups, items)
     const stageGroup = own.find((g) => g.name === stage.name)
     const rows = stageGroup?.tasks ?? []
@@ -229,6 +243,10 @@ export async function planStageOnRecord(
     if (withLead.length > 0) {
       warnings.push(`未提供 anchorDate，${withLead.length} 个任务将不带 deadline：${withLead.map((t) => t.title).join('、')}`)
     }
+    const withLeadEvents = (stage.events ?? []).filter((e) => e.leadDays !== undefined)
+    if (withLeadEvents.length > 0) {
+      warnings.push(`未提供 anchorDate，${withLeadEvents.length} 个事件将不带日期：${withLeadEvents.map((e) => e.title).join('、')}`)
+    }
   }
 
   const ctx = { type: record.type, ourSide: record.ourSide ?? record.parties?.ourSide }
@@ -256,6 +274,31 @@ export async function planStageOnRecord(
     tasks.push(planTask(t, opts.anchorDate))
   }
 
+  // 事件骨架（仅统一事项模式：事件写 items.json，幂等判重按 caseId+title）：
+  // 无 itemStore 的 legacy 分支不计划/不落事件（事件只有统一模型才有落点）。
+  // 只计划 auto:true 的事件（日期能自主确定，如 立案/答辩期届满/举证期限届满）；
+  // auto:false 的事件（开庭/裁判文书送达/上诉期届满——日期依赖传票/送达回执）
+  // 不随状态切换落盘，由管家收到对应文书后 upsert_event 手动登记。
+  const events: PlannedEvent[] = []
+  if (caseItems !== undefined && (stage.events ?? []).length > 0) {
+    const existingEventTitles = new Set(
+      caseItems.filter((i) => i.type !== 'task').map((i) => String(i.title ?? '')),
+    )
+    for (const ev of stage.events ?? []) {
+      if (ev.auto === false) continue
+      if (skip.has(ev.title)) continue
+      if (existingEventTitles.has(ev.title)) { skippedExisting.push(ev.title); continue }
+      events.push({
+        title: ev.title,
+        kind: ev.kind,
+        date: ev.leadDays !== undefined && opts.anchorDate !== undefined
+          ? daysBefore(opts.anchorDate, ev.leadDays)
+          : undefined,
+        detail: ev.detail,
+      })
+    }
+  }
+
   const plan: StagePlan = {
     caseId: record.caseId,
     stageId: stage.id,
@@ -264,6 +307,7 @@ export async function planStageOnRecord(
     dryRun: opts.dryRun === true,
     anchorDate: opts.anchorDate,
     tasks,
+    events,
     skippedExisting,
     skippedByFilter,
     warnings,
@@ -301,7 +345,7 @@ export async function applyStageExpansion(
   itemStore?: import('../item/store/item-store.ts').ItemStore,
 ): Promise<StagePlan & { groupId?: string }> {
   const plan = await planStageExpansion(caseStore, caseId, stageId, { ...opts, dryRun: false }, itemStore)
-  if (plan.tasks.length === 0) return plan
+  if (plan.tasks.length === 0 && plan.events.length === 0) return plan
   const stage = getLitigationStage(plan.stageId)!
 
   // 统一事项模型：任务写 items.json（type=task，带 groupId）。
@@ -326,6 +370,25 @@ export async function applyStageExpansion(
         templateTitle: t.title,
         subtasks: t.subtasks.map((st) => ({ id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: st, done: false })),
         checklist: t.checklist.map((c) => ({ id: `chk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text: c, done: false })),
+      })
+    }
+    // 事件骨架：与任务同源落 items.json（type=event）。幂等由 plan 层保证
+    // （已存在的标题在 plan 里被跳过）；落库后与手工 upsert_event 无差别，
+    // 管家可增删改，类型开放（kind 透传模板值或个案自定义）。
+    // 状态按日期自动判定：date 已过 → done（进时间轴纪年，不进关键日程）；
+    // date 未过/无 date → pending（进关键日程/期限汇总倒计时）。
+    const todayStr = new Date().toISOString().slice(0, 10)
+    for (const ev of plan.events) {
+      const past = ev.date !== undefined && ev.date !== '' && ev.date < todayStr
+      await itemStore.upsertItem({
+        ownerId: caseId,
+        ownerType: 'litigation',
+        type: 'event',
+        kind: ev.kind,
+        title: ev.title,
+        date: ev.date,
+        detail: ev.detail,
+        status: past ? 'done' : 'pending',
       })
     }
     return { ...plan, groupId: group.id }
@@ -523,7 +586,7 @@ export function stageTasksOf(record: CaseRecord, stageId: string, level?: string
 }
 
 /** 为下一阶段展开寻找锚点日期：下一阶段含开庭动作且有「开庭」关键日期时用它。 */
-function findAnchorDate(record: CaseRecord, nextStageIdValue: string): string | undefined {
+export function findAnchorDate(record: CaseRecord, nextStageIdValue: string): string | undefined {
   if (nextStageIdValue !== 'pretrial' && nextStageIdValue !== 'cr_trial' && nextStageIdValue !== 'retrial_trial' && nextStageIdValue !== 'appellate') return undefined
   const keyDate = (record.keyDates ?? []).find((k) => k.label === '开庭' && k.done !== true)
   return keyDate?.date

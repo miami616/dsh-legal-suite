@@ -108,7 +108,7 @@ try {
     status: 'pretrial', ourSide: 'defendant',
   })
   const trimmed = await planStageExpansion(caseStore, c2.caseId, 'pretrial', {
-    only: ['提交答辩状', '提交证据'], dryRun: true,
+    only: ['准备答辩状', '提交证据'], dryRun: true,
   })
   check('only 只保留指定任务', trimmed.tasks.length === 2, trimmed.tasks.map((t) => t.title).join(','))
   check('only 之外的进入 skippedByFilter', trimmed.skippedByFilter.length > 0, `${trimmed.skippedByFilter.length}`)

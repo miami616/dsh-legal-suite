@@ -63,6 +63,12 @@ export interface Item {
   type: ItemType
   /** 事项名（开庭 / 立案 / 起草起诉状）。 */
   title: string
+  /**
+   * 事件类型标识（event/both 才有；legacy TimelineEvent.type 的语义，
+   * 0.2.x 统一模型补回：hearing/evidence_deadline/…/engagement/close/archive）。
+   * 开放词表——规范枚举只作标签与期限归类，个案可自由使用任意字符串。
+   */
+  kind?: string
   /** 日期 YYYY-MM-DD。 */
   date?: string
   /** 具体时间 HH:mm。 */

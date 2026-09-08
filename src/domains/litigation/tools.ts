@@ -54,6 +54,7 @@ const ACTIONS = [
   'toggle_event',
   'delete_event',
   'list_events',
+  'resolve_pending_expand',
   'deadlines',
   'apply_stage_template',
   'stage_suggestions',
@@ -103,9 +104,11 @@ const PARAMETERS = {
   checklistId: { type: 'string', description: '检查项 id（upsert_check 可选——省略则新建检查项并自动生成 id；toggle_check/delete_checklist 必填）' },
   checklistText: { type: 'string', description: '检查项内容（upsert_check 新建时必填；同时传 checklistId 则更新该检查项）' },
   eventId: { type: 'string', description: '时间轴事件 id' },
-  eventType: { type: 'string', description: '事件类型：hearing/evidence_deadline/defense_deadline/appeal_deadline/filing_deadline/filing/service/court_notice/arbitration/mediation/judgment/ruling/verdict/appeal/execution/case_event' },
+  eventType: { type: 'string', description: '事件类型（开放词表，规范枚举：hearing/evidence_deadline/defense_deadline/appeal_deadline/filing_deadline/filing/engagement/close/archive/service/court_notice/arbitration/mediation/judgment/ruling/verdict/appeal/execution/case_event；个案可用任意自定义标识，如 保全听证/专家证人出庭）。不传时按 case_event 兜底；规范词表只作标签与期限归类，不拦截自由表达' },
   title: { type: 'string', description: '时间轴事件名称，如 第一次开庭' },
   detail: { type: 'string', description: '事件详情' },
+  expandOnStatus: { type: 'string', description: '状态变更后的阶段任务展开策略（case 级，可随时改）：confirm（默认，改状态后挂起待展开标记，须向用户确认后再展开）/ agent（交给管家按纪律自主处理，有明确依据直接展开、模糊先确认）/ off（关闭，改状态不展开任何任务）。update_case 可传此字段设置' },
+  expandAction: { type: 'string', description: 'resolve_pending_expand 的动作：expand（按挂起的阶段模板落库任务+事件）/ ignore（仅清除标记不展开）' },
   includeOverdue: { type: 'boolean', description: 'deadlines 是否包含已过期历史事项（默认 false，只返回未到期）' },
   stageId: { type: 'string', description: 'apply_stage_template 的阶段模板 id（跨轨全集：' + ALL_STAGE_IDS + '）。省略或空串 = 按案件 level/status 自动展开「当前应展开的阶段」。展开按案件 level 命中对应轨模板，按 type/我方身份自动过滤不适用的任务；模板是骨架，落地后可增删改，用 only/skip 裁剪' },
   anchorDate: { type: 'string', description: 'apply_stage_template 的锚点日期 YYYY-MM-DD（如开庭日）：模板中带提前量的任务据此推算 deadline' },
@@ -156,6 +159,24 @@ const DESCRIPTION = [
   '只在触发条件出现（收到缴费通知 / 有转移财产风险 / 裁判不利需评估上诉 / 符合取保情形）时用 only 点名展开。',
   '案件文件夹记忆文件：处理具体案件前用 case_info 读 案件信息.md（没有则 ensure），有新进展同步补写，',
   '用 file-write 落盘。',
+  '',
+  '【事件纪年·收案到结案】',
+  '每个案子从收案开始纪年，到结案/归档收尾：建案自动落「收案」事件（kind=engagement，status=done）；',
+  '阶段模板展开时自动落该阶段标准程序节点事件（如 开庭/举证期限届满/答辩期届满/裁判文书送达/上诉期届满），',
+  '展开时按标题幂等，已存在不重复。已发生节点用 status=done + 实际日期登记（只进时间轴、不进关键日程）；',
+  '未发生节点 status=pending（进关键日程/期限汇总，倒计时）。事件类型开放：规范词表（含 engagement/close/archive）',
+  '只作标签与期限归类，个案特殊节点（保全听证/专家证人出庭/追加当事人…）直接 upsert_event 任意标题即可。',
+  '同一事项不得同时登记为任务 deadline、关键日期与时间轴事件，只登记必要的体系。',
+  '',
+  '【状态变更 → 阶段展开（三态 expandOnStatus，默认 confirm）】',
+  '改状态档位（如 立案中→庭前准备）= 宣告进入下一阶段，任务树应跟着展开该阶段标准任务：',
+  '- confirm：update_case 改 status 后响应里会带 pendingExpand（stageId/stageName/预览清单）——必须当场向用户确认',
+  '  「是否展开 X 阶段」(给出清单)，用户同意 → resolve_pending_expand(expand) 落库；用户拒绝 → resolve_pending_expand(ignore) 清除；',
+  '- agent：改状态后同样读 pendingExpand（mode=agent），按管家纪律自主处理：有明确程序依据（收到开庭传票、',
+  '  切审级轨等）直接 apply_stage_template 或 resolve_pending_expand(expand) 展开；情况模糊先与用户确认；',
+  '- off：case 设 expandOnStatus=off 后改状态不展开任务。',
+  '无论哪态，改状态后都不得留下未处理的 pendingExpand——必须 expand 或 ignore 收尾；stage_suggestions /',
+  'case_health / get_case 读侧可见 pendingExpand，漏处理也能补。',
 ].join('\n')
 
 /** Validate ids are non-empty strings for mutation actions. */
@@ -386,6 +407,14 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           if (args.parties !== undefined) input.parties = clean(normalizeParties(args.parties))
           const record = await cs.registerCase(input)
           const out: Record<string, unknown> = { caseId: record.caseId, name: record.name, ok: true, level: input.level }
+          // 建案即打起点节点：收案事件（纪年史头，status=done 只进时间轴）。
+          try {
+            const { ensureCaseOpenEvent } = await import('./case-open.ts')
+            await ensureCaseOpenEvent(deps.itemStore, record.caseId, {
+              name: record.name,
+              date: new Date().toISOString().slice(0, 10),
+            })
+          } catch { /* 打点失败不阻塞建案 */ }
           // 建案后内联返回「当前应展开的阶段」dryRun 计划（备忘录 #19：管家不主动建任务）。
           // 让管家在同一次响应里就知道该铺哪些标准任务——确认后 apply_stage_template 落库。
           if (record.status !== undefined && record.status !== '' && record.status !== 'closed') {
@@ -405,7 +434,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         case 'update_case': {
           requireIds({ caseId: s(args.caseId) })
           const patch: Record<string, unknown> = {}
-          for (const key of ['name', 'type', 'cause', 'status', 'court', 'judge', 'level', 'claimAmount', 'filingDate', 'ourSide', 'caseNumber', 'summary', 'folder'] as const) {
+          for (const key of ['name', 'type', 'cause', 'status', 'court', 'judge', 'level', 'claimAmount', 'filingDate', 'ourSide', 'caseNumber', 'summary', 'folder', 'expandOnStatus'] as const) {
             const value = s(args[key])
             if (value !== undefined) patch[key] = value
           }
@@ -417,17 +446,52 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
             }
           }
           if (args.parties !== undefined) patch.parties = clean(normalizeParties(args.parties))
+          // 变更前 status——判断「真的发生了档位变化」（prevStatus vs 新 status）。
+          const prevRecord = await cs.readCase(args.caseId as string)
+          const prevStatus = prevRecord?.status
           const record = await cs.updateCase(args.caseId as string, patch)
-          // 同回合钩子：更新 status 时内联返回阶段推进建议，让管家在同一轮
-          // 对话里就能接着问用户「要不要展开下一阶段」，不必等下一次体检。
-          if (args.status !== undefined) {
+          // 同回合钩子：status 被更新时，内联返回阶段推进建议 + 状态变更三态
+          // 处理（pendingExpand）——调用方（管家/浏览器）同一轮交互即可收尾，
+          // 不必等下一次体检。任务组一律从 items 重建（0.2.2）。
+          if (args.status !== undefined && record.status !== prevStatus) {
             const registry = await cs.readRegistry()
             // 0.2.2：任务组从 items 重建。
             const hydrated = deps.itemStore !== undefined
               ? await (await import('./task-view.ts')).hydrateRegistryTaskGroups(registry, cs, deps.itemStore)
               : registry
             const found = detectStageSuggestions(hydrated, args.caseId as string)[0]
-            return clean({ caseId: record.caseId, ok: true, stageSuggestions: found?.suggestions ?? [] })
+            const out: Record<string, unknown> = {
+              caseId: record.caseId,
+              ok: true,
+              stageSuggestions: found?.suggestions ?? [],
+            }
+            // 三态展开：状态档位变化 → 按 expandOnStatus（confirm/agent/off）挂起或忽略。
+            if (deps.itemStore !== undefined) {
+              const { handleStatusTransition } = await import('./status-transition.ts')
+              const modeCandidate = String(patch.expandOnStatus ?? record.expandOnStatus ?? 'confirm')
+              const mode = (['confirm', 'agent', 'off'].includes(modeCandidate) ? modeCandidate : 'confirm') as never
+              const trans = await handleStatusTransition({
+                caseStore: cs,
+                itemStore: deps.itemStore,
+                caseId: record.caseId,
+                prevStatus,
+                nextStatus: record.status,
+                level: record.level,
+                mode,
+              })
+              if (trans.pendingExpand !== undefined) {
+                out.pendingExpand = trans.pendingExpand
+                // 附展开预览：管家/用户确认前就知道要建哪些任务与事件。
+                try {
+                  const { planStageExpansion } = await import('./stage-expansion.ts')
+                  const plan = await planStageExpansion(cs, record.caseId, trans.pendingExpand.stageId, { dryRun: true }, deps.itemStore)
+                  out.taskPreview = plan.tasks.map((t) => t.title)
+                  out.eventPreview = plan.events.map((e) => e.title)
+                } catch { /* 预览失败不阻塞 */ }
+              }
+              if (trans.notice !== undefined) out.notice = trans.notice
+            }
+            return clean(out)
           }
           return { caseId: record.caseId, ok: true }
         }
@@ -633,12 +697,13 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         /* ---------------------------- timeline -------------------------- */
         case 'upsert_event': {
           requireIds({ caseId: s(args.caseId) })
-          // 统一事项模型：时间轴事件写 items.json（type=event）。
+          // 统一事项模型：时间轴事件写 items.json（type=event，kind=事件类型）。
           if (deps.itemStore !== undefined) {
             const created = await deps.itemStore.upsertItem({
               ownerId: String(args.caseId),
               ownerType: 'litigation',
               type: 'event',
+              kind: s(args.eventType),
               title: s(args.title) ?? '新事件',
               date: s(args.date),
               time: s(args.time),
@@ -646,6 +711,14 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
               status: (s(args.status) as never) ?? 'pending',
               ...(args.eventId !== undefined ? { id: String(args.eventId) } : {}),
             })
+            // 联动：登记「受理通知送达」后，若该案已进入庭前准备（已立案）且
+            // 有「立案」事件，则以受理通知日期修正立案日期（2026-09-08 实务规则）。
+            if (created.title === '受理通知送达' && created.date !== undefined) {
+              try {
+                const { syncFilingEventOnPretrial } = await import('./status-transition.ts')
+                await syncFilingEventOnPretrial({ caseStore: cs, itemStore: deps.itemStore, caseId: String(args.caseId) })
+              } catch { /* 联动失败不阻塞登记 */ }
+            }
             return { eventId: created.id, ok: true }
           }
           const event: Record<string, unknown> = {
@@ -688,6 +761,16 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           }
           await ts.deleteEvent(args.eventId as string)
           return { deleted: true }
+        }
+
+        /* ----------------------- pending expand 收尾 --------------------- */
+        case 'resolve_pending_expand': {
+          requireIds({ caseId: s(args.caseId), expandAction: s(args.expandAction) })
+          // 三态收尾：expand（按挂起的阶段模板落库任务+事件）/ ignore（仅清除）。
+          const { resolvePendingExpand } = await import('./status-transition.ts')
+          const action = String(args.expandAction) === 'expand' ? 'expand' : 'ignore'
+          const result = await resolvePendingExpand(cs, deps.itemStore, String(args.caseId), action)
+          return clean({ caseId: String(args.caseId), ...result })
         }
 
         default:
@@ -811,6 +894,7 @@ const HTTP_ROUTE: Record<Action, { route: string; map?: (data: unknown) => unkno
   upsert_event: { route: 'event' },
   toggle_event: { route: 'toggle-event' },
   delete_event: { route: 'delete-event' },
+  resolve_pending_expand: { route: 'resolve-pending-expand' },
   apply_stage_template: { route: 'stage-template' },
   stage_suggestions: { route: 'stage-suggestions' },
   case_health: { route: 'case-health' },
@@ -845,7 +929,7 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
       if (args.label !== undefined) body.label = s(args.label)
       if (args.date !== undefined) body.date = s(args.date)
       if (action === 'update_case') {
-        for (const key of ['name', 'type', 'cause', 'status', 'court', 'judge', 'level', 'claimAmount', 'filingDate', 'ourSide', 'caseNumber', 'summary', 'folder'] as const) {
+        for (const key of ['name', 'type', 'cause', 'status', 'court', 'judge', 'level', 'claimAmount', 'filingDate', 'ourSide', 'caseNumber', 'summary', 'folder', 'expandOnStatus'] as const) {
           const value = s(args[key])
           if (value !== undefined) body[key] = value
         }
@@ -922,6 +1006,10 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
       return body
     case 'toggle_event': case 'delete_event':
       if (args.eventId !== undefined) body.eventId = s(args.eventId)
+      return body
+    case 'resolve_pending_expand':
+      body.caseId = s(args.caseId)
+      body.action = s(args.expandAction)
       return body
     default:
       return body

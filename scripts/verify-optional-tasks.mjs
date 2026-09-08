@@ -40,13 +40,12 @@ try {
   const feeTask = filing?.tasks.find((t) => t.title === '缴纳诉讼费')
   check('缴纳诉讼费 是 optional 条件任务', feeTask?.optional === true, String(feeTask?.optional))
 
-  /* ── post_trial 上诉评估类均为 optional；提交上诉状已移入二审轨 ── */
+  /* ── post_trial 庭后管理：上诉研判已移入独立上诉期阶段，庭后只留庭后事务 ── */
   const post = LITIGATION_STAGES.find((s) => s.id === 'post_trial')
-  for (const title of ['分析上诉可行性', '确认当事人上诉意向']) {
-    const t = post?.tasks.find((x) => x.title === title)
-    check(`${title} 是 optional`, t?.optional === true, String(t?.optional))
-  }
-  check('一审 post_trial 不再含 提交上诉状（移入二审轨）', post?.tasks.some((t) => t.title === '提交上诉状') === false, '')
+  check('一审 post_trial 不再含 分析上诉可行性（移入上诉期）', post?.tasks.some((t) => t.title === '分析上诉可行性') === false, '')
+  check('一审 post_trial 不含 提交上诉状（移入二审轨）', post?.tasks.some((t) => t.title === '提交上诉状') === false, '')
+  const appealStage = STAGE_TRACKS['一审']?.find((s) => s.id === 'appeal_window')
+  check('上诉期含 分析判决并出具上诉研判意见（必需）', appealStage?.tasks.some((t) => t.title === '分析判决并出具上诉研判意见' && t.optional !== true) === true, '')
   const secondFiling = STAGE_TRACKS['二审']?.find((s) => s.id === 'appeal_filed')
   check('二审轨 上诉立案 含 提交上诉状', secondFiling?.tasks.some((t) => t.title === '提交上诉状') === true, '')
 
@@ -55,10 +54,8 @@ try {
     name: '甲诉乙纠纷', type: '民商', cause: '合同纠纷', status: 'post_trial', ourSide: 'plaintiff',
   })
   const preview = await planStageExpansion(caseStore, c1.caseId, 'post_trial', { dryRun: true })
-  check('post_trial 默认预览不含上诉评估', preview.tasks.some((t) => t.title === '分析上诉可行性') === false,
-    preview.tasks.map((t) => t.title).join(','))
   check('post_trial 默认不含 optional 督促履行', preview.tasks.some((t) => t.title === '督促对方履行生效裁判') === false, '')
-  check('post_trial 默认含基础任务(领取裁判文书)', preview.tasks.some((t) => t.title === '领取裁判文书') === true,
+  check('post_trial 默认含基础任务(确认裁判文书)', preview.tasks.some((t) => t.title === '确认裁判文书') === true,
     preview.tasks.map((t) => t.title).join(','))
 
   const applied = await applyStageExpansion(caseStore, c1.caseId, 'post_trial')
@@ -69,9 +66,9 @@ try {
 
   /* ── only 点名时纳入 optional ── */
   const planned = await planStageExpansion(caseStore, c1.caseId, 'post_trial', {
-    only: ['领取裁判文书', '分析上诉可行性'], dryRun: true,
+    only: ['确认裁判文书', '督促对方履行生效裁判'], dryRun: true,
   })
-  check('only 点名含 分析上诉可行性', planned.tasks.some((t) => t.title === '分析上诉可行性') === true,
+  check('only 点名含 optional 督促履行', planned.tasks.some((t) => t.title === '督促对方履行生效裁判') === true,
     planned.tasks.map((t) => t.title).join(','))
 
   /* ── filing 默认展开同样不含 缴纳诉讼费 ── */
@@ -83,21 +80,21 @@ try {
     filingPreview.tasks.map((t) => t.title).join(','))
 
   /* ── expand_next 预览不含 optional ── */
-  // docx 一审：庭前准备含开庭动作；全部完成后建议推进庭后管理。
+  // 一审：庭前准备全部完成后建议推进庭后管理。
   const c3 = await caseStore.registerCase({
     name: '丙诉丁纠纷', type: '民商', cause: '合同', status: 'pretrial', ourSide: 'plaintiff',
   })
   const trialApplied = await applyStageExpansion(caseStore, c3.caseId, 'pretrial')
   const rec = await caseStore.readCase(c3.caseId)
   const trialGroup = rec.taskGroups.find((g) => g.name === '一审 · 庭前准备')
-  check('pretrial 展开含 出庭参加庭审（docx 庭前含开庭）', (trialGroup?.tasks ?? []).some((t) => t.title === '出庭参加庭审') === true,
+  check('pretrial 展开含 制作庭审提纲（起草/梳理证据已在诉前准备）', (trialGroup?.tasks ?? []).some((t) => t.title === '制作庭审提纲') === true,
     (trialGroup?.tasks ?? []).map((t) => t.title).join(','))
   for (const t of (trialGroup?.tasks ?? [])) {
     await caseStore.upsertTask(c3.caseId, trialGroup.id, { id: t.id, status: 'done' })
   }
   const s = detectStageSuggestions(await caseStore.readRegistry(), c3.caseId)
   const expandNext = s[0]?.suggestions.find((x) => x.type === 'expand_next')
-  check('expand_next 预览不含 optional 任务', (expandNext?.preview ?? []).includes('分析上诉可行性') === false,
+  check('expand_next 预览不含 optional 任务', (expandNext?.preview ?? []).includes('督促对方履行生效裁判') === false,
     JSON.stringify(expandNext?.preview ?? []))
   check('expand_next 指向 一审 · 庭后管理', expandNext?.stageId === 'post_trial', expandNext?.stageName ?? '')
 

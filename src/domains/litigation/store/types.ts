@@ -126,6 +126,10 @@ export interface CaseRecord {
   retainerUnit?: string
   tags?: string[]
   archived?: boolean
+  /** 状态变更后任务展开策略：confirm（提示确认）/ agent（交管家）/ off（关闭）。 */
+  expandOnStatus?: ExpandOnStatusMode
+  /** 状态档位变更后尚未处理的「待展开阶段」（confirm/agent 模式产生）。 */
+  pendingExpand?: PendingExpand
   boundSessions?: string[]
   linkedContracts?: string[]
   linkedResearch?: string[]
@@ -148,6 +152,7 @@ export type TimelineEventType =
   | 'court_notice' | 'hearing' | 'defense_deadline' | 'evidence_deadline'
   | 'mediation' | 'other' | 'appeal_deadline' | 'judgment' | 'ruling'
   | 'appeal' | 'verdict' | 'execution' | 'deadline'
+  | 'engagement' | 'close' | 'archive'
 
 /** A reminder rule attached to a timeline event. */
 export interface RemindRule {
@@ -181,6 +186,21 @@ export interface TimelineRegistry {
   registryVersion: string
   lastUpdated?: string
   events: TimelineEvent[]
+}
+
+/* ------------------------------------------------------- status transition */
+
+/** 状态变更后的任务展开策略（case 级覆盖，缺省走全局默认 'confirm'）。 */
+export type ExpandOnStatusMode = 'confirm' | 'agent' | 'off'
+
+/** 状态档位变更时挂起的「待展开阶段」标记（confirm/agent 模式产生）。 */
+export interface PendingExpand {
+  stageId: string
+  stageName: string
+  fromStatus?: string
+  toStatus: string
+  mode: ExpandOnStatusMode
+  createdAt: string
 }
 
 /* -------------------------------------------------------------- schedules */

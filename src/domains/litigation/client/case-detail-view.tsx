@@ -18,6 +18,7 @@ import type { ClientContextWithSidebar } from './better-sidebar.tsx'
 import type { CaseRegistry } from '../store/types.ts'
 import * as api from './api.ts'
 import { OriginalLitigationPanel } from './OriginalLitigationPanel.tsx'
+import { PendingExpandBar } from './PendingExpandBar.tsx'
 
 /** The conversation.view entry id of this tab. */
 export const CASE_DETAIL_VIEW_ID = 'case-detail'
@@ -98,13 +99,19 @@ export function CaseDetailView({ sessionId }: ConvViewProps): React.JSX.Element 
   if (bound === null) return null
   const services = serviceRefs.current
   return (
-    <OriginalLitigationPanel
-      launchManager={services.launchManager ?? (async () => undefined)}
-      onClose={() => {}}
-      openCaseFolder={services.openCaseFolder}
-      getArchivedSessionIds={services.getArchivedSessionIds}
-      initialSelectedCaseId={bound.caseId}
-    />
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* 状态变更三态确认条：详情页改状态后立即可见（只显示当前案件）。 */}
+      <PendingExpandBar caseId={bound.caseId} />
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <OriginalLitigationPanel
+          launchManager={services.launchManager ?? (async () => undefined)}
+          onClose={() => {}}
+          openCaseFolder={services.openCaseFolder}
+          getArchivedSessionIds={services.getArchivedSessionIds}
+          initialSelectedCaseId={bound.caseId}
+        />
+      </div>
+    </div>
   )
 }
 

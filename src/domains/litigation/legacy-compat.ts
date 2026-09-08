@@ -219,7 +219,30 @@ export function registerLegacyCompatRoutes(ctx: Context, deps: RouteDeps): () =>
 
   route('/api/agentlex/update-case', async (body, res) => {
     const { caseId, ...patch } = body
-    ok(res, toLegacyCase(await deps.caseStore.updateCase(String(caseId ?? ''), patch) as unknown as Record<string, unknown>))
+    const cid = String(caseId ?? '')
+    // 详情页（vendor CaseDetailPage）改状态走这里（cmd_agentlex_update_case →
+    // /api/agentlex/update-case）。与 /api/agentlex-case/update-case 同钩子：
+    // status 档位变化 → 三态展开（confirm/agent/off）挂起 pendingExpand。
+    const prev = await deps.caseStore.readCase(cid)
+    const record = await deps.caseStore.updateCase(cid, patch)
+    const out: Record<string, unknown> = { ...toLegacyCase(record as unknown as Record<string, unknown>) }
+    if (patch.status !== undefined && record.status !== prev?.status && deps.itemStore !== undefined) {
+      const { handleStatusTransition } = await import('./status-transition.ts')
+      const modeCandidate = String(patch.expandOnStatus ?? record.expandOnStatus ?? 'confirm')
+      const mode = (['confirm', 'agent', 'off'].includes(modeCandidate) ? modeCandidate : 'confirm') as never
+      const trans = await handleStatusTransition({
+        caseStore: deps.caseStore,
+        itemStore: deps.itemStore,
+        caseId: cid,
+        prevStatus: prev?.status,
+        nextStatus: record.status,
+        level: record.level,
+        mode,
+      })
+      if (trans.pendingExpand !== undefined) out.pendingExpand = trans.pendingExpand
+      if (trans.notice !== undefined) out.notice = trans.notice
+    }
+    ok(res, out)
   })
 
   route('/api/agentlex/delete-case', async (body, res) => {

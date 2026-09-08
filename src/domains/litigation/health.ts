@@ -10,7 +10,7 @@
  */
 
 import { getLitigationStatus } from '../../shared/playbook/litigation.ts'
-import type { CaseRecord, CaseRegistry } from './store/types.ts'
+import type { CaseRecord, CaseRegistry, PendingExpand } from './store/types.ts'
 import { detectStageSuggestions, resolveStageForCase, stageTasksOf } from './stage-expansion.ts'
 import type { StageSuggestion } from './stage-expansion.ts'
 
@@ -116,6 +116,8 @@ export interface CaseHealth {
   deadlines?: unknown
   /** 阶段推进建议（与 stage_suggestions 同源）。 */
   suggestions: StageSuggestion[]
+  /** 状态档位变更后挂起的待展开阶段（confirm/agent 模式；漏处理时读侧兜底可见）。 */
+  pendingExpand?: PendingExpand
 }
 
 export interface HealthOptions {
@@ -178,6 +180,7 @@ export async function computeCaseHealth(
     stage,
     completeness: { score, filled, total, gaps },
     suggestions,
+    pendingExpand: record.pendingExpand,
   }
   if (opts.deadlines !== undefined) {
     health.deadlines = await opts.deadlines(record.caseId)

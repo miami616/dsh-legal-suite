@@ -123,6 +123,12 @@ export interface CaseStore {
   registerCase(input: Record<string, unknown>): Promise<CaseRecord>
   /** Update case fields in place (merge). */
   updateCase(caseId: string, patch: Record<string, unknown>): Promise<CaseRecord>
+  /**
+   * 清除状态变更挂起的待展开标记（pendingExpand）。
+   * 不能用 updateCase({ pendingExpand: undefined })——JSON clone 会丢 undefined
+   * 键，字段无法借 merge 删除；此方法显式删除。
+   */
+  clearPendingExpand(caseId: string): Promise<CaseRecord>
   /** Delete a case. */
   deleteCase(caseId: string): Promise<{ deleted: boolean }>
   /** Key dates. */
@@ -288,6 +294,7 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
           retainerUnit: input.retainerUnit === undefined ? undefined : String(input.retainerUnit),
           tags: input.tags === undefined ? undefined : clone(input.tags as string[] | undefined),
           archived: input.archived === undefined ? undefined : Boolean(input.archived),
+          expandOnStatus: input.expandOnStatus === undefined ? undefined : String(input.expandOnStatus) as CaseRecord['expandOnStatus'],
           keyDates: input.keyDates === undefined ? [] : clone(input.keyDates as KeyDate[] | undefined) ?? [],
           taskGroups: input.taskGroups === undefined ? [] : clone(input.taskGroups as TaskGroup[] | undefined) ?? [],
           boundSessions: input.boundSessions === undefined ? [] : clone(input.boundSessions as string[] | undefined) ?? [],
@@ -349,6 +356,26 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
         record = clone(merged)
         return next
       }, 'case', caseId, 'update')
+      return record!
+    },
+
+    async clearPendingExpand(caseId: string): Promise<CaseRecord> {
+      assertSafePathSegment(caseId, 'caseId')
+      let record: CaseRecord | undefined
+      await store.mutate((reg) => {
+        const current = reg.cases[caseId]
+        if (current === undefined) throw new Error(`case not found: ${caseId}`)
+        if (current.pendingExpand === undefined && !Object.prototype.hasOwnProperty.call(current, 'pendingExpand')) {
+          return reg
+        }
+        const next = clone(reg)
+        const target = next.cases[caseId]
+        delete target.pendingExpand
+        target.updatedAt = nowIso()
+        next.lastUpdated = target.updatedAt
+        record = clone(target)
+        return next
+      }, 'case', caseId, 'clear-pending-expand')
       return record!
     },
 

@@ -23,7 +23,8 @@ export function itemToTimelineEvent(it: Item): Record<string, unknown> {
     caseId: it.ownerId,
     caseName: it.ownerName,
     ownerType: it.ownerType ?? '',
-    type: it.type === 'both' ? 'hearing' : 'case_event',
+    // kind 透传事件类型（0.2.x 统一模型补回）；缺失时按 0.2.2 旧行为兜底。
+    type: it.kind ?? (it.type === 'both' ? 'hearing' : 'case_event'),
     title: it.title,
     label: it.title,
     detail: it.detail,

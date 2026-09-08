@@ -350,6 +350,35 @@ export interface StageTemplate {
   /** 旁路/类型阶段挂载提示：哪些线性阶段的管家在推进时该考虑展开它。 */
   mountHint?: string
   tasks: TaskTemplate[]
+  /**
+   * 本阶段标准程序节点（事件骨架，v0.2.6+）。与任务同机制：
+   *  - leadDays 相对 anchorDate 推算 date（如 开庭=0、举证期限届满=开庭前若干日）；
+   *  - 无 leadDays（或未传 anchorDate）的事件 date 留空，管家按实际补录；
+   *  - 展开时按 caseId+title 幂等，已存在的事件不重复创建；
+   *  - 模板只是骨架：个案事件可增删改，类型开放（EventTemplate.kind 任意字符串）。
+   */
+  events?: EventTemplate[]
+}
+
+/** 阶段模板附带的标准程序节点（事件）。 */
+export interface EventTemplate {
+  /** 规范事件名（如 开庭 / 举证期限届满 / 裁判文书送达）。 */
+  title: string
+  /** 事件类型标识（开放词表：hearing/evidence_deadline/…/engagement/close/archive，或个案自定义）。 */
+  kind?: string
+  /** 相对锚点日期（anchorDate）的提前量（天），用于推算事件 date。 */
+  leadDays?: number
+  /** 附加详情（法庭、期限起算说明等）。 */
+  detail?: string
+  /**
+   * 是否随状态切换自动落盘（v0.2.6）。
+   *  - true：日期能自主确定（如 立案/受理送达/答辩期届满/举证期限届满），
+   *    状态切换展开阶段时自动落 items.json；
+   *  - false（默认）：日期依赖外部信息（如 开庭需传票、裁判文书送达/上诉期届满
+   *    需送达回执），状态切换时**不自动落盘**——只作为「管家应登记」的提示，
+   *    由管家在收到对应文书时用 upsert_event 手动登记（传票三件套流程）。
+   */
+  auto?: boolean
 }
 
 /* ==================================================== 多轨阶段任务模板 */
@@ -435,48 +464,55 @@ export function templateTaskApplies(task: TaskTemplate, ctx: { type?: string; ou
 }
 
 /* ---------------- 一审轨（level 一审） ---------------- */
+// 收案：纯委托登记阶段，不铺办案任务。
 const STAGE_T1_PRE_FILING: StageTemplate = {
-  id: 'pre_filing', name: '一审 · 诉前准备', status: 'pre_filing', level: '一审',
+  id: 'pre_filing', name: '一审 · 收案', status: 'intake', level: '一审',
   tasks: [
     { title: '核查利益冲突', priority: 'high', detail: '检索本所已办/在办案件，确认无利益冲突后方可收案', subtasks: ['检索本所案件库', '填写利益冲突核查表'] },
+    { title: '初步研判诉讼可行性并确定诉讼方案', priority: 'high', detail: '初步评估事实与证据是否足以支撑起诉、胜诉把握与诉讼成本；据此确定诉讼策略（是否起诉、走何种程序、主体与案由选择）', subtasks: ['评估诉讼可行性', '确定诉讼方案', '评估预期成本与风险'] },
     { title: '签订委托代理合同', priority: 'high', detail: '明确代理权限、收费方式与收费金额', checklist: ['确认授权委托书签署', '确认收费到账'] },
-    { title: '梳理案情并编制证据清单', priority: 'high', detail: '按要件事实逐项列明证据，标注原件/复印件与证明目的' },
-    { title: '核查诉讼时效与管辖', priority: 'high', detail: '时效届满前必须完成起诉或中断时效；管辖错误将导致移送，徒增周期' },
-    { title: '评估诉前财产保全可行性', priority: 'medium', detail: '有转移财产迹象的，优先考虑诉前保全；注意保全后 30 日内须起诉', optional: true, when: '对方有转移/隐匿财产迹象，或判决执行存在明显困难时' },
+    { title: '风险告知与收费确认', priority: 'medium', detail: '向当事人告知诉讼风险、费用与期限，确认委托范围', checklist: ['签署风险告知书'] },
+  ],
+}
+
+// 诉前准备：立案前的材料准备（起草起诉状、整理证据）——这是「预立案」的核心工作。
+const STAGE_T1_PREP: StageTemplate = {
+  id: 't1_prep', name: '一审 · 诉前准备', status: 'pre_filing', level: '一审',
+  tasks: [
+    { title: '梳理案情并核查诉讼时效与管辖', priority: 'high', detail: '围绕要件事实梳理案情；核查诉讼时效是否完成起诉/中断、受诉法院是否有管辖权，避免移送徒增周期', subtasks: ['梳理案件事实', '核查诉讼时效', '核查管辖'] },
+    { title: '起草起诉状', priority: 'high', detail: '诉讼请求须具体、可执行，含本金、利息（起算日与标准）、诉讼费承担' },
+    { title: '整理证据材料并编制证据清单', priority: 'high', detail: '按被告人数 + 1 准备副本，证据编号与清单一致，标注原件/复印件与证明目的', subtasks: ['梳理证据链', '编制证据目录', '制作证据副本'] },
+    { title: '确定诉讼请求与保全策略', priority: 'medium', detail: '明确诉讼请求；有转移财产风险的评估是否诉前保全', optional: true, when: '对方有转移/隐匿财产迹象，或判决执行存在明显困难时' },
     { title: '开展诉前调解', priority: 'low', detail: '争议不大、对方有履行能力的，先行调解可显著缩短回款周期', optional: true, when: '争议金额小、双方有和解基础或存在长期合作关系时' },
   ],
 }
 
 const STAGE_T1_FILING: StageTemplate = {
-  id: 'filing', name: '一审 · 立案', status: 'filing', level: '一审',
+  id: 'filing', name: '一审 · 立案中', status: 'filing', level: '一审',
   tasks: [
-    { title: '起草起诉状', priority: 'high', detail: '诉讼请求须具体、可执行，含本金、利息（起算日与标准）、诉讼费承担' },
-    { title: '整理证据材料并编制证据清单', priority: 'high', detail: '按被告人数 + 1 准备副本，证据编号与清单一致' },
-    { title: '递交立案材料', priority: 'high', detail: '线上立案或窗口递交；法院一般 7 日内决定是否立案' },
+    { title: '提交网上立案申请', priority: 'high', detail: '用诉前准备阶段备好的起诉状与证据材料，通过法院网上立案平台提交立案申请；或窗口线下递交', subtasks: ['登录法院网上立案平台', '填写立案信息与诉讼请求', '上传起诉状与证据材料'], checklist: ['确认立案材料齐全'] },
     {
       title: '缴纳诉讼费', priority: 'medium', optional: true,
       when: '收到法院缴费通知（含案号与金额）后；未通知不必提前安排',
       detail: '财产案件按标的额分段累计；缴费凭证是立案/审理材料，随通知执行并留存回执',
     },
+    {
+      title: '跟进立案审查结果', priority: 'high',
+      detail: '法院一般 7 日内决定是否受理；被驳回或要求补正的，及时补正后重新提交',
+    },
   ],
+  // 立案中并未立案——立案时间轴事件在进入「庭前准备」（=已立案）时落盘。
+  events: [],
 }
 
 const STAGE_T1_PRETRIAL: StageTemplate = {
   id: 'pretrial', name: '一审 · 庭前准备', status: 'pretrial', level: '一审',
   tasks: [
+    // 立案获准后的实体应对（诉前准备已完成起诉状起草与证据整理）
+    // 双方程序应对
     {
-      title: '提交答辩状', priority: 'high', side: 'defendant',
-      detail: '被告应自收到起诉状副本之日起 15 日内提出；期限以送达日期为锚点', leadDays: 15,
-    },
-    {
-      title: '查阅对方答辩状', priority: 'medium', side: 'plaintiff', optional: true,
-      when: '我方为原告且对方已提交答辩状时',
-      detail: '分析对方抗辩要点，据此调整举证与庭审策略',
-    },
-    {
-      title: '提交证据', priority: 'high',
-      detail: '一审普通程序举证期限不少于 15 日，简易程序不超过 15 日，以举证通知书为准；任务 deadline 设在期限届满前 2 日',
-      leadDays: 5, subtasks: ['核对证据原件', '编制证据目录', '制作证据副本'], checklist: ['确认法院收到回执'],
+      title: '准备答辩状', priority: 'high', side: 'defendant',
+      detail: '被告应自收到起诉状副本之日起 15 日内提出书面答辩状；若当庭答辩，也应事先准备答辩要点', leadDays: 15,
     },
     {
       title: '提出管辖权异议', priority: 'high', side: 'defendant', optional: true,
@@ -489,13 +525,14 @@ const STAGE_T1_PRETRIAL: StageTemplate = {
     { title: '申请司法鉴定', priority: 'low', detail: '工程造价、笔迹、伤残等级等；鉴定期间不计入审限，须尽早提出', optional: true, when: '待证事实需专门性问题判断时' },
     { title: '参加庭前会议', priority: 'medium', detail: '交换证据、固定无争议事实、明确争议焦点', optional: true, when: '法院安排庭前会议或证据交换时' },
     { title: '梳理争议焦点', priority: 'high', detail: '围绕争议焦点组织证据与法律论证，是庭审提纲的骨架' },
-    // docx 一审：庭前准备 = 立案后到开庭（含答辩/举证/开庭传票）。收到开庭传票后
-    // 以下「开庭准备与出庭」动作在本档按需展开——管家收到传票即 add_keydate「开庭」
-    // 并回调展开这几条（only 点名或整组展开）。
-    { title: '核对证据原件', priority: 'high', detail: '开庭须携带全部证据原件备查', leadDays: 7 },
+    // 庭审准备（收到传票后展开）
     { title: '制作庭审提纲', priority: 'high', detail: '按法庭调查顺序写清发问、举证、质证要点', leadDays: 3, subtasks: ['拟定法庭调查发问提纲', '拟定质证意见', '拟定辩论意见'] },
-    { title: '出庭参加庭审', priority: 'high', leadDays: 0, checklist: ['确认开庭时间与法庭', '确认出庭人员与授权手续', '携带证据原件与代理手续'] },
-    { title: '校对并签署庭审笔录', priority: 'medium', detail: '笔录是上诉与再审的关键依据，当庭或庭后立即校对' },
+  ],
+  events: [
+    // 答辩期届满/举证期限届满依赖「收到起诉状副本之日」「举证通知书载明期限」，
+    // 无法自主确定 → 不自动落盘，管家收到后按实际日期登记。
+    { title: '答辩期届满', kind: 'defense_deadline', detail: '被告答辩期自收到起诉状副本之日起 15 日', leadDays: 15, auto: false },
+    { title: '举证期限届满', kind: 'evidence_deadline', detail: '以举证通知书载明期限为准', leadDays: 5, auto: false },
   ],
 }
 
@@ -504,19 +541,51 @@ const STAGE_T1_POST_TRIAL: StageTemplate = {
   tasks: [
     { title: '提交书面代理词', priority: 'high', detail: '庭后按法庭指定期限提交，一般 5-10 日', leadDays: 10 },
     { title: '提交庭后补充证据', priority: 'medium', detail: '庭后新发现的证据按法庭指定期限补充提交', optional: true, when: '庭审后发现新证据需补充提交时' },
-    { title: '领取裁判文书', priority: 'high', detail: '判决书送达之日起开始计算上诉期，务必当日核对电子送达回执' },
+    { title: '确认裁判文书', priority: 'high', detail: '核对裁判文书的裁判主文、利息起算、诉讼费负担，确认送达并核对送达回执；确认无误后开始计算上诉期', checklist: ['核对裁判主文', '核对电子送达回执'] },
     { title: '督促对方履行生效裁判', priority: 'medium', detail: '履行期限届满前发送履行催告函，为后续申请执行固定证据', optional: true, when: '对方有履行能力但未按期履行时' },
     { title: '评估申请强制执行可行性', priority: 'medium', detail: '对方未按期履行的，申请执行期间为 2 年，切勿逾期', optional: true, when: '裁判生效且对方逾期不履行时' },
+  ],
+  events: [
+    // 裁判文书送达依赖实际送达日，状态切换时无法自主确定 → 不自动落盘，管家收到文书后登记。
+    { title: '裁判文书送达', kind: 'judgment', detail: '判决书送达之日起开始计算上诉期（判决 15 日 / 裁定 10 日，自送达次日起算）', auto: false },
+  ],
+}
+
+/** 一审 · 开庭：庭审本身的行为（收到传票后排入庭前准备阶段下）。 */
+const STAGE_T1_HEARING: StageTemplate = {
+  id: 't1_hearing', name: '一审 · 开庭', status: 'pretrial', level: '一审', kind: 'side',
+  mountHint: '收到开庭传票后，在庭前准备阶段排入庭审任务',
+  tasks: [
     {
-      title: '分析上诉可行性', priority: 'high', optional: true,
-      when: '我方对裁判结果不满，或案件存在法律适用/事实认定错误且当事人可能上诉时',
-      detail: '围绕事实认定与法律适用，给出明确的上诉/不上诉建议与理由；判决对我方全胜或无上诉必要时不建此任务', leadDays: 5,
+      title: '开庭', priority: 'high', leadDays: 0,
+      subtasks: [
+        '核对证据原件并携带到庭',
+        '出庭（到庭签到、出示代理手续）',
+        '法庭调查举证质证',
+        '发表辩论意见',
+        '校对并签署庭审笔录',
+      ],
+      checklist: ['确认开庭时间与法庭', '确认出庭人员与授权手续', '携带证据原件与代理手续'],
     },
-    {
-      title: '确认当事人上诉意向', priority: 'high', optional: true,
-      when: '裁判对我方不利或部分不利，需要确认是否上诉时',
-      detail: '须书面确认，避免错过上诉期引发执业风险', leadDays: 3,
-    },
+  ],
+  events: [
+    // 开庭日期依赖开庭传票，无法自主确定 → 不自动落盘，管家收到传票后 upsert_event 登记。
+    { title: '开庭', kind: 'hearing', detail: '以开庭传票载明时间地点为准', leadDays: 0, auto: false },
+  ],
+}
+
+/** 一审 · 上诉期：收到裁判文书后的上诉研判与决定（status=appeal_window）。 */
+const STAGE_T1_APPEAL: StageTemplate = {
+  id: 'appeal_window', name: '一审 · 上诉期', status: 'appeal_window', level: '一审',
+  tasks: [
+    { title: '分析判决并出具上诉研判意见', priority: 'high', detail: '围绕事实认定与法律适用，评估胜诉把握与改判空间，给出上诉/不上诉的明确建议与理由', leadDays: 5, subtasks: ['梳理判决不利之处', '评估法律适用与改判空间', '形成上诉研判意见'] },
+    { title: '确认当事人上诉意向', priority: 'high', detail: '向当事人书面说明上诉利弊，确认是否上诉', leadDays: 3, checklist: ['取得当事人书面确认'] },
+    { title: '起草上诉状', priority: 'high', detail: '围绕一审认定错误与法律适用，写明上诉请求与理由', optional: true, when: '当事人确定上诉时', leadDays: 2, subtasks: ['起草上诉状', '核对上诉请求与理由'], checklist: ['确认上诉状已递交', '确认预交上诉费'] },
+    { title: '提交上诉状并预交上诉费', priority: 'high', detail: '在法定期限内递交上诉状并向二审法院预交上诉费', optional: true, when: '当事人确定上诉时', leadDays: 2 },
+  ],
+  events: [
+    // 上诉期届满依赖送达日推算，无法自主确定 → 不自动落盘，管家按实际送达日登记。
+    { title: '上诉期届满', kind: 'appeal_deadline', detail: '以送达回执日期推算，管家按实际送达日补录', auto: false },
   ],
 }
 
@@ -620,6 +689,9 @@ const STAGE_EX_APPLY: StageTemplate = {
     { title: '接收执行通知并核对执行依据', priority: 'high', side: 'defendant', detail: '法院立案执行后向被执行人发执行通知；核对执行依据文书是否生效、执行内容是否明确' },
     { title: '核对执行金额与迟延利息', priority: 'high', side: 'defendant', detail: '核对本金、利息、迟延履行期间债务利息与执行费的计算；异议在法定期限内书面提出' },
     { title: '评估履行或异议策略', priority: 'high', side: 'defendant', detail: '确无争议的评估一次性/分期履行；认为执行依据有误或超标的的评估执行异议' },
+  ],
+  events: [
+    { title: '执行立案', kind: 'execution', detail: '法院立案执行并发出执行通知', auto: true },
   ],
 }
 
@@ -796,6 +868,11 @@ const STAGE_CR_TRIAL: StageTemplate = {
     { title: '校对并签署庭审笔录', priority: 'medium', detail: '逐页核对，异议当场提出' },
     { title: '编写庭审报告并通报家属', priority: 'medium', detail: '庭审焦点、辩方意见采纳情况、可能的判决区间；庭审后 1 日内通报' },
   ],
+  events: [
+    // 开庭/判决送达依赖开庭通知与送达回执，状态切换时无法自主确定 → 不自动落盘，管家收到后登记。
+    { title: '开庭', kind: 'hearing', detail: '以开庭通知载明时间地点为准', leadDays: 0, auto: false },
+    { title: '判决送达', kind: 'judgment', detail: '刑事上诉期：不服判决 10 日 / 裁定 5 日（自收到次日起算）', auto: false },
+  ],
 }
 
 const STAGE_CR_APPEAL: StageTemplate = {
@@ -903,7 +980,7 @@ const STAGE_SIDE_REMEDY: StageTemplate = {
 
 /** 全部轨（key = level）。 */
 export const STAGE_TRACKS: Record<string, StageTemplate[]> = {
-  一审: [STAGE_T1_PRE_FILING, STAGE_T1_FILING, STAGE_T1_PRETRIAL, STAGE_T1_POST_TRIAL],
+  一审: [STAGE_T1_PRE_FILING, STAGE_T1_PREP, STAGE_T1_FILING, STAGE_T1_PRETRIAL, STAGE_T1_POST_TRIAL, STAGE_T1_APPEAL],
   二审: [STAGE_T2_PRE_FILING, STAGE_T2_APPEAL_FILED, STAGE_T2_APPELLATE, STAGE_T2_POST_JUDGMENT],
   再审: [STAGE_RT_APPLY, STAGE_RT_TRIAL],
   首次执行: [STAGE_EX_APPLY, STAGE_EX_CTRL, STAGE_EX_TERMINATED, STAGE_EX_RECOVERY],
@@ -915,7 +992,7 @@ export const STAGE_TRACKS: Record<string, StageTemplate[]> = {
 
 /** 类型任务包/旁路包（不占阶梯，kind:'side'，按 level+案情挂载）。 */
 export const SIDE_STAGES: StageTemplate[] = [
-  STAGE_ADMIN_PRE, STAGE_ADMIN_DEFENSE, STAGE_ADMIN_TRIAL, STAGE_IP,
+  STAGE_T1_HEARING, STAGE_ADMIN_PRE, STAGE_ADMIN_DEFENSE, STAGE_ADMIN_TRIAL, STAGE_IP,
   STAGE_SIDE_PRESERVATION, STAGE_SIDE_APPRAISAL, STAGE_SIDE_SETTLEMENT, STAGE_SIDE_REMEDY,
 ]
 

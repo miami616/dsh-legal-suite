@@ -63,14 +63,14 @@ try {
 
   // ============ upsertTask: create-if-not-found ============
   // 1) explicit non-existent id → create (was TypeError)
-  const t2 = await cs.upsertTask(caseId, groupId, { id: 'task-999', title: '提交答辩状', deadline: '2026-01-15', status: 'doing' })
+  const t2 = await cs.upsertTask(caseId, groupId, { id: 'task-999', title: '准备答辩状', deadline: '2026-01-15', status: 'doing' })
   const task2 = t2.taskGroups[0].tasks.find((x) => x.id === 'task-999')
-  check('upsertTask explicit-id creates', task2 !== undefined && task2.title === '提交答辩状' && task2.deadline === '2026-01-15' && task2.status === 'doing', JSON.stringify(task2))
+  check('upsertTask explicit-id creates', task2 !== undefined && task2.title === '准备答辩状' && task2.deadline === '2026-01-15' && task2.status === 'doing', JSON.stringify(task2))
 
   // 2) existing id → update
-  const t3 = await cs.upsertTask(caseId, groupId, { id: 'task-999', title: '提交答辩状v2' })
+  const t3 = await cs.upsertTask(caseId, groupId, { id: 'task-999', title: '准备答辩状v2' })
   const task3 = t3.taskGroups[0].tasks.find((x) => x.id === 'task-999')
-  check('upsertTask existing-id updates', task3 !== undefined && task3.title === '提交答辩状v2', JSON.stringify(task3))
+  check('upsertTask existing-id updates', task3 !== undefined && task3.title === '准备答辩状v2', JSON.stringify(task3))
 
   // ============ upsertTaskGroup: create-if-not-found ============
   // 1) explicit non-existent id → create (was throw)

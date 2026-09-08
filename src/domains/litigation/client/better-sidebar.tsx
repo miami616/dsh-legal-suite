@@ -6,7 +6,7 @@
  * optional: if the service is absent (better-sidebar not installed), the
  * litigation UI simply falls back to the existing OS-open behavior.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ReactNode } from 'react'
 import { CaseFolderTab } from './case-folder-tab.tsx'
 import { CaseFolderOpenIcon } from './case-folder-icons.tsx'

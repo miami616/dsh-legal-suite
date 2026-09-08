@@ -7,7 +7,7 @@
  * null，issue:「案件绑定/更换文件夹仍然不可用」），必须持有 ctx 引用、在
  * 点击时惰性解析。
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import DirectoryPickerDialog from '../domains/workspace-sidebar/client/DirectoryPickerDialog.tsx'
@@ -131,18 +131,22 @@ export async function pickDirectoryPath(initialPath = ''): Promise<string | null
  */
 function resolveWorkspaces(): WorkspacesFace | undefined {
   const ctx = ctxRef as unknown as
-    | { get?: (name: string) => unknown; workspaces?: WorkspacesFace }
+    | { get?: (name: string) => unknown; workspaces?: WorkspacesFace; uiWorkspace?: WorkspacesFace }
     | undefined
   if (ctx === undefined) return undefined
   try {
     if (typeof ctx.get === 'function') {
       const viaGet = ctx.get('workspaces') as WorkspacesFace | undefined
       if (viaGet && typeof viaGet.pickDirectory === 'function') return viaGet
+      // 0.1.3-alpha.2 起 pickDirectory 迁至 uiWorkspace 服务；旧版 workspaces
+      // 不再带目录选择，回退到 uiWorkspace 保持目录选择能力。
+      const viaUi = ctx.get('uiWorkspace') as WorkspacesFace | undefined
+      if (viaUi && typeof viaUi.pickDirectory === 'function') return viaUi
     }
   } catch {
     /* 服务未注册时 get 可能抛错——落回属性访问 */
   }
-  return ctx.workspaces
+  return ctx.uiWorkspace ?? ctx.workspaces
 }
 
 /**

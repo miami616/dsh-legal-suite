@@ -6,7 +6,7 @@
  * from the dsh sessions feed (`ctx.sessions`).
  */
 import '@/i18n'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { mountWorkspacePanel } from './mount.tsx'
 import { workspaceCss } from './generated-workspace-css.ts'

@@ -11,7 +11,7 @@
  * Export discipline (packages/client rule): the /client surface carries what
  * cordis loading needs plus types only — all value exports stay internal.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { bindCaseWorkspaces, installAgentlexPickBridge } from '../../../shared/folder-picker.ts'
 import { installSessionSnapshotBridge } from '../../../shared/session-snapshot.ts'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).

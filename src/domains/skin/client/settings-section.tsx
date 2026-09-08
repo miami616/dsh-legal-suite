@@ -7,7 +7,7 @@
  * 相关实现（DesktopSettingsSection / DesktopNotificationSettings）一并删除。
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import type { IWorkspaces, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 // Type-only: pulls the slots contract merge (agentlex.workbench.item declared below).
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { getSkinConfig, setSkinConfig, useSkinConfig, type AgentLexSkinConfig } from './config.ts'
@@ -69,10 +69,10 @@ export function bindModuleDataDirScopes(
   nonlitigationScope = next.nonlitigation
 }
 
-/** DSH 工作区服务（client-runtime 注入；pickDirectory() 打开宿主系统目录选择框）。 */
-let workspaces: IWorkspaces | undefined
+/** DSH 目录选择能力（新架构由 uiWorkspace.pickDirectory() 提供；pickDirectory() 打开宿主系统目录选择框）。 */
+let workspaces: { pickDirectory(): Promise<string | null> } | undefined
 
-export function bindWorkspaces(next: IWorkspaces | undefined): void {
+export function bindWorkspaces(next: { pickDirectory(): Promise<string | null> } | undefined): void {
   workspaces = next
 }
 

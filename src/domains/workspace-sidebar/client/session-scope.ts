@@ -11,7 +11,7 @@
  * Read only `list` and stay defensive (optional chaining + structural cast)
  * so the plugin loads on either contract without throwing at mount time.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 
 /** Current session id + working directory resolved from the sessions feed. */
 export interface SessionScope {

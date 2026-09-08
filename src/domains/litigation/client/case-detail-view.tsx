@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ClientContextWithSidebar } from './better-sidebar.tsx'
 import type { CaseRegistry } from '../store/types.ts'
 import * as api from './api.ts'

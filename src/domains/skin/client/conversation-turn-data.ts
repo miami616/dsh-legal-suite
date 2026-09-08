@@ -10,7 +10,7 @@
  * 逐回合的时间信息由 conversation-navigation.ts 从 DOM（回合 timeStart 标记）
  * 读取；这里只负责状态与指标。
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 
 /** 单个轮次的预览信息（供卡片元信息行使用）。 */
 export interface TurnPreviewData {

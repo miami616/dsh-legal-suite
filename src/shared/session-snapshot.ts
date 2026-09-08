@@ -7,7 +7,7 @@
  * 快照（ctx.sessions.list）读取当前会话列表，供 vendor 侧复用。root-first
  * 解析（与 session-bridge 一致），幂等安装。
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 
 declare global {
   interface Window {

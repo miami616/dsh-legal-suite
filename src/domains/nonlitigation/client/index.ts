@@ -2,7 +2,7 @@
  * Browser-half entry for dsh-legal-suite/nonlitigation — S0 skeleton.
  * Registers locale dictionaries and mounts the sidebar entry + placeholder panel.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { bindCaseWorkspaces, installAgentlexPickBridge } from '../../../shared/folder-picker.ts'
 import { installSessionSnapshotBridge } from '../../../shared/session-snapshot.ts'
 import type {} from '@deepseek-ai/dsh-client-locale/client'

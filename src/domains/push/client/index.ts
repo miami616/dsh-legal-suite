@@ -5,7 +5,7 @@
  * (agentlex.workbench.item slot). Failure policy: DOM mounting problems are
  * logged, never thrown — an external plugin must not take the GUI down.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import './workbench-slot.ts'

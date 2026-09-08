@@ -3,7 +3,7 @@
  *
  * 挂载可拖拽浮动入口按钮 + 备忘录弹窗面板 + 会话输入框 `#` 自动补全。
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { mountMemo } from './mount.tsx'
 
 export const name = 'dsh-legal-suite/memo'

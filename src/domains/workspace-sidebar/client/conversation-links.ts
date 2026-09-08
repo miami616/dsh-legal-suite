@@ -10,7 +10,7 @@
  *   - 元素带 data-file-path / data-path / data-reference / data-file 属性。
  * 外部 http(s) 网页链接不拦截，仍正常新开。
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { readSessionScope } from './session-scope.ts'
 
 function tryParseUrl(href: string): URL | null {

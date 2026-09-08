@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.7（待发布，DSH 0.1.3-alpha.2 适配）
+
+### DSH 客户端运行时拆分适配（dsh-client-runtime 退役）
+
+- **`@deepseek-ai/dsh-client-runtime` 在 DSH 0.1.3-alpha.2 拆销**（无该版本发布），其
+  类型与能力迁往独立包。本插件 18 处 `dsh-client-runtime/client` 类型导入全部迁移：
+  - `ClientContext` → `Context as ClientContext` 改自 `@deepseek-ai/cordis`；
+  - `ISessions` → `@deepseek-ai/dsh-api-session-controller/client`；
+  - `IWorkspaces` → 由 `@deepseek-ai/dsh-api-workspace-controller/client` 提供，但该接口
+    **不再含 `pickDirectory()`**（迁至 `ctx.uiWorkspace.pickDirectory()`），目录选择改走
+    `dsh-client-ui-workspace` 的 `uiWorkspace` 服务（设置页数据目录选择 + 案件/项目文件夹
+    选择两处同步适配，含 `ctx.get('uiWorkspace')` 惰性解析回退）；
+  - `SettingsScope` → `@deepseek-ai/dsh-settings`。
+- **依赖版本**：11 个 `@deepseek-ai/dsh-*` 依赖从 `0.1.1-rc.2` 升至 `0.1.3-alpha.2`
+  （与 dsh-latest 官方最新 alpha 对齐），新增 `@deepseek-ai/dsh-api-session-controller`、
+  `@deepseek-ai/dsh-api-workspace-controller`、`@deepseek-ai/dsh-util-values`；
+  移除 `@deepseek-ai/dsh-client-runtime`；`dsh-mcp-client` peer/dep 升 `^0.1.3-alpha.2`。
+- **`JsonValue`** 从 `@deepseek-ai/dsh-tools` 迁至 `@deepseek-ai/dsh-util-values`（memo
+  域工具返回类型随之改源）。
+- **`dsh.client.inject` 精简**：移除已退役的 `@deepseek-ai/dsh-client-runtime`，保留其余
+  client runtime 包；`tsdown.config.ts` 的 `CLIENT_EXTERNALS` 同步替换为新的控制器子路径。
+- 运行时兼容性已逐一核对：`sessions`/`workspaces`/`uiWorkspace`/`connection`/
+  `inputTriggers`/`theme`/`settingsScope`/`locale`/`slots` 在 0.1.3-alpha.2 客户端 Context
+  上均仍提供；`defineTool`、`settingsScope.bind`、`ISessions.list` 契约未变。
+- **验证**：`tsc -p tsconfig.build.json`（宿主）+ `tsdown`（client bundle）构建通过，产出
+  `lib/index.js` 与 `client/client.js`。运行时冒烟需在隔离 profile（agentlex-ls-test，
+  端口 3081，需 0.1.3-alpha.2 DSH）回归，经用户确认后再 commit/push。
+
 ## 0.2.6（2026-09-08）
 
 ### 民商一审阶段对齐 + 事件纪年规则 + 状态变更三态展开（confirm/agent/off）

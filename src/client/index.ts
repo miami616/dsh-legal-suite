@@ -9,7 +9,7 @@
  * inject 并集：slots + locale + sessions（业务面板）、theme + settingsScope
  * （皮肤域）。cordis 按并集等待全部客户端服务就绪后执行本 apply。
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'

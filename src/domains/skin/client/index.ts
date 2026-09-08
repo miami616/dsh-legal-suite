@@ -6,7 +6,8 @@
  *   - 注册 AgentLex 品牌 mark/name 到侧边栏和空会话 hero
  *   - 注入 CSS 让诉讼/非诉/任务三个侧边栏入口贴近原版风格
  */
-import type { ClientContext, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 // Client-surface imports: the slot contracts (sidebar.brand.mark/name,
 // conversation.hero.brand.mark, settings.section) are declared by the kits'
@@ -101,8 +102,8 @@ export function apply(ctx: ClientContext): void {
         litigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-litigation' }),
         nonlitigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-nonlitigation' }),
       })
-      // 目录选择器（设置页「数据目录 → 选择目录…」按钮，走 client-runtime 的 workspaces.pickDirectory()）。
-      bindWorkspaces(ctx.workspaces)
+      // 目录选择器（设置页「数据目录 → 选择目录…」按钮，走新架构的 uiWorkspace.pickDirectory()）。
+      bindWorkspaces(ctx.uiWorkspace)
     } catch (error) {
       diag(`skin settingsScope/bind failed: ${error instanceof Error ? error.message : String(error)}`)
     }

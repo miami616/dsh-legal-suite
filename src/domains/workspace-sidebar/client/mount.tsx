@@ -13,7 +13,8 @@
  * 折叠按钮：优先贴到对话标题行（tablist）最右，找不到则回退为一个固定浮动按钮。
  */
 import { createRoot, type Root } from 'react-dom/client'
-import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import { WorkspacePanel } from './WorkspacePanel.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { ThemeRuntimeProvider } from '@/theme'

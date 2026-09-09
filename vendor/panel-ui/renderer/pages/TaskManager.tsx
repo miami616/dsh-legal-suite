@@ -648,9 +648,9 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
               </div>
             </div>
 
-            {/* 时间桶分布（下钻） */}
+            {/* 进行中统计（已逾期/今天/明天/未来/未排程 = 进行中；已完成最后） */}
             <div className="col-span-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--line-subtle)] px-6 py-2.5">
-              <span className="mr-1 text-[0.6875rem] font-bold uppercase tracking-[.08em] text-[var(--ink-subtle)]">时间</span>
+              <span className="mr-1 text-[0.6875rem] font-bold uppercase tracking-[.08em] text-[var(--ink-subtle)]">进行中</span>
               <button
                 onClick={() => setBucketFilter('all')}
                 className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${

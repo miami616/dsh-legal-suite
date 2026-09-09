@@ -56,12 +56,12 @@ export function bindScopeRetryHooks(retry: () => void): void {
 }
 
 /** Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change). */
-let litigationScope: SettingsScope<{ dataDir?: string }> | undefined
+let litigationScope: SettingsScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string }> | undefined
 let nonlitigationScope: SettingsScope<{ dataDir?: string }> | undefined
 
 export function bindModuleDataDirScopes(
   next: {
-    litigation: SettingsScope<{ dataDir?: string }> | undefined
+    litigation: SettingsScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string }> | undefined
     nonlitigation: SettingsScope<{ dataDir?: string }> | undefined
   },
 ): void {
@@ -108,6 +108,14 @@ function useDataDirValue(subject: SettingsScope<{ dataDir?: string }> | undefine
     () => subject?.getSnapshot().value?.dataDir ?? '',
   )
   return URLISH_PATH.test(raw.trim()) ? '' : raw
+}
+
+/** 诉讼日历同步开关值（Apple 日历，macOS）。 */
+function useLitigationCalendarSync(): boolean {
+  return useSyncExternalStore(
+    (listener) => (litigationScope ? litigationScope.subscribe(listener) : () => {}),
+    () => litigationScope?.getSnapshot().value?.calendarSyncEnabled ?? false,
+  )
 }
 
 function Field({ label, description, value, onCommit, commitEmpty = false, onPick }: {
@@ -450,6 +458,12 @@ export function AgentLexSettingsSection(props: {
             if (picked !== null && picked !== '') void litigationScope?.set('dataDir', picked)
             else setDirPicker('litigation')
           }}
+        />
+        <Toggle
+          label="日程同步 Apple 日历"
+          description="诉讼时间轴事件（开庭/举证/上诉等）建立时自动写入 Apple 日历，iCloud 同步到 iPhone；需在系统设置 → 隐私与安全性 → 自动化 授权"
+          checked={useLitigationCalendarSync()}
+          onChange={(v) => void litigationScope?.set('calendarSyncEnabled', v)}
         />
         <Field
           label="非诉项目数据目录"

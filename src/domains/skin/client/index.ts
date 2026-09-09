@@ -101,7 +101,7 @@ export function apply(ctx: ClientContext): void {
       }
       // Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change).
       bindModuleDataDirScopes({
-        litigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-litigation' }),
+        litigation: settingsScope?.bind<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string }>({ namespace: 'agentlex-litigation' }),
         nonlitigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-nonlitigation' }),
       })
       // 目录选择器（设置页「数据目录 → 选择目录…」按钮，走新架构的 uiWorkspace.pickDirectory()）。

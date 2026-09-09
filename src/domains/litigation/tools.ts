@@ -30,6 +30,8 @@ export interface ToolDeps {
   itemStore?: import('../item/store/item-store.ts').ItemStore
   /** Deadline engine summary (optional when unavailable). */
   deadlines?(caseId?: string, opts?: { includeOverdue?: boolean }): unknown | Promise<unknown>
+  /** Apple 日历同步配置（日程建立时自动写入 Apple Calendar）。 */
+  calendarSync?: { enabled: boolean; calendarName: string }
 }
 
 const ACTIONS = [
@@ -718,6 +720,22 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
                 const { syncFilingEventOnPretrial } = await import('./status-transition.ts')
                 await syncFilingEventOnPretrial({ caseStore: cs, itemStore: deps.itemStore, caseId: String(args.caseId) })
               } catch { /* 联动失败不阻塞登记 */ }
+            }
+            // Apple 日历同步：日程建立时自动写入 Apple Calendar（macOS，iCloud 同步）。
+            if (deps.calendarSync?.enabled === true && created.date !== undefined) {
+              try {
+                const { syncEventToAppleCalendar } = await import('../calendar-sync/index.ts')
+                void syncEventToAppleCalendar({
+                  itemId: created.id,
+                  title: `${created.title}${created.ownerId !== undefined ? ` - ${created.ownerId}` : ''}`,
+                  date: created.date,
+                  time: created.time,
+                  detail: created.detail,
+                  calendarName: deps.calendarSync.calendarName,
+                })
+              } catch (error) {
+                console.warn('[calendar-sync] 同步失败:', error instanceof Error ? error.message : String(error))
+              }
             }
             return { eventId: created.id, ok: true }
           }

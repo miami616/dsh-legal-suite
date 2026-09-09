@@ -44,6 +44,8 @@ export interface RouteDeps {
   deadlines?(caseId?: string, opts?: { includeOverdue?: boolean }): unknown | Promise<unknown>
   /** Import from an AgentLex data directory (M5). */
   importFromAgentLex?(sourceDir: string): Promise<unknown>
+  /** Apple 日历同步配置（日程建立时自动写入 Apple Calendar）。 */
+  calendarSync?: { enabled: boolean; calendarName: string }
   /** Plugin self-update: version check + upgrade via pnpm from the public npm registry. */
   pluginUpdate?: {
     check(): Promise<unknown>
@@ -537,6 +539,22 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       })
       // 备忘 #21：事件增改后 bump 案件 updatedAt（与任务一致，卡片按最近更新置顶）。
       await d.caseStore.updateCase(String(b.caseId ?? ''), {})
+      // Apple 日历同步：日程建立时自动写入 Apple Calendar（macOS，iCloud 同步）。
+      if (d.calendarSync?.enabled === true && created.date !== undefined) {
+        try {
+          const { syncEventToAppleCalendar } = await import('../calendar-sync/index.ts')
+          void syncEventToAppleCalendar({
+            itemId: created.id,
+            title: `${created.title}${created.ownerId !== undefined ? ` - ${created.ownerId}` : ''}`,
+            date: created.date,
+            time: created.time,
+            detail: created.detail,
+            calendarName: d.calendarSync.calendarName,
+          })
+        } catch (error) {
+          console.warn('[calendar-sync] 同步失败:', error instanceof Error ? error.message : String(error))
+        }
+      }
       return ok(res, created)
     }
     ok(res, await d.timelineStore.upsertEvent(b as Parameters<TimelineStore['upsertEvent']>[0]))

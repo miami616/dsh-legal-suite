@@ -36,13 +36,21 @@
   卡片网格后移到工具栏与卡片网格之间）。
 
 #### 紧急日程弹窗（范围可切换：未来 7 天 / 一个月 / 全部）
-
 - 诉讼页统计区「紧急日程」按钮点击改为**弹窗**展示重要时间节点（日期 + 倒计时 + 日程类型 + 案件名），
   不再直接打开任务面板；弹窗内注释「默认显示未来 7 天的重要时间节点，可切换查看范围」。
 - 弹窗内范围切换：**未来 7 天**（5 条）/ **未来一个月**（10 条）/ **全部**（不限）；按钮角标计数固定为未来 7 天。
 - 点击日程条目**跳转该案案件详情**（`onOpenCase`），弹窗自动关闭；支持 backdrop/关闭按钮/Cmd+W 关闭。
 - 改动：`vendor/panel-ui/renderer/components/agentlex/CaseDashboard.tsx`（urgentRange state +
   urgentWeekCount 角标 + OverlayBackdrop 弹窗）、`src/domains/litigation/client/locales.ts`。
+
+#### 日程同步 Apple 日历（设置项 calendarSyncEnabled，默认关）
+
+- 诉讼时间轴事件（开庭/举证/上诉等）建立时自动写入 Apple 日历（macOS），iCloud 同步到 iPhone。
+- 机制（参考 smart-calendar）：osascript 直接调用 Apple Calendar 创建事件，纯 Node child_process + AppleScript，零第三方依赖。
+- 幂等：itemId → Apple 事件 uid 映射存 `$DSH_HOME/agentlex/calendar-sync-map.json`，事件更新时按 uid 更新（不重复创建），删除时按 uid 删除；AppleScript 的 uid 查询必须指定日历（全局查询失败）。
+- 兜底：Calendar 未运行（-600）时自动 `open -a Calendar` 拉起重试；首次调用需在 系统设置 → 隐私与安全性 → 自动化 授权。
+- 目标日历名可配置（默认「个人」）；设置页「数据与存储」区新增开关。
+- 改动：`src/domains/calendar-sync/index.ts`（新）、`src/domains/litigation/index.ts`（Config + deps）、`tools.ts`/`routes.ts`（事件创建后触发）、`settings-section.tsx`（开关）。
 
 #### 验证
 

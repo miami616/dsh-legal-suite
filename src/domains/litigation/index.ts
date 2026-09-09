@@ -74,6 +74,10 @@ export interface Config {
    * agent.cordis.yml so the plugin never re-registers host surfaces per-session.
    */
   agentPreset?: boolean
+  /** 日程建立时自动同步到 Apple 日历（macOS，iCloud 同步到 iPhone）。 */
+  calendarSyncEnabled?: boolean
+  /** Apple 日历目标日历名（默认「工作」）。 */
+  calendarName?: string
 }
 
 export const Config: z<Config> = z.object({
@@ -81,6 +85,8 @@ export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
   dataDir: z.string().required(false),
   agentPreset: z.boolean().default(false),
+  calendarSyncEnabled: z.boolean().default(false),
+  calendarName: z.string().default('工作'),
 })
 
 /** Schema default, re-read for hand-built test contexts. */
@@ -423,6 +429,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       scheduleStore,
       itemStore,
       dataDir,
+      // Apple 日历同步：日程建立时自动写入 Apple Calendar（macOS）。
+      calendarSync: {
+        enabled: current().calendarSyncEnabled === true,
+        calendarName: current().calendarName ?? '工作',
+      },
       // Deadline engine reads through the same stores (fresh each call).
       deadlines,
       // 插件自更新：设置 → AgentLex 设置「插件版本与更新」→ 检测公共 npm

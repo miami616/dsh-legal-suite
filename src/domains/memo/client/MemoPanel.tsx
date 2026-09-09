@@ -202,7 +202,7 @@ export function MemoPanel({ onClose, initialTab = 'active', requestCloseRef }: M
   const saveDisabled = busy || draft.trim() === ''
 
   return (
-    <div className="memo-panel" data-agentlex-memo-root role="dialog" aria-modal="true" aria-label="备忘录 / 任务">
+    <div className="memo-panel" data-agentlex-memo-root role="dialog" aria-modal="true" aria-label="备忘录 / 任务/日程">
       {/* 顶部：备忘录 / 任务 两个并列大 tab + 关闭 */}
       <div className="memo-panel__header">
         <div className="memo-section-tabs">

@@ -35,9 +35,9 @@ async function post<T>(path: string, body: Record<string, unknown>): Promise<T> 
 }
 
 const SOURCE_LABEL: Record<TaskSource, string> = {
-  standalone: '临时任务',
-  litigation: '诉讼任务',
-  nonlitigation: '非诉任务',
+  standalone: '临时任务/日程',
+  litigation: '诉讼任务/日程',
+  nonlitigation: '非诉任务/日程',
 }
 
 export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
@@ -156,7 +156,7 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
             className={`memo-task__source-btn${itemType === tp ? ' memo-task__source-btn--on' : ''}`}
             onClick={() => setItemType(tp)}
           >
-            {tp === 'task' ? '任务' : tp === 'event' ? '日程' : '日程+任务'}
+            {tp === 'task' ? '任务/日程' : tp === 'event' ? '日程' : '日程+任务'}
           </button>
         ))}
       </div>
@@ -183,7 +183,7 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
 
       {/* 标题 */}
       <label className="memo-task__field">
-        <span className="memo-task__label">任务标题</span>
+        <span className="memo-task__label">任务/日程标题</span>
         <input
           className="memo-task__input"
           value={title}
@@ -257,7 +257,7 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
           onClick={() => void save()}
           disabled={!canSave}
         >
-          {busy ? '保存中…' : '新增任务'}
+          {busy ? '保存中…' : '新增任务/日程'}
         </button>
       </div>
     </div>

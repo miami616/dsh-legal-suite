@@ -194,23 +194,23 @@ body [data-slot="conversation.session"] [class*="dsh-recall-bubble"] {
   color: var(--dsw-alias-label-secondary, #5c6370);
 }
 
-/* —— 段距：大段之间 p 24px、段内连续子段 p+p 28px（更透气，避免拥挤）；
- * li+li 10px、ul/ol 20px（固定 px，不随字号缩水） —— */
+/* —— 段距：大段之间 p 32px、段内连续子段 p+p 36px（更透气，避免拥挤）；
+ * li+li 12px、ul/ol 28px（固定 px，不随字号缩水） —— */
 [data-slot="conversation"] [class$="_body"] p {
-  margin: 24px 0;
+  margin: 32px 0;
 }
 [data-slot="conversation"] [class$="_body"] p + p {
-  margin-top: 28px;
+  margin-top: 36px;
 }
 [data-slot="conversation"] [class$="_body"] li {
   margin: 0;
 }
 [data-slot="conversation"] [class$="_body"] li + li {
-  margin-top: 10px;
+  margin-top: 12px;
 }
 [data-slot="conversation"] [class$="_body"] ul,
 [data-slot="conversation"] [class$="_body"] ol {
-  margin: 20px 0;
+  margin: 28px 0;
   padding-left: 1.5em;
 }
 

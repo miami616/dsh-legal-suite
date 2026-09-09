@@ -37,6 +37,10 @@ export interface AgentLexSkinConfig {
   conversationNavEnabled: boolean
   /** 会话轨迹导航（TurnNavigator）位置：'right' 右侧（默认）| 'left' 左侧。 */
   conversationNavPosition: 'right' | 'left'
+  /** 圆角卡片：对话区域显示为左上圆角卡片（附投影）。 */
+  centerCard: boolean
+  /** 会话页融合设计：header 单行化 + tabs 胶囊化。 */
+  conversationHeader: boolean
 }
 
 const DEFAULT_CONFIG: AgentLexSkinConfig = {
@@ -57,6 +61,8 @@ const DEFAULT_CONFIG: AgentLexSkinConfig = {
   conversationEnhance: true,
   conversationNavEnabled: true,
   conversationNavPosition: 'right',
+  centerCard: false,
+  conversationHeader: true,
 }
 
 let config: AgentLexSkinConfig = DEFAULT_CONFIG

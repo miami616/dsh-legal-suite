@@ -40,6 +40,10 @@ export interface Config {
   conversationNavEnabled?: boolean
   /** 会话轨迹导航（TurnNavigator）位置：'right' 右侧（默认）| 'left' 左侧。 */
   conversationNavPosition?: 'right' | 'left'
+  /** 圆角卡片：对话区域显示为左上圆角卡片（附投影）。 */
+  centerCard?: boolean
+  /** 会话页融合设计：header 单行化 + tabs 胶囊化。 */
+  conversationHeader?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -61,6 +65,8 @@ export const Config: z<Config> = z.object({
   conversationEnhance: z.boolean().default(true),
   conversationNavEnabled: z.boolean().default(true),
   conversationNavPosition: z.union(['right', 'left']).default('right'),
+  centerCard: z.boolean().default(false),
+  conversationHeader: z.boolean().default(true),
 })
 
 function sendJson(res: ServerResponse, body: unknown): void {
@@ -116,6 +122,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     conversationEnhance: config.conversationEnhance ?? true,
     conversationNavEnabled: config.conversationNavEnabled ?? true,
     conversationNavPosition: config.conversationNavPosition ?? 'right',
+    centerCard: config.centerCard ?? false,
+    conversationHeader: config.conversationHeader ?? true,
   }
 
   const sync = (): void => {
@@ -138,6 +146,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       conversationEnhance: value.conversationEnhance ?? true,
       conversationNavEnabled: value.conversationNavEnabled ?? true,
       conversationNavPosition: value.conversationNavPosition ?? 'right',
+      centerCard: value.centerCard ?? false,
+      conversationHeader: value.conversationHeader ?? true,
     }
   }
 

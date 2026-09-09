@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.2.8（2026-09-09）
+
+### 融合 dsh-ui-harmonizer 设计：圆角卡片 + 会话页融合设计 + 段距调大
+
+#### 圆角卡片（设置项 centerCard，默认关）
+
+- 对话区域显示为左上圆角卡片（附投影），随侧栏宽度/详情列自适应（ResizeObserver 几何跟踪）。
+- 分面绘制模型：会话 header（z-21）画卡片顶边（inset hairline + 18px 左上圆角），
+  overlay 透明盒子只投 `--dsw-shadow-lv3` 阴影（含左侧溢出到侧栏的投影），零像素分割、无双重描边。
+- 实现：`src/domains/skin/client/center-card.tsx`（`mountCenterCard` 手动挂 body 盒子 +
+  ResizeObserver；因 0.1.5-alpha.1 slots 包 SlotMap 无 `shell.overlay` 槽，不用槽方案）。
+- 独立类名 `html.agentlex-center-card-on`，与 dsh-ui-harmonizer 的 `enhc-center-card-on` 互不干扰。
+
+#### 会话页融合设计（设置项 conversationHeader，默认开）
+
+- header 单行化：会话/轨迹切换 tab 行搬进标题行（`_titleCluster`），header 折叠成一行；
+  去官方分隔线与伪元素装饰，不透明表面 + z-21 抬升。
+- tabs 胶囊化：28px 胶囊（radius 14px），激活态品牌蓝底白字（`#fff`，暗色主题下不黑字）。
+- 实现：`src/domains/skin/client/conversation-header.ts`（`CONVERSATION_HEADER_CSS` +
+  `mountConversationHeader` tabs 重定位，幂等检查与 harmonizer 并存不重复插入）。
+- 锚点全部类名后缀匹配（`_titleCluster`/`_headerActions`/`_tabs`）+ data-slot，0.1.5 的
+  `wSkVaW_*` 类名实测有效；不设 header `margin-right`（那是 harmonizer 给 better-sidebar
+  toggle cluster 留位，本套件不依赖）。
+
+#### 会话排版段距调大（备忘 #22）
+
+- 排版增强段距：`p` 24→32px、`p+p` 28→36px、`ul/ol` 20→28px、`li+li` 10→12px（固定 px 不随字号缩水）。
+
+#### 验证
+
+- 3081 测试实例（0.1.5-alpha.1）实测：host API 返回新字段、设置页开关可操作、
+  header 样式生效（borderBottom 0 / padding 12px 20px / z-21）、圆角卡片盒子几何正确
+  （56px/700px/468px/z-20）、开关关闭干净卸载可逆、段距新值注入生效。
+- 0.1.5 适配性核对：新代码全用既有模式 + 纯 DOM，无 0.1.5 不兼容 API。
+
 ## 0.2.7（2026-09-08）
 
 ### DSH 0.1.3-alpha.2 适配 + agent-preset persona 字段修复

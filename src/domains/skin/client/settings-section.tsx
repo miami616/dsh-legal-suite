@@ -355,6 +355,18 @@ export function AgentLexSettingsSection(props: {
             checked={config.conversationNavEnabled}
             onChange={(v) => commitSetting('conversationNavEnabled', v)}
           />
+          <Toggle
+            label="会话页融合设计"
+            description="会话标题行与切换 tab 合并为单行，tab 胶囊化；关闭后恢复 DSH 原生会话头"
+            checked={config.conversationHeader}
+            onChange={(v) => commitSetting('conversationHeader', v)}
+          />
+          <Toggle
+            label="圆角卡片"
+            description="对话区域显示为左上圆角卡片（附投影），随侧栏宽度自适应"
+            checked={config.centerCard}
+            onChange={(v) => commitSetting('centerCard', v)}
+          />
           <div style={{ margin: '10px 0 4px', opacity: config.conversationNavEnabled ? 1 : 0.5, pointerEvents: config.conversationNavEnabled ? 'auto' : 'none' }}>
             <p style={{ margin: '0 0 6px', fontSize: 12.5, fontWeight: 600, color: 'var(--dsw-alias-label-secondary)' }}>轨迹导航位置</p>
             <div style={{ display: 'flex', gap: 8 }}>

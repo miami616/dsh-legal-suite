@@ -21,6 +21,8 @@ import { AGENTLEX_THEME_TOKENS } from './theme.ts'
 import { AGENTLEX_SIDEBAR_CSS } from './sidebar.css.ts'
 import { CONVERSATION_TYPOGRAPHY_CSS, CONVERSATION_ENHANCE_CSS, CONVERSATION_TITLE_CSS } from './conversation-typography.ts'
 import { CONVERSATION_NAV_CSS, mountConversationNav, type ConversationNavPosition } from './conversation-navigation.ts'
+import { CONVERSATION_HEADER_CSS, mountConversationHeader } from './conversation-header.ts'
+import { CENTER_CARD_CSS, mountCenterCard } from './center-card.tsx'
 import { setupTurnDataSource, emptyTurnDataSource, type TurnDataSource } from './conversation-turn-data.ts'
 import { injectInlineCodeWbr } from './conversation-inline-code.ts'
 import { BUSINESS_MODULES_CSS } from './business-modules.ts'
@@ -132,6 +134,14 @@ export function apply(ctx: ClientContext): void {
   let navMountDisposer: (() => void) | undefined
   /** 会话轮次数据源（时间/状态/指标），供预览卡增强；启用时建立，停用时释放。 */
   let turnDataSource: TurnDataSource | undefined
+  /** 会话页融合设计样式注入（header 单行化 + tabs 胶囊化），跟随 conversationHeader。 */
+  let headerStyleDisposer: (() => void) | undefined
+  /** 会话页融合设计 DOM 控制（tabs 重定位），跟随 conversationHeader。 */
+  let headerMountDisposer: (() => void) | undefined
+  /** 圆角卡片样式注入，跟随 centerCard。 */
+  let cardStyleDisposer: (() => void) | undefined
+  /** 圆角卡片 chrome 盒子挂载（body + ResizeObserver），跟随 centerCard。 */
+  let cardMountDisposer: (() => void) | undefined
 
   /** 按当前配置注入/移除会话排版样式（幂等）。 */
   const syncTypography = (): void => {
@@ -200,6 +210,48 @@ export function apply(ctx: ClientContext): void {
     }
   }
   syncNav()
+
+  /** 按当前配置注入/移除会话页融合设计（header 单行化 + tabs 胶囊化）。 */
+  const syncHeader = (): void => {
+    const skinOn = getSkinConfig().agentlexEnabled && getSkinConfig().skinEnabled
+    const headerOn = skinOn && getSkinConfig().conversationHeader
+    if (headerOn) {
+      if (headerStyleDisposer === undefined) {
+        headerStyleDisposer = injectStyle('conv-header', CONVERSATION_HEADER_CSS)
+      }
+      if (headerMountDisposer === undefined) {
+        headerMountDisposer = mountConversationHeader()
+      }
+    } else {
+      headerStyleDisposer?.()
+      headerStyleDisposer = undefined
+      headerMountDisposer?.()
+      headerMountDisposer = undefined
+    }
+  }
+  syncHeader()
+
+  /** 按当前配置注入/移除圆角卡片（html 类门控 + 样式 + chrome 盒子）。 */
+  const syncCard = (): void => {
+    const skinOn = getSkinConfig().agentlexEnabled && getSkinConfig().skinEnabled
+    const cardOn = skinOn && getSkinConfig().centerCard
+    if (cardOn) {
+      document.documentElement.classList.add('agentlex-center-card-on')
+      if (cardStyleDisposer === undefined) {
+        cardStyleDisposer = injectStyle('center-card', CENTER_CARD_CSS)
+      }
+      if (cardMountDisposer === undefined) {
+        cardMountDisposer = mountCenterCard()
+      }
+    } else {
+      document.documentElement.classList.remove('agentlex-center-card-on')
+      cardStyleDisposer?.()
+      cardStyleDisposer = undefined
+      cardMountDisposer?.()
+      cardMountDisposer = undefined
+    }
+  }
+  syncCard()
 
   /** 把当前主题的 lit 变量直接写入 html 内联样式（优先级最高，不依赖注入 style 的存活/顺序）。 */
   const applyLitVars = (): void => {
@@ -342,6 +394,8 @@ export function apply(ctx: ClientContext): void {
     syncSkin()
     syncTypography()
     syncNav()
+    syncHeader()
+    syncCard()
   })
   ctx.effect(() => () => {
     unsubscribeSkin()
@@ -360,6 +414,14 @@ export function apply(ctx: ClientContext): void {
     navMountDisposer = undefined
     turnDataSource?.dispose()
     turnDataSource = undefined
+    headerStyleDisposer?.()
+    headerStyleDisposer = undefined
+    headerMountDisposer?.()
+    headerMountDisposer = undefined
+    cardStyleDisposer?.()
+    cardStyleDisposer = undefined
+    cardMountDisposer?.()
+    cardMountDisposer = undefined
     for (const dispose of disposers.splice(0)) dispose()
   }, 'dsh-legal-suite/skin: theme+brand+sidebar+settings')
 }

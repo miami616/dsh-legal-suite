@@ -249,9 +249,9 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
         urgent: e.type === 'hearing' || e.type === 'arbitration',
       });
     }
-    // 任务：今天到期的未完成任务（案件/项目/独立）。
+    // 任务：今天到期的任务（含已完成——已完成划掉显示，不消失）。
     for (const t of allTasks) {
-      if (t.deadline !== todayStr || t.status === 'done') continue;
+      if (t.deadline !== todayStr) continue;
       items.push({
         key: `task:${t.key}`,
         kind: 'task',
@@ -629,7 +629,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                     今日暂无事件与到期任务
                   </div>
                 ) : todayItems.map(item => (
-                  <div key={item.key} className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 transition-colors hover:bg-[var(--hover-bg)]">
+                  <div key={item.key} className={`flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 transition-colors hover:bg-[var(--hover-bg)] ${item.status === 'done' ? 'opacity-55' : ''}`}>
                     <span className="w-[40px] shrink-0 font-mono text-xs font-semibold text-[var(--ink-secondary)]">{item.time ?? '全天'}</span>
                     <span
                       className="h-[7px] w-[7px] shrink-0 rounded-full"
@@ -637,7 +637,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                       title={item.kind === 'event' ? '日程' : '任务'}
                     />
                     <span className="min-w-0">
-                      <span className="block text-sm font-semibold leading-tight text-[var(--ink)]">
+                      <span className={`block text-sm font-semibold leading-tight ${item.status === 'done' ? 'text-[var(--ink-muted)] line-through' : 'text-[var(--ink)]'}`}>
                         {item.kind === 'task' && <span className="mr-1 text-xs font-normal text-[var(--ink-muted)]">[任务]</span>}
                         {item.label}
                       </span>

@@ -88,7 +88,15 @@ export function isTaskOverdue(t: UnifiedTask, today = localTodayStr()): boolean 
  */
 export type TaskTimeBucket = 'overdue' | 'today' | 'tomorrow' | 'future' | 'none' | 'done';
 export function taskTimeBucket(t: UnifiedTask, today = localTodayStr()): TaskTimeBucket {
-  if (t.status === 'done') return 'done';
+  if (t.status === 'done') {
+    // 已完成：过期完成（或无 deadline）归档到「已完成」；今日/明日/未来完成的
+    // 按任务本身的时间归到对应时间桶（用户 2026-09-09 需求）。
+    if (!t.deadline) return 'done';
+    if (t.deadline < today) return 'done';
+    if (t.deadline === today) return 'today';
+    if (t.deadline === addDaysStr(today, 1)) return 'tomorrow';
+    return 'future';
+  }
   if (!t.deadline) return 'none';
   if (t.deadline < today) return 'overdue';
   if (t.deadline === today) return 'today';

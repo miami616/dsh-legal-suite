@@ -10,11 +10,14 @@
  * 下次节点倒计时 + 中性灰标签（最多 2 个 + 溢出）。占位文本【】自动隐藏，0/占位标的额不显示。
  */
 import { memo, useMemo, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
-import { Briefcase, Trash2, Check, CalendarClock, ChevronDown, Sparkles } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Briefcase, Trash2, Check, CalendarClock, ChevronDown, ChevronRight, Sparkles, X } from 'lucide-react';
 import type { CaseEntry, TimelineEvent } from '@/hooks/useAgentLex';
 import StatusBadge from '@/components/agentlex/StatusBadge';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import CaseBoard from '@/components/agentlex/CaseBoard';
+import OverlayBackdrop from '@/components/OverlayBackdrop';
+import { useCloseLayer } from '@/hooks/useCloseLayer';
 import { normalizeStatus, normalizeLevel, getStatusDef, getStatusOptions, getProcedureShort, PROCEDURE_LEVELS, getProcedureDot } from '@/utils/caseStatus';
 import { formatAmount, parseAmountValue, daysUntil, todayStr, timeAgo, ourPartyList, theirPartyList } from '@/utils/caseFormat';
 import { CASE_TYPES, getCaseTypeDot } from '@/utils/caseTypes';
@@ -102,6 +105,8 @@ interface CaseDashboardProps {
 export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenCase, onNewCase, onDeleteCase, searchQuery = '', onClearSearch, onOpenCalendar }: CaseDashboardProps) {
   const [showArchived, setShowArchived] = useState(false);
   const [showBoard, setShowBoard] = useState(false);
+  const [showUrgent, setShowUrgent] = useState(false);
+  useCloseLayer(() => { setShowUrgent(false); return true; }, 200);
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [levelFilter, setLevelFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -336,8 +341,8 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
               </button>
             )}
             {urgentDates.length > 0 && (
-              <button onClick={onOpenCalendar} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--error)] text-[var(--on-error)] text-sm font-bold hover:bg-[var(--error-hover)] transition-colors shadow-sm">
-                !! {urgentDates.length} 紧急日程
+              <button onClick={() => setShowUrgent(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--error)] text-[var(--on-error)] text-sm font-bold hover:bg-[var(--error-hover)] transition-colors shadow-sm">
+                !! {urgentDates.length} 关键日程
               </button>
             )}
           </div>
@@ -620,6 +625,46 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
           onConfirm={() => { onDeleteCase(deleteTarget.caseId); setDeleteTarget(null); }}
           onCancel={() => setDeleteTarget(null)}
         />
+      )}
+
+      {/* 关键日程弹窗：未来 7 天重要时间节点，点击条目跳转该案案件详情 */}
+      {showUrgent && createPortal(
+        <OverlayBackdrop onClose={() => setShowUrgent(false)} className="z-[200] px-4 overflow-y-auto">
+          <div className="w-full max-w-md rounded-2xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] shadow-lg my-16 mx-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--paper-inset)]">
+              <h3 className="text-sm font-bold text-[var(--ink)]">关键日程</h3>
+              <button onClick={() => setShowUrgent(false)} className="p-1 rounded-lg hover:bg-[var(--paper-inset)] text-[var(--ink-muted)]" aria-label="关闭">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-2 max-h-[60vh] overflow-y-auto">
+              {urgentDates.length === 0 ? (
+                <p className="text-sm text-[var(--ink-muted)] text-center py-8">暂无近期关键日程</p>
+              ) : (
+                urgentDates.map((item, i) => {
+                  const caseEntry = cases.find(c => c.caseId === item.caseId);
+                  const days = daysUntil(item.date);
+                  return (
+                    <button key={i}
+                      onClick={() => { if (caseEntry) onOpenCase(caseEntry); setShowUrgent(false); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[var(--paper-inset)] text-left transition-colors">
+                      <span className="shrink-0 inline-flex flex-col items-center px-2 py-1 rounded-md bg-[var(--error)] text-[var(--on-error)] min-w-[52px]">
+                        <span className="text-xs font-bold leading-tight">{item.date.slice(5)}</span>
+                        <span className="text-[10px] opacity-90 leading-tight">{days <= 0 ? '今天' : `${days}天后`}</span>
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-medium text-[var(--ink)] truncate">{item.label}</span>
+                        <span className="block text-xs text-[var(--ink-muted)] truncate">{item.caseName}</span>
+                      </span>
+                      <ChevronRight size={14} className="text-[var(--ink-subtle)] shrink-0" />
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </OverlayBackdrop>,
+        document.body,
       )}
     </div>
   );

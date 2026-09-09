@@ -373,12 +373,10 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
   const openLinkedCase = useCallback(
     (caseId: string | null) => {
       if (!caseId) return;
-      const ce = cases.find(c => c.caseId === caseId);
-      if (ce) { onOpenCase(ce); return; }
-      const pe = projects.find(p => p.projectId === caseId);
-      if (pe) onOpenCase({ caseId: pe.projectId, name: pe.name } as CaseEntry);
+      // 通过 agentlex:open-case 事件请求诉讼面板打开案件详情（跨模块跳转）。
+      window.dispatchEvent(new CustomEvent('agentlex:open-case', { detail: { caseId } }))
     },
-    [cases, projects, onOpenCase],
+    [],
   );
 
   const toggleDone = useCallback(

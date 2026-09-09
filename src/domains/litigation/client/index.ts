@@ -78,6 +78,13 @@ export function apply(ctx: ClientContextWithSidebar): void {
     if (mounted) return
     mounted = true
     const controller = new PanelController()
+    // 外部「打开案件详情」请求（任务面板未来日程弹窗等）：dispatch agentlex:open-case。
+    const onOpenCaseRequest = (e: Event): void => {
+      const caseId = (e as CustomEvent<{ caseId?: string }>).detail?.caseId
+      if (caseId) controller.openCase(caseId)
+    }
+    window.addEventListener('agentlex:open-case', onOpenCaseRequest)
+    uiDisposers.push(() => window.removeEventListener('agentlex:open-case', onOpenCaseRequest))
     const launchManager = (opts: { context?: string; caseName?: string; existingSessionId?: string; onLaunched?: (sessionId: string) => void } = {}): Promise<string | undefined> =>
       launchLitigationManager(ctx, opts)
     const getArchivedSessionIds = (): Promise<Set<string>> => fetchArchivedSessionIds(ctx)

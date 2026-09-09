@@ -679,9 +679,9 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
                     <button key={i}
                       onClick={() => { if (caseEntry) onOpenCase(caseEntry); setShowUrgent(false); }}
                       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[var(--paper-inset)] text-left transition-colors">
-                      <span className="shrink-0 inline-flex flex-col items-center px-2 py-1 rounded-md bg-[var(--error)] text-[var(--on-error)] min-w-[52px]">
+                      <span className={`shrink-0 inline-flex flex-col items-center px-2 py-1 rounded-md min-w-[52px] ${days <= 7 ? 'bg-[var(--error)] text-[var(--on-error)]' : 'bg-[var(--warning-bg)] text-[var(--warning)]'}`}>
                         <span className="text-xs font-bold leading-tight">{item.date.slice(5)}</span>
-                        <span className="text-[10px] opacity-90 leading-tight">{days <= 0 ? '今天' : `${days}天后`}</span>
+                        <span className="opacity-80 leading-tight" style={{ fontSize: 9 }}>{days <= 0 ? '今天' : `${days}天后`}</span>
                       </span>
                       <span className="flex-1 min-w-0">
                         <span className="block text-sm font-medium text-[var(--ink)] truncate">{item.label}</span>

@@ -293,13 +293,32 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
     return m;
   }, [timelineEvents, allTasks]);
 
-  const keyDates = useMemo(
-    () =>
-      timelineEvents
-        .filter(e => (e.status === 'pending' || e.status === 'upcoming') && e.date >= todayStr)
-        .sort((a, b) => a.date.localeCompare(b.date)),
-    [timelineEvents],
-  );
+  // 未来日程 = 诉讼事件 + 非诉项目关键日程 + 独立任务 deadline（统一展示）。
+  const keyDates = useMemo(() => {
+    const items: Array<{ id: string; date: string; time?: string; label: string; caseName: string; type: string }> = [];
+    // 诉讼时间轴事件
+    for (const e of timelineEvents) {
+      if ((e.status === 'pending' || e.status === 'upcoming') && e.date >= todayStr) {
+        items.push({ id: `ev:${e.id}`, date: e.date, time: e.time, label: e.label || e.title || '', caseName: e.caseName || '', type: e.type || 'case_event' });
+      }
+    }
+    // 非诉项目关键日程
+    for (const p of projects) {
+      for (const kd of p.keyDates ?? []) {
+        if (!kd.completed && kd.date >= todayStr) {
+          items.push({ id: `proj:${p.projectId}:${kd.date}:${kd.label}`, date: kd.date, label: kd.label, caseName: p.name, type: 'project' });
+        }
+      }
+    }
+    // 独立任务 deadline
+    for (const t of standaloneTasks) {
+      if (t.deadline !== undefined && t.deadline !== '' && t.deadline >= todayStr && t.status !== 'done') {
+        items.push({ id: `st:${t.id}`, date: t.deadline, time: t.time, label: t.title, caseName: '独立', type: 'standalone' });
+      }
+    }
+    items.sort((a, b) => a.date.localeCompare(b.date));
+    return items;
+  }, [timelineEvents, projects, standaloneTasks]);
 
   // ── Calendar grid ──
   const calDays = useMemo(() => {
@@ -851,15 +870,15 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                 )}
               </section>
 
-              {/* 关键日程 */}
+              {/* 未来日程（诉讼事件 + 非诉关键日程 + 独立任务） */}
               <section className="rounded-xl border border-[var(--line-subtle)] bg-[var(--paper-elevated)] px-3 py-4 shadow-sm">
                 <div className="mb-2 flex items-center gap-2 px-1">
-                  <h3 className="text-sm font-bold text-[var(--ink)]">关键日程</h3>
+                  <h3 className="text-sm font-bold text-[var(--ink)]">未来日程</h3>
                   <span className="rounded-full bg-[var(--paper-inset)] px-2 py-px text-[0.6875rem] font-semibold text-[var(--ink-muted)]">{keyDates.length}</span>
                 </div>
                 <div>
                   {keyDates.length === 0 ? (
-                    <p className="py-8 text-center text-xs text-[var(--ink-faint)]">暂无未来关键节点</p>
+                    <p className="py-8 text-center text-xs text-[var(--ink-faint)]">暂无未来日程</p>
                   ) : (
                     keyDates.slice(0, 8).map(e => {
                       const dd = daysUntil(e.date);

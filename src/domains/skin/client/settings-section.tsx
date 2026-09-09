@@ -466,8 +466,8 @@ export function AgentLexSettingsSection(props: {
         />
         <div style={{ paddingLeft: 22, opacity: useLitigationCalendarSync() ? 1 : 0.5, pointerEvents: useLitigationCalendarSync() ? 'auto' : 'none' }}>
           <Toggle
-            label="同步事件"
-            description="时间轴事件（开庭 / 举证 / 上诉等，覆盖诉讼 / 非诉 / 独立）"
+            label="同步日程"
+            description="时间轴日程（开庭 / 举证 / 上诉等，覆盖诉讼 / 非诉 / 独立）"
             checked={useLitigationCalendarSyncEvents()}
             onChange={(v) => void litigationScope?.set('calendarSyncEvents', v)}
           />

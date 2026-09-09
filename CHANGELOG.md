@@ -51,6 +51,7 @@
 - 幂等：itemId → Apple 事件 uid 映射存 `$DSH_HOME/agentlex/calendar-sync-map.json`，事件更新时按 uid 更新（不重复创建），删除时按 uid 删除；AppleScript 的 uid 查询必须指定日历（全局查询失败）。
 - 兜底：Calendar 未运行（-600）时自动 `open -a Calendar` 拉起重试；首次调用需在 系统设置 → 隐私与安全性 → 自动化 授权。
 - 目标日历名可配置（默认「个人」）；设置页「功能模块」区诉讼案件子项开关。
+- **同步范围可配置**：主开关「日程同步 Apple 日历」+ 两个子开关「同步事件」（默认开）/「同步带日期任务」（默认关），按 type 过滤（事件走 calendarSyncEvents、任务走 calendarSyncTasks）。
 - 改动：`src/domains/calendar-sync/index.ts`（新）、`src/domains/item/store/item-store.ts`（广播）、`src/domains/litigation/index.ts`（监听 + Config）、`settings-section.tsx`（开关）。
 
 #### 验证

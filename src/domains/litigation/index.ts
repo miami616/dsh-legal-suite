@@ -77,8 +77,12 @@ export interface Config {
   agentPreset?: boolean
   /** 日程建立时自动同步到 Apple 日历（macOS，iCloud 同步到 iPhone）。 */
   calendarSyncEnabled?: boolean
-  /** Apple 日历目标日历名（默认「工作」）。 */
+  /** Apple 日历目标日历名（默认「个人」）。 */
   calendarName?: string
+  /** 同步范围：时间轴事件（默认开）。 */
+  calendarSyncEvents?: boolean
+  /** 同步范围：带日期的任务（默认关）。 */
+  calendarSyncTasks?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -87,7 +91,9 @@ export const Config: z<Config> = z.object({
   dataDir: z.string().required(false),
   agentPreset: z.boolean().default(false),
   calendarSyncEnabled: z.boolean().default(false),
-  calendarName: z.string().default('工作'),
+  calendarName: z.string().default('个人'),
+  calendarSyncEvents: z.boolean().default(true),
+  calendarSyncTasks: z.boolean().default(false),
 })
 
 /** Schema default, re-read for hand-built test contexts. */
@@ -426,9 +432,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     }))
     // Apple 日历同步：监听统一事项的日程变更（诉讼/非诉/独立的事件与任务），
     // 建立/更新时写 Apple 日历，删除时删 Apple 事件。监听常驻，handler 内检查开关。
-    disposers.push(ctx.on('agentlex:calendar-sync' as keyof Events, (item: { id: string; title?: string; ownerId?: string; date?: string; time?: string; detail?: string }) => {
+    disposers.push(ctx.on('agentlex:calendar-sync' as keyof Events, (item: { id: string; title?: string; ownerId?: string; date?: string; time?: string; detail?: string; type?: string }) => {
       if (current().calendarSyncEnabled !== true) return
       if (item.date === undefined) return
+      // 同步范围：事件 / 带日期任务，按 type 检查对应开关。
+      if (item.type === 'event' && current().calendarSyncEvents !== true) return
+      if (item.type === 'task' && current().calendarSyncTasks !== true) return
       void syncEventToAppleCalendar({
         itemId: item.id,
         title: `${item.title ?? '日程'}${item.ownerId !== undefined && item.ownerId !== '' ? ` - ${item.ownerId}` : ''}`,

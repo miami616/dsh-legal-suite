@@ -56,12 +56,12 @@ export function bindScopeRetryHooks(retry: () => void): void {
 }
 
 /** Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change). */
-let litigationScope: SettingsScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string }> | undefined
+let litigationScope: SettingsScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }> | undefined
 let nonlitigationScope: SettingsScope<{ dataDir?: string }> | undefined
 
 export function bindModuleDataDirScopes(
   next: {
-    litigation: SettingsScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string }> | undefined
+    litigation: SettingsScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }> | undefined
     nonlitigation: SettingsScope<{ dataDir?: string }> | undefined
   },
 ): void {
@@ -115,6 +115,22 @@ function useLitigationCalendarSync(): boolean {
   return useSyncExternalStore(
     (listener) => (litigationScope ? litigationScope.subscribe(listener) : () => {}),
     () => litigationScope?.getSnapshot().value?.calendarSyncEnabled ?? false,
+  )
+}
+
+/** 诉讼日历同步范围：事件。 */
+function useLitigationCalendarSyncEvents(): boolean {
+  return useSyncExternalStore(
+    (listener) => (litigationScope ? litigationScope.subscribe(listener) : () => {}),
+    () => litigationScope?.getSnapshot().value?.calendarSyncEvents ?? true,
+  )
+}
+
+/** 诉讼日历同步范围：带日期任务。 */
+function useLitigationCalendarSyncTasks(): boolean {
+  return useSyncExternalStore(
+    (listener) => (litigationScope ? litigationScope.subscribe(listener) : () => {}),
+    () => litigationScope?.getSnapshot().value?.calendarSyncTasks ?? false,
   )
 }
 
@@ -427,10 +443,24 @@ export function AgentLexSettingsSection(props: {
         <div style={{ paddingLeft: 22, opacity: config.agentlexEnabled && config.litigationEnabled ? 1 : 0.5, pointerEvents: config.agentlexEnabled && config.litigationEnabled ? 'auto' : 'none' }}>
           <Toggle
             label="日程同步 Apple 日历"
-            description="诉讼时间轴事件（开庭/举证/上诉等）建立时自动写入 Apple 日历，iCloud 同步到 iPhone；需在系统设置 → 隐私与安全性 → 自动化 授权"
+            description="日程建立时自动写入 Apple 日历，iCloud 同步到 iPhone；需在系统设置 → 隐私与安全性 → 自动化 授权"
             checked={useLitigationCalendarSync()}
             onChange={(v) => void litigationScope?.set('calendarSyncEnabled', v)}
           />
+          <div style={{ paddingLeft: 22, opacity: useLitigationCalendarSync() ? 1 : 0.5, pointerEvents: useLitigationCalendarSync() ? 'auto' : 'none' }}>
+            <Toggle
+              label="同步事件"
+              description="开庭 / 举证 / 上诉等时间轴事件"
+              checked={useLitigationCalendarSyncEvents()}
+              onChange={(v) => void litigationScope?.set('calendarSyncEvents', v)}
+            />
+            <Toggle
+              label="同步带日期任务"
+              description="带 deadline 的任务（诉讼 / 非诉 / 独立）"
+              checked={useLitigationCalendarSyncTasks()}
+              onChange={(v) => void litigationScope?.set('calendarSyncTasks', v)}
+            />
+          </div>
         </div>
         <Toggle label="非诉项目" description="项目管理 / 合同审查 / 法律研究 / 常法服务" checked={config.nonlitigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('nonlitigationEnabled', v)} />
         <Toggle label="任务管理" description="独立任务 + 跨插件统一任务视图" checked={config.taskEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('taskEnabled', v)} />

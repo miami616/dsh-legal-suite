@@ -7,7 +7,7 @@
  *   - 注入 CSS 让诉讼/非诉/任务三个侧边栏入口贴近原版风格
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 // Client-surface imports: the slot contracts (sidebar.brand.mark/name,
 // conversation.hero.brand.mark, settings.section) are declared by the kits'
@@ -253,11 +253,8 @@ export function apply(ctx: ClientContext): void {
     // 槽渲染时注册（届时声明必就绪），照抄该模式。老版 harness 无 slots.inject
     // 时回退直接注册（老版 slots 宽松，无需声明）。
     try {
-      const slotsService = ctx.slots as unknown as {
-        inject?(name: string, fn: () => unknown): unknown
-        register(o: unknown, c: unknown): unknown
-      }
-      const registerBrands = function* (): Generator<unknown> {
+      const slotsService = ctx.slots
+      const registerBrands = function* (): Generator<() => void> {
         yield slotsService.register({ name: 'sidebar.brand.mark', priority: -10 }, AgentLexBrandMark)
         yield slotsService.register({ name: 'sidebar.brand.name', priority: -10 }, AgentLexBrandName)
         yield slotsService.register({ name: 'conversation.hero.brand.mark', priority: -10 }, AgentLexHeroMark)
@@ -310,12 +307,9 @@ export function apply(ctx: ClientContext): void {
   // 0.1.2-alpha.1 时序：settings.section 需等 ui-settings 声明就绪，改用
   // slots.inject 延迟到设置页渲染时注册（声明必已就绪）。
   try {
-    const slotsService = ctx.slots as unknown as {
-      inject?(name: string, fn: () => unknown): unknown
-      register(o: unknown, c: unknown): unknown
-    }
-    const registerSettingsSection = (): void => {
-      disposers.push(slotsService.register({
+    const slotsService = ctx.slots
+    const registerSettingsSection = (): (() => void) =>
+      slotsService.register({
         name: 'settings.section',
         id: 'agentlex-legal-suite',
         order: 50,
@@ -329,14 +323,14 @@ export function apply(ctx: ClientContext): void {
             owner: {},
           },
         },
-      }, AgentLexSettingsSection))
-    }
+      }, AgentLexSettingsSection)
     // 0.1.2-alpha.1 时序：等 ui-settings 声明就绪；老版无 slots.inject 时直接注册。
     if (typeof slotsService.inject === 'function') {
       const injected = slotsService.inject('settings.section', registerSettingsSection)
       if (injected === undefined) registerSettingsSection()
     } else {
-      registerSettingsSection()
+      const dispose = registerSettingsSection()
+      if (dispose) disposers.push(dispose)
     }
   } catch (error) {
     console.warn('[agentlex-skin] settings section registration failed:', error)

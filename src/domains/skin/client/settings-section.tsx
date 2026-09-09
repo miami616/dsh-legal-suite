@@ -7,7 +7,7 @@
  * 相关实现（DesktopSettingsSection / DesktopNotificationSettings）一并删除。
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the slots contract merge (agentlex.workbench.item declared below).
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { getSkinConfig, setSkinConfig, useSkinConfig, type AgentLexSkinConfig } from './config.ts'

@@ -17,8 +17,8 @@ interface MemoTaskTabProps {
 
 type TaskSource = 'standalone' | 'litigation' | 'nonlitigation'
 
-interface CaseOption { id: string; name: string; type: string }
-interface ProjectOption { id: string; name: string; projectType: string }
+interface CaseOption { id: string; name: string; type: string; caseId?: string }
+interface ProjectOption { id: string; name: string; projectType: string; projectId?: string }
 
 /** 统一 POST 并解包 { success, data|error }。 */
 async function post<T>(path: string, body: Record<string, unknown>): Promise<T> {
@@ -67,8 +67,8 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
           post<{ projects: Record<string, ProjectOption & { status?: string }> }>('/api/agentlex-nonlitigation/projects', {}),
         ])
         if (!active) return
-        setCases(Object.values(caseReg.cases ?? {}).filter((c) => !c.archived).map((c) => ({ id: c.caseId, name: c.name, type: c.type })))
-        setProjects(Object.values(projReg.projects ?? {}).filter((p) => p.status !== 'closed').map((p) => ({ id: p.projectId, name: p.name, projectType: p.projectType })))
+        setCases(Object.values(caseReg.cases ?? {}).filter((c) => !c.archived).map((c) => ({ id: c.caseId ?? '', name: c.name, type: c.type })))
+        setProjects(Object.values(projReg.projects ?? {}).filter((p) => p.status !== 'closed').map((p) => ({ id: p.projectId ?? '', name: p.name, projectType: p.projectType })))
       } catch {
         /* 候选加载失败不阻塞表单 */
       }

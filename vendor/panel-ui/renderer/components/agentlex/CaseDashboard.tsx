@@ -106,6 +106,7 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
   const [showArchived, setShowArchived] = useState(false);
   const [showBoard, setShowBoard] = useState(false);
   const [showUrgent, setShowUrgent] = useState(false);
+  const [urgentRange, setUrgentRange] = useState<'week' | 'month' | 'all'>('week');
   useCloseLayer(() => { setShowUrgent(false); return true; }, 200);
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [levelFilter, setLevelFilter] = useState<string | null>(null);
@@ -186,10 +187,12 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
     return m;
   }, [timelineEvents]);
 
-  // 紧急日程 = 未来 7 天内的重要时间节点(倒计时)。
+  // 紧急日程 = 重要时间节点(倒计时)，范围可切换：未来 7 天 / 未来一个月 / 全部。
   const urgentDates = useMemo(() => {
     const today = todayStr();
     const items: { label: string; date: string; caseId: string; caseName: string }[] = [];
+    const maxDays = urgentRange === 'week' ? 7 : urgentRange === 'month' ? 30 : Infinity;
+    const limit = urgentRange === 'week' ? 5 : urgentRange === 'month' ? 10 : Infinity;
     for (const c of visibleCases) {
       const events = caseTimelineMap.get(c.caseId);
       if (!events) continue;
@@ -197,11 +200,28 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
         if (e.status !== 'pending' && e.status !== 'upcoming') continue;
         if (e.date < today) continue;
         const days = (new Date(e.date).getTime() - new Date(today).getTime()) / 86400000;
-        if (days <= 7) items.push({ label: e.label, date: e.date, caseId: c.caseId, caseName: c.name });
+        if (days <= maxDays) items.push({ label: e.label, date: e.date, caseId: c.caseId, caseName: c.name });
       }
     }
     items.sort((a, b) => a.date.localeCompare(b.date));
-    return items.slice(0, 5);
+    return items.slice(0, limit);
+  }, [visibleCases, caseTimelineMap, urgentRange]);
+
+  // 按钮角标计数：固定未来 7 天（不随弹窗内范围切换变化）。
+  const urgentWeekCount = useMemo(() => {
+    const today = todayStr();
+    let n = 0;
+    for (const c of visibleCases) {
+      const events = caseTimelineMap.get(c.caseId);
+      if (!events) continue;
+      for (const e of events) {
+        if (e.status !== 'pending' && e.status !== 'upcoming') continue;
+        if (e.date < today) continue;
+        const days = (new Date(e.date).getTime() - new Date(today).getTime()) / 86400000;
+        if (days <= 7) n++;
+      }
+    }
+    return n;
   }, [visibleCases, caseTimelineMap]);
 
   const displayCases = useMemo(() => {
@@ -340,9 +360,9 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
                 <span className="text-xs text-[var(--ink-muted)] font-medium">项待办</span>
               </button>
             )}
-            {urgentDates.length > 0 && (
+            {urgentWeekCount > 0 && (
               <button onClick={() => setShowUrgent(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--error)] text-[var(--on-error)] text-sm font-bold hover:bg-[var(--error-hover)] transition-colors shadow-sm">
-                !! {urgentDates.length} 关键日程
+                !! {urgentWeekCount} 紧急日程
               </button>
             )}
           </div>
@@ -627,19 +647,30 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
         />
       )}
 
-      {/* 关键日程弹窗：未来 7 天重要时间节点，点击条目跳转该案案件详情 */}
+      {/* 紧急日程弹窗：重要时间节点，点击条目跳转该案案件详情；范围可切换 7 天/一个月/全部 */}
       {showUrgent && createPortal(
         <OverlayBackdrop onClose={() => setShowUrgent(false)} className="z-[200] px-4 overflow-y-auto">
           <div className="w-full max-w-md rounded-2xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] shadow-lg my-16 mx-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--paper-inset)]">
-              <h3 className="text-sm font-bold text-[var(--ink)]">关键日程</h3>
+              <h3 className="text-sm font-bold text-[var(--ink)]">紧急日程</h3>
               <button onClick={() => setShowUrgent(false)} className="p-1 rounded-lg hover:bg-[var(--paper-inset)] text-[var(--ink-muted)]" aria-label="关闭">
                 <X size={16} />
               </button>
             </div>
+            <div className="px-5 pt-3">
+              <p className="text-xs text-[var(--ink-muted)]">默认显示未来 7 天的重要时间节点，可切换查看范围。</p>
+              <div className="flex gap-2 mt-2">
+                {([['week', '未来 7 天'], ['month', '未来一个月'], ['all', '全部']] as const).map(([key, label]) => (
+                  <button key={key} onClick={() => setUrgentRange(key)}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${urgentRange === key ? 'bg-[var(--error)] text-[var(--on-error)]' : 'bg-[var(--paper-inset)] text-[var(--ink-muted)] hover:text-[var(--ink)]'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="p-2 max-h-[60vh] overflow-y-auto">
               {urgentDates.length === 0 ? (
-                <p className="text-sm text-[var(--ink-muted)] text-center py-8">暂无近期关键日程</p>
+                <p className="text-sm text-[var(--ink-muted)] text-center py-8">暂无近期紧急日程</p>
               ) : (
                 urgentDates.map((item, i) => {
                   const caseEntry = cases.find(c => c.caseId === item.caseId);

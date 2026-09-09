@@ -35,14 +35,14 @@
 - 改动：`vendor/panel-ui/renderer/components/agentlex/CaseDashboard.tsx`（CaseBoard 块从
   卡片网格后移到工具栏与卡片网格之间）。
 
-#### 关键日程弹窗（紧急日程 → 关键日程）
+#### 紧急日程弹窗（范围可切换：未来 7 天 / 一个月 / 全部）
 
-- 诉讼页统计区「紧急日程」按钮改名为「关键日程」（含 i18n `board.urgent`：zh「关键日程」/ en「key dates」）。
-- 点击按钮改为**弹窗**展示未来 7 天重要时间节点（日期 + 倒计时 + 日程类型 + 案件名），
-  不再直接打开任务面板。
+- 诉讼页统计区「紧急日程」按钮点击改为**弹窗**展示重要时间节点（日期 + 倒计时 + 日程类型 + 案件名），
+  不再直接打开任务面板；弹窗内注释「默认显示未来 7 天的重要时间节点，可切换查看范围」。
+- 弹窗内范围切换：**未来 7 天**（5 条）/ **未来一个月**（10 条）/ **全部**（不限）；按钮角标计数固定为未来 7 天。
 - 点击日程条目**跳转该案案件详情**（`onOpenCase`），弹窗自动关闭；支持 backdrop/关闭按钮/Cmd+W 关闭。
-- 改动：`vendor/panel-ui/renderer/components/agentlex/CaseDashboard.tsx`（showUrgent state +
-  OverlayBackdrop 弹窗）、`src/domains/litigation/client/locales.ts`。
+- 改动：`vendor/panel-ui/renderer/components/agentlex/CaseDashboard.tsx`（urgentRange state +
+  urgentWeekCount 角标 + OverlayBackdrop 弹窗）、`src/domains/litigation/client/locales.ts`。
 
 #### 验证
 

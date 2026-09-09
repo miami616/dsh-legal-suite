@@ -228,7 +228,7 @@ export const zh: LitigationKey = {
   'board.sortBy': '排序 · ',
   'board.overdue': '项逾期',
   'board.pendingTasks': '项待办',
-  'board.urgent': '关键日程',
+  'board.urgent': '紧急日程',
   'board.noMatch': '没有符合条件的案件',
   'board.registerFirst': '注册第一个案件 →',
   // card
@@ -417,7 +417,7 @@ export const en: LitigationKey = {
   'board.sortBy': 'Sort · ',
   'board.overdue': ' overdue',
   'board.pendingTasks': ' pending',
-  'board.urgent': 'key dates',
+  'board.urgent': 'urgent dates',
   'board.noMatch': 'No matching cases',
   'board.registerFirst': 'Register your first case →',
   // card

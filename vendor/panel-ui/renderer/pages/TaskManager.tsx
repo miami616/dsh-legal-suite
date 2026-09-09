@@ -863,8 +863,8 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                   ) : (
                     keyDates.slice(0, 8).map(e => {
                       const dd = daysUntil(e.date);
-                      const urgent = dd <= 3 && (e.type === 'hearing' || e.type === 'arbitration' || e.type === 'evidence_deadline' || e.type === 'limitation_expiry');
-                      const soon = dd === 0 || dd === 1;
+                      const urgent = dd <= 7;
+                      const soon = dd > 7;
                       const [, m, d] = e.date.split('-');
                       return (
                         <button
@@ -874,19 +874,19 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                             urgent
                               ? 'border-l-[3px] border-[var(--error)] bg-[var(--error-bg)]'
                               : soon
-                                ? 'border-l-[3px] border-[var(--accent-warm)] hover:bg-[var(--hover-bg)]'
+                                ? 'border-l-[3px] border-[var(--warning)] bg-[var(--warning-bg)]'
                                 : 'border-l-[3px] border-transparent hover:bg-[var(--hover-bg)]'
                           }`}
                         >
                           <span className="w-[42px] shrink-0 rounded-lg bg-[var(--paper-inset)] px-1 py-1.5 text-center">
-                            <span className={`block text-base font-bold leading-none ${urgent ? 'text-[var(--error)]' : 'text-[var(--ink)]'}`}>{+m}/{+d}</span>
+                            <span className={`block text-base font-bold leading-none ${urgent ? 'text-[var(--error)]' : soon ? 'text-[var(--warning)]' : 'text-[var(--ink)]'}`}>{+m}/{+d}</span>
                             <span className="mt-0.5 block text-[0.625rem] text-[var(--ink-subtle)]">{weekdayOf(e.date)}</span>
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className={`block truncate text-xs font-semibold ${urgent ? 'text-[var(--error)]' : 'text-[var(--ink)]'}`}>{e.label}</span>
+                            <span className={`block truncate text-xs font-semibold ${urgent ? 'text-[var(--error)]' : soon ? 'text-[var(--warning)]' : 'text-[var(--ink)]'}`}>{e.label}</span>
                             <span className="block truncate text-[0.6875rem] text-[var(--ink-muted)]">{e.caseName}</span>
                           </span>
-                          {e.time && <span className={`shrink-0 font-mono text-[0.6875rem] ${urgent ? 'text-[var(--error)]' : 'text-[var(--ink-subtle)]'}`}>{e.time}</span>}
+                          {e.time && <span className={`shrink-0 font-mono text-[0.6875rem] ${urgent ? 'text-[var(--error)]' : soon ? 'text-[var(--warning)]' : 'text-[var(--ink-subtle)]'}`}>{e.time}</span>}
                         </button>
                       );
                     })

@@ -558,20 +558,20 @@ export default memo(function NonLitigationDetailPage({
                       <div key={`${i}-${d.date}`}
                         className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${
                           past ? 'bg-gray-50 border-gray-100' :
-                          urgent ? 'bg-amber-50 border-amber-100' :
-                          'bg-[var(--paper)] border-[var(--paper-inset)]'
+                          urgent ? 'bg-red-50 border-red-100' :
+                          'bg-amber-50 border-amber-100'
                         }`}>
                         {past ? <Clock size={16} className="text-gray-400 shrink-0" /> :
-                         urgent ? <Clock size={16} className="text-amber-500 shrink-0" /> :
-                         <Calendar size={16} className="text-[var(--ink-muted)] shrink-0" />}
+                         urgent ? <Clock size={16} className="text-red-500 shrink-0" /> :
+                         <Calendar size={16} className="text-amber-500 shrink-0" />}
                         <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-semibold ${past ? 'text-gray-400' : urgent ? 'text-amber-700' : 'text-[var(--ink)]'}`}>{d.label}</p>
-                          <p className={`text-xs font-mono mt-0.5 ${past ? 'text-gray-300' : urgent ? 'text-amber-500' : 'text-[var(--ink-muted)]'}`}>{d.date}</p>
+                          <p className={`text-sm font-semibold ${past ? 'text-gray-400' : urgent ? 'text-red-700' : 'text-amber-700'}`}>{d.label}</p>
+                          <p className={`text-xs font-mono mt-0.5 ${past ? 'text-gray-300' : urgent ? 'text-red-500' : 'text-amber-500'}`}>{d.date}</p>
                         </div>
                         <span className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-bold ${
                           past ? 'bg-gray-100 text-gray-400' :
-                          urgent ? 'bg-amber-100 text-amber-700' :
-                          'bg-[var(--paper-inset)] text-[var(--ink-muted)]'
+                          urgent ? 'bg-red-100 text-red-700' :
+                          'bg-amber-100 text-amber-700'
                         }`}>
                           {past ? '已过期' : days === 0 ? '今天' : days === 1 ? '明天' : `${days} 天后`}
                         </span>

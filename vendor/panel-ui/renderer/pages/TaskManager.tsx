@@ -191,6 +191,12 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
   const bucketCounts = useMemo(() => {
     const c: Record<string, number> = {};
     for (const t of allTasks) {
+      // 统计口径：已逾期/今天/明天/未来/未排程 = 进行中任务数（不含已完成）；
+      // 已完成单独计数（用户 2026-09-09 需求）。
+      if (t.status === 'done') {
+        c.done = (c.done ?? 0) + 1;
+        continue;
+      }
       const b = taskTimeBucket(t);
       c[b] = (c[b] ?? 0) + 1;
     }

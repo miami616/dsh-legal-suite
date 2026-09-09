@@ -270,8 +270,7 @@ export function apply(ctx, config = {}) {
                 // 任务不显示。这里把 items 的独立任务并入 standaloneMap
                 // （standalone-tasks.json 优先，避免覆盖旧数据）。
                 for (const it of itemItems) {
-                    if (it.type === 'event') continue;
-                    const ownerType = it.ownerType ?? (it.ownerId === '' || it.ownerId === undefined ? 'standalone' : 'litigation');
+                                        const ownerType = it.ownerType ?? (it.ownerId === '' || it.ownerId === undefined ? 'standalone' : 'litigation');
                     if (ownerType !== 'standalone') continue;
                     if (standaloneMap[it.id] !== undefined) continue;
                     standaloneMap[it.id] = toLegacyStandaloneTask({

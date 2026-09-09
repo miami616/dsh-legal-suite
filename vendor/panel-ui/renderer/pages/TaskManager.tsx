@@ -19,6 +19,7 @@
  */
 
 import { memo, useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Plus, Check, Trash2, ChevronLeft, ChevronRight, X, ListChecks, Search,
 } from 'lucide-react';
@@ -26,6 +27,7 @@ import { useAgentLex, type TaskPriority, type TaskStatus, type Task, type CaseEn
 import CustomSelect from '@/components/CustomSelect';
 import { Popover } from '@/components/ui/Popover';
 import TaskEditDrawer, { type TaskDrawerPatch } from '@/components/agentlex/TaskEditDrawer';
+import OverlayBackdrop from '@/components/OverlayBackdrop';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { MobileNav } from '@/components/agentlex/MobileNav';
 import {
@@ -49,7 +51,7 @@ const BUCKETS: Array<{ key: TaskBucketKey; label: string; dot: string }> = [
   { key: 'tomorrow', label: '明天', dot: 'var(--warning)' },
   { key: 'future', label: '未来', dot: 'var(--info)' },
   { key: 'none', label: '未排程', dot: 'var(--ink-faint)' },
-  { key: 'done', label: '已完成', dot: 'var(--success)' },
+  { key: 'done', label: '其他已完成', dot: 'var(--success)' },
 ];
 type TaskBucketKey = 'overdue' | 'today' | 'tomorrow' | 'future' | 'none' | 'done';
 
@@ -160,7 +162,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
     addTask: addCaseTask, updateTask, deleteTask,
     addStandaloneTask, updateStandaloneTask, deleteStandaloneTask,
     updateProjectTask, deleteProjectTask,
-    addItem,
+    addItem, deleteItem,
   } = useAgentLex();
 
   // ── State ──
@@ -171,6 +173,8 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
   const [showDone, setShowDone] = useState(false); // 备忘录 #16：默认隐藏已完成，聚焦待办
   const [editTask, setEditTask] = useState<UnifiedTask | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  /** 未来日程弹窗：当前选中的日程条目（st:/ev:/proj: 前缀）。 */
+  const [selectedSchedule, setSelectedSchedule] = useState<{ id: string; date: string; time?: string; label: string; caseName: string; type: string } | null>(null);
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [popupDate, setPopupDate] = useState<string | null>(null);
@@ -191,17 +195,15 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
   const bucketCounts = useMemo(() => {
     const c: Record<string, number> = {};
     for (const t of allTasks) {
-      // 统计口径：已逾期/今天/明天/未来/未排程 = 进行中任务数（不含已完成）；
-      // 已完成单独计数（用户 2026-09-09 需求）。
-      if (t.status === 'done') {
-        c.done = (c.done ?? 0) + 1;
-        continue;
-      }
+      // 关「含已完成」：只统计进行中（无 done 桶）；
+      // 开「含已完成」：全部统计——今日/明日/未来完成按时间归对应桶（taskTimeBucket
+      // 对 done 已按时间归桶），done 桶 = 其他已完成（过期完成 + 无 deadline 完成）。
+      if (t.status === 'done' && !showDone) continue;
       const b = taskTimeBucket(t);
       c[b] = (c[b] ?? 0) + 1;
     }
     return c;
-  }, [allTasks]);
+  }, [allTasks, showDone]);
 
   // 待办数（不含已办）——备忘录 #7：「全部」等数字基数应为待办。
   const openTaskCount = useMemo(() => allTasks.filter(t => t.status !== 'done').length, [allTasks]);
@@ -894,7 +896,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                       return (
                         <button
                           key={e.id}
-                          onClick={() => openLinkedCase(e.caseId)}
+                          onClick={() => setSelectedSchedule(e)}
                           className={`flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors ${
                             urgent
                               ? 'border-l-[3px] border-[var(--error)] bg-[var(--error-bg)]'
@@ -944,6 +946,49 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
         onSave={handleDrawerSave}
         onDelete={handleDrawerDelete}
       />
+
+      {/* ── 未来日程详情弹窗（显示内容 + 删除） ── */}
+      {selectedSchedule && createPortal(
+        <OverlayBackdrop onClose={() => setSelectedSchedule(null)} className="z-[200] px-4 overflow-y-auto">
+          <div className="w-full max-w-sm rounded-2xl bg-[var(--paper-elevated)] border border-[var(--paper-inset)] shadow-lg my-16 mx-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--paper-inset)]">
+              <h3 className="text-sm font-bold text-[var(--ink)]">日程详情</h3>
+              <button onClick={() => setSelectedSchedule(null)} className="p-1 rounded-lg hover:bg-[var(--paper-inset)] text-[var(--ink-muted)]" aria-label="关闭">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <p className="text-[0.6875rem] font-semibold text-[var(--ink-muted)]">标题</p>
+                <p className="mt-0.5 text-sm font-semibold text-[var(--ink)]">{selectedSchedule.label}</p>
+              </div>
+              <div>
+                <p className="text-[0.6875rem] font-semibold text-[var(--ink-muted)]">日期</p>
+                <p className="mt-0.5 text-sm text-[var(--ink)]">
+                  {selectedSchedule.date}
+                  {selectedSchedule.time ? <span className="ml-2 font-mono text-[var(--ink-secondary)]">{selectedSchedule.time}</span> : null}
+                </p>
+              </div>
+              <div>
+                <p className="text-[0.6875rem] font-semibold text-[var(--ink-muted)]">归属</p>
+                <p className="mt-0.5 text-sm text-[var(--ink)]">{selectedSchedule.caseName || '独立'}</p>
+              </div>
+              {(selectedSchedule.id.startsWith('st:') || selectedSchedule.id.startsWith('ev:')) && (
+                <button
+                  onClick={() => {
+                    void deleteItem(selectedSchedule.id.slice(3))
+                    setSelectedSchedule(null)
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--error-bg)] py-2 text-sm font-semibold text-[var(--error)] transition-colors hover:bg-[var(--error)] hover:text-white"
+                >
+                  <Trash2 size={14} />删除日程
+                </button>
+              )}
+            </div>
+          </div>
+        </OverlayBackdrop>,
+        document.body,
+      )}
 
       {/* ── 新建任务弹窗 ── */}
       {showAdd && (

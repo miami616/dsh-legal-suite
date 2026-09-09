@@ -424,6 +424,14 @@ export function AgentLexSettingsSection(props: {
       <div style={{ marginBottom: 18 }}>
         <p style={{ margin: '0 0 10px', paddingTop: 8, borderTop: '1px solid var(--dsw-alias-border-l2)', fontSize: 15, fontWeight: 650, color: 'var(--dsw-alias-label-primary)' }}>功能模块</p>
         <Toggle label="诉讼案件" description="案件看板 / 详情 / 任务树 / 时间轴 / 期限提醒" checked={config.litigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('litigationEnabled', v)} />
+        <div style={{ paddingLeft: 22, opacity: config.agentlexEnabled && config.litigationEnabled ? 1 : 0.5, pointerEvents: config.agentlexEnabled && config.litigationEnabled ? 'auto' : 'none' }}>
+          <Toggle
+            label="日程同步 Apple 日历"
+            description="诉讼时间轴事件（开庭/举证/上诉等）建立时自动写入 Apple 日历，iCloud 同步到 iPhone；需在系统设置 → 隐私与安全性 → 自动化 授权"
+            checked={useLitigationCalendarSync()}
+            onChange={(v) => void litigationScope?.set('calendarSyncEnabled', v)}
+          />
+        </div>
         <Toggle label="非诉项目" description="项目管理 / 合同审查 / 法律研究 / 常法服务" checked={config.nonlitigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('nonlitigationEnabled', v)} />
         <Toggle label="任务管理" description="独立任务 + 跨插件统一任务视图" checked={config.taskEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('taskEnabled', v)} />
         <Toggle label="备忘录" description="随手记 + 会话 #编号 引用备忘" checked={config.memoEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('memoEnabled', v)} />
@@ -458,12 +466,6 @@ export function AgentLexSettingsSection(props: {
             if (picked !== null && picked !== '') void litigationScope?.set('dataDir', picked)
             else setDirPicker('litigation')
           }}
-        />
-        <Toggle
-          label="日程同步 Apple 日历"
-          description="诉讼时间轴事件（开庭/举证/上诉等）建立时自动写入 Apple 日历，iCloud 同步到 iPhone；需在系统设置 → 隐私与安全性 → 自动化 授权"
-          checked={useLitigationCalendarSync()}
-          onChange={(v) => void litigationScope?.set('calendarSyncEnabled', v)}
         />
         <Field
           label="非诉项目数据目录"

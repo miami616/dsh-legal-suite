@@ -45,12 +45,13 @@
 
 #### 日程同步 Apple 日历（设置项 calendarSyncEnabled，默认关）
 
-- 诉讼时间轴事件（开庭/举证/上诉等）建立时自动写入 Apple 日历（macOS），iCloud 同步到 iPhone。
+- **所有有日期的日程**（诉讼/非诉/独立的事件与任务）建立时自动写入 Apple 日历（macOS），iCloud 同步到 iPhone。
 - 机制（参考 smart-calendar）：osascript 直接调用 Apple Calendar 创建事件，纯 Node child_process + AppleScript，零第三方依赖。
+- 统一触发：item-store 层对「有 date 的 event/task」广播 `agentlex:calendar-sync`（建立/更新）与 `agentlex:calendar-sync-delete`（删除），litigation 域监听执行——诉讼/非诉/独立三条创建路径自动覆盖，无日期任务与子项不触发。
 - 幂等：itemId → Apple 事件 uid 映射存 `$DSH_HOME/agentlex/calendar-sync-map.json`，事件更新时按 uid 更新（不重复创建），删除时按 uid 删除；AppleScript 的 uid 查询必须指定日历（全局查询失败）。
 - 兜底：Calendar 未运行（-600）时自动 `open -a Calendar` 拉起重试；首次调用需在 系统设置 → 隐私与安全性 → 自动化 授权。
-- 目标日历名可配置（默认「个人」）；设置页「数据与存储」区新增开关。
-- 改动：`src/domains/calendar-sync/index.ts`（新）、`src/domains/litigation/index.ts`（Config + deps）、`tools.ts`/`routes.ts`（事件创建后触发）、`settings-section.tsx`（开关）。
+- 目标日历名可配置（默认「个人」）；设置页「功能模块」区诉讼案件子项开关。
+- 改动：`src/domains/calendar-sync/index.ts`（新）、`src/domains/item/store/item-store.ts`（广播）、`src/domains/litigation/index.ts`（监听 + Config）、`settings-section.tsx`（开关）。
 
 #### 验证
 

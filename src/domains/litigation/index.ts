@@ -33,6 +33,7 @@ import { nowIso } from './store/id.ts'
 import type { TimelineEvent } from './store/types.ts'
 import { defaultSourcePath, importFromAgentLex } from './import/agentlex-migrate.ts'
 import { makeRoutes } from './routes.ts'
+import { syncEventToAppleCalendar, removeAppleCalendarEvent } from '../calendar-sync/index.ts'
 import { registerLitigationHttpTool } from './tools.ts'
 import { installSettingsSection } from '../../shared/settings-adapter.ts'
 import {
@@ -422,6 +423,24 @@ export function apply(ctx: Context, config: Config = {}): void {
     // so deleting/recreating the working folder never takes the backups with it.
     disposers.push(ctx.on('agentlex:registry-changed' as keyof Events, () => {
       void snapshotDataDir('litigation', dataDir, home)
+    }))
+    // Apple 日历同步：监听统一事项的日程变更（诉讼/非诉/独立的事件与任务），
+    // 建立/更新时写 Apple 日历，删除时删 Apple 事件。监听常驻，handler 内检查开关。
+    disposers.push(ctx.on('agentlex:calendar-sync' as keyof Events, (item: { id: string; title?: string; ownerId?: string; date?: string; time?: string; detail?: string }) => {
+      if (current().calendarSyncEnabled !== true) return
+      if (item.date === undefined) return
+      void syncEventToAppleCalendar({
+        itemId: item.id,
+        title: `${item.title ?? '日程'}${item.ownerId !== undefined && item.ownerId !== '' ? ` - ${item.ownerId}` : ''}`,
+        date: item.date,
+        time: item.time,
+        detail: item.detail,
+        calendarName: current().calendarName ?? '个人',
+      })
+    }))
+    disposers.push(ctx.on('agentlex:calendar-sync-delete' as keyof Events, (payload: { id: string }) => {
+      if (current().calendarSyncEnabled !== true) return
+      void removeAppleCalendarEvent(payload.id)
     }))
     disposers.push(makeRoutes(ctx, {
       caseStore,

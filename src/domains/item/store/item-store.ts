@@ -206,6 +206,17 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
         next.lastUpdated = now
         return next
       }, 'tasks', input.ownerId === undefined ? undefined : String(input.ownerId), 'item-upsert')
+      if (result === undefined) return result!
+      // 有 date 的 event/task（日程）→ 广播日历同步事件（litigation 域监听并写 Apple 日历）。
+      if (result.date !== undefined && (result.type === 'event' || result.type === 'task')) {
+        try {
+          const payload = clone(result)
+          for (const listener of ctx?.events.dispatch('emit', ['agentlex:calendar-sync', payload]) ?? []) {
+            const returned = listener(payload)
+            if (returned instanceof Promise) Promise.resolve(returned).then(void 0, () => {})
+          }
+        } catch { /* 广播失败不阻塞写入 */ }
+      }
       return result!
     },
 
@@ -213,6 +224,7 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
       await ensureMigrated()
       let deleted = false
       let ownerId: string | undefined
+      let removedItem: Item | undefined
       await store.mutate((rawReg) => {
         const reg = normalize(rawReg)
         const index = reg.items.findIndex((i) => i.id === id)
@@ -222,8 +234,19 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
         next.lastUpdated = nowIso()
         deleted = true
         ownerId = removed?.ownerId
+        removedItem = removed
         return next
       }, 'tasks', ownerId, 'item-delete')
+      // 删除有 date 的 event/task → 广播日历同步删除事件（litigation 域监听并删 Apple 事件）。
+      if (deleted && removedItem !== undefined && removedItem.date !== undefined && (removedItem.type === 'event' || removedItem.type === 'task')) {
+        try {
+          const payload = { id: removedItem.id }
+          for (const listener of ctx?.events.dispatch('emit', ['agentlex:calendar-sync-delete', payload]) ?? []) {
+            const returned = listener(payload)
+            if (returned instanceof Promise) Promise.resolve(returned).then(void 0, () => {})
+          }
+        } catch { /* 广播失败不阻塞删除 */ }
+      }
       return { deleted }
     },
 

@@ -687,6 +687,15 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                   </button>
                 );
               })}
+              <label className="ml-auto flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--paper-inset)]">
+                <span
+                  onClick={() => setShowDone(v => !v)}
+                  className={`relative h-[16px] w-[27px] rounded-full transition-colors ${showDone ? 'bg-[var(--accent-warm)]' : 'bg-[var(--paper-inset)]'}`}
+                >
+                  <span className={`absolute top-[2px] h-[12px] w-[12px] rounded-full bg-white shadow-sm transition-all ${showDone ? 'left-[13px]' : 'left-[2px]'}`} />
+                </span>
+                含已完成
+              </label>
             </div>
           </section>
 
@@ -724,15 +733,6 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                         ...projects.filter(p => !p.archived).map(p => ({ value: p.projectId, label: `${p.projectId} · ${p.name.slice(0, 20)}` })),
                       ]} />
                   </div>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--paper-inset)]">
-                    <span
-                      onClick={() => setShowDone(v => !v)}
-                      className={`relative h-[16px] w-[27px] rounded-full transition-colors ${showDone ? 'bg-[var(--accent-warm)]' : 'bg-[var(--paper-inset)]'}`}
-                    >
-                      <span className={`absolute top-[2px] h-[12px] w-[12px] rounded-full bg-white shadow-sm transition-all ${showDone ? 'left-[13px]' : 'left-[2px]'}`} />
-                    </span>
-                    含已完成
-                  </label>
                 </div>
               </div>
 

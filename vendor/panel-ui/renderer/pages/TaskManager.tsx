@@ -634,7 +634,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                     <span
                       className="h-[7px] w-[7px] shrink-0 rounded-full"
                       style={{ background: item.urgent ? 'var(--error)' : item.kind === 'event' ? 'var(--accent-cool)' : 'var(--accent-warm)' }}
-                      title={item.kind === 'event' ? '事件' : '任务'}
+                      title={item.kind === 'event' ? '日程' : '任务'}
                     />
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold leading-tight text-[var(--ink)]">
@@ -1013,8 +1013,8 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                   onChange={(v) => setNewType(v as 'event' | 'task' | 'both')}
                   options={[
                     { value: 'task', label: '任务' },
-                    { value: 'event', label: '事件' },
-                    { value: 'both', label: '事件+任务' },
+                    { value: 'event', label: '日程' },
+                    { value: 'both', label: '日程+任务' },
                   ]}
                 />
               </div>

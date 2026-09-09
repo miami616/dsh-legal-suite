@@ -143,7 +143,7 @@ export function PendingExpandBar({ caseId }: { caseId?: string }): React.JSX.Ele
           <div style={{ fontWeight: 600, marginBottom: 4 }}>将展开：</div>
           {row.pending.mode === 'agent'
             ? '（交管家处理，管家将按纪律自主展开或与你确认）'
-            : '任务 + 事件（按阶段模板）'}
+            : '任务 + 日程（按阶段模板）'}
         </div>
         <div style={btnRowStyle}>
           <button type="button" disabled={busy === row.caseId} onClick={() => void act(row, 'ignore')} style={btnGhost}>忽略</button>

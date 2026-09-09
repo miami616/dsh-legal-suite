@@ -61,7 +61,7 @@ export default memo(function EventForm({ initial, onSubmit, onCancel, defaultSta
       <div className="grid grid-cols-2 gap-2">
         <div className="col-span-2">
           <input type="text" value={label} onChange={e => setLabel(e.target.value)} autoFocus
-            placeholder="事件标题（如：第一次开庭）" className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--paper-elevated)] text-sm text-[var(--ink)] placeholder:text-[var(--ink-subtle)] outline-none ring-1 ring-[var(--paper-inset)] focus:ring-[var(--ink-subtle)]" />
+            placeholder="日程标题（如：第一次开庭）" className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--paper-elevated)] text-sm text-[var(--ink)] placeholder:text-[var(--ink-subtle)] outline-none ring-1 ring-[var(--paper-inset)] focus:ring-[var(--ink-subtle)]" />
         </div>
         <div>
           <span className="text-xs text-[var(--ink-muted)]">日期</span>

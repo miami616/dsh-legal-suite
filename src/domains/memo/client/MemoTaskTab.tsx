@@ -156,7 +156,7 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
             className={`memo-task__source-btn${itemType === tp ? ' memo-task__source-btn--on' : ''}`}
             onClick={() => setItemType(tp)}
           >
-            {tp === 'task' ? '任务' : tp === 'event' ? '事件' : '事件+任务'}
+            {tp === 'task' ? '任务' : tp === 'event' ? '日程' : '日程+任务'}
           </button>
         ))}
       </div>

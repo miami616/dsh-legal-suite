@@ -581,7 +581,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
               onClick={() => openAddPrefill()}
               className="flex shrink-0 items-center gap-2 rounded-full bg-[var(--accent-warm)] px-4 py-2 text-sm font-semibold text-[var(--on-accent)] shadow-sm transition-all hover:bg-[var(--accent-warm-hover)] hover:shadow-md"
             >
-              <Plus size={15} strokeWidth={2.4} />新建任务
+              <Plus size={15} strokeWidth={2.4} />新建任务/日程
             </button>
           </header>
           <div className="mt-1 mb-7 h-[2px] w-48 rounded-full" style={{ background: 'linear-gradient(90deg, #b8943a 0%, rgba(184,148,58,0.15) 100%)' }} />
@@ -736,7 +736,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                   <div className="flex flex-col items-center justify-center py-16 text-center">
                     <ListChecks size={32} className="mb-4 text-[var(--ink-faint)]/60" />
                     <p className="text-sm text-[var(--ink-muted)]">没有符合条件的任务</p>
-                    <p className="mt-1 text-xs text-[var(--ink-faint)]">调整筛选条件，或点右上角新建任务</p>
+                    <p className="mt-1 text-xs text-[var(--ink-faint)]">调整筛选条件，或点右上角新建任务/日程</p>
                   </div>
                 ) : (
                   groups.map(g => {
@@ -800,7 +800,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                           <button
                             data-calday=""
                             onClick={() => items.length > 0 ? setPopupDate(ds) : openAddPrefill(ds)}
-                            title={items.length ? items.map(it => it.label).join('、') : `在 ${fmtMD(ds)} 新建任务`}
+                            title={items.length ? items.map(it => it.label).join('、') : `在 ${fmtMD(ds)} 新建任务/日程`}
                             className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs transition-all ${
                               isToday
                                 ? 'bg-[var(--accent-warm)] font-bold text-white shadow-sm'
@@ -851,7 +851,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                       onClick={() => { setPopupDate(null); openAddPrefill(popupDate); }}
                       className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg border-[1.5px] border-dashed border-[var(--line-strong)] py-2 text-xs text-[var(--ink-muted)] transition-colors hover:border-[var(--accent-warm)] hover:bg-[var(--accent-warm-subtle)] hover:text-[var(--accent-warm)]"
                     >
-                      <Plus size={13} />在这天新建任务
+                      <Plus size={13} />在这天新建任务/日程
                     </button>
                     <div className="max-h-[180px] space-y-0.5 overflow-y-auto">
                       {popupItems.map(it => (
@@ -948,7 +948,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-[var(--ink)]">新建任务</h3>
+              <h3 className="text-lg font-bold text-[var(--ink)]">新建任务/日程</h3>
               <button onClick={() => setShowAdd(false)} className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--ink-faint)] transition-colors hover:bg-[var(--hover-bg)] hover:text-[var(--ink)]">
                 <X size={15} />
               </button>

@@ -303,18 +303,19 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
 
   // 未来日程 = 诉讼事件 + 非诉项目关键日程 + 独立任务 deadline（统一展示）。
   const keyDates = useMemo(() => {
-    const items: Array<{ id: string; date: string; time?: string; label: string; caseName: string; type: string }> = [];
-    // 诉讼时间轴事件
+    const items: Array<{ id: string; date: string; time?: string; label: string; caseName: string; caseId?: string; type: string }> = [];
+    // 诉讼时间轴事件（caseName 从 cases 补全，详情中建的事件也能显示案件名）。
     for (const e of timelineEvents) {
       if ((e.status === 'pending' || e.status === 'upcoming') && e.date >= todayStr) {
-        items.push({ id: `ev:${e.id}`, date: e.date, time: e.time, label: e.label || e.title || '', caseName: e.caseName || '', type: e.type || 'case_event' });
+        const caseName = e.caseName || cases.find(c => c.caseId === e.caseId)?.name || ''
+        items.push({ id: `ev:${e.id}`, date: e.date, time: e.time, label: e.label || e.title || '', caseName, caseId: e.caseId, type: e.type || 'case_event' });
       }
     }
     // 非诉项目关键日程
     for (const p of projects) {
       for (const kd of p.keyDates ?? []) {
         if (!kd.completed && kd.date >= todayStr) {
-          items.push({ id: `proj:${p.projectId}:${kd.date}:${kd.label}`, date: kd.date, label: kd.label, caseName: p.name, type: 'project' });
+          items.push({ id: `proj:${p.projectId}:${kd.date}:${kd.label}`, date: kd.date, label: kd.label, caseName: p.name, caseId: p.projectId, type: 'project' });
         }
       }
     }
@@ -326,7 +327,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
     }
     items.sort((a, b) => a.date.localeCompare(b.date));
     return items;
-  }, [timelineEvents, projects, standaloneTasks]);
+  }, [timelineEvents, projects, standaloneTasks, cases]);
 
   // ── Calendar grid ──
   const calDays = useMemo(() => {
@@ -730,7 +731,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                     <CustomSelect compact value={filterCase} onChange={setFilterCase}
                       options={[
                         { value: '', label: '全部案件' },
-                        { value: '__none__', label: '独立任务' },
+                        { value: '__none__', label: '独立任务/日程' },
                         ...cases.filter(c => !c.archived).map(c => ({ value: c.caseId, label: `${c.caseId} · ${c.name}` })),
                         ...projects.filter(p => !p.archived).map(p => ({ value: p.projectId, label: `${p.projectId} · ${p.name.slice(0, 20)}` })),
                       ]} />
@@ -973,6 +974,14 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                 <p className="text-[0.6875rem] font-semibold text-[var(--ink-muted)]">归属</p>
                 <p className="mt-0.5 text-sm text-[var(--ink)]">{selectedSchedule.caseName || '独立'}</p>
               </div>
+              {selectedSchedule.caseId && (
+                <button
+                  onClick={() => { openLinkedCase(selectedSchedule.caseId); setSelectedSchedule(null) }}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--paper-inset)] py-2 text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-[var(--hover-bg)]"
+                >
+                  查看案件详情
+                </button>
+              )}
               {(selectedSchedule.id.startsWith('st:') || selectedSchedule.id.startsWith('ev:')) && (
                 <button
                   onClick={() => {
@@ -1010,7 +1019,10 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
               onChange={(e) => setNewTitle(e.target.value)}
               placeholder="输入任务名称…"
               autoFocus
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              onKeyDown={(e) => {
+                // 输入法组合状态（isComposing / keyCode 229）回车只确认候选词，不提交。
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) handleAdd()
+              }}
               className="mb-4 w-full rounded-lg bg-[var(--paper)] px-4 py-3 text-sm text-[var(--ink)] outline-none ring-1 ring-inset ring-[var(--line)] placeholder:text-[var(--ink-faint)] focus:ring-2 focus:ring-[var(--accent-warm)]/30"
             />
             <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -1020,7 +1032,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                   value={newCaseId}
                   onChange={(v) => { setNewCaseId(v); setNewGroupId(''); }}
                   options={[
-                    { value: '', label: '独立任务' },
+                    { value: '', label: '独立任务/日程' },
                     ...cases.filter(c => !c.archived).map(c => ({ value: c.caseId, label: `${c.caseId} · ${c.name}` })),
                   ]}
                 />

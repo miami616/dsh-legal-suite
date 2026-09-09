@@ -185,7 +185,8 @@ function projectTaskItems(projects: ProjectEntry[]): UnifiedTask[] {
  *  standalone entries are stale duplicates of taskGroups and are ignored. */
 function caselessTaskItems(tasks: AgentLexStandaloneTask[]): UnifiedTask[] {
   return tasks
-    .filter(t => !t.caseId)
+    // 独立日程（kind=event）不进任务台账——只进未来日程（用户 2026-09-09 需求）。
+    .filter(t => !t.caseId && t.kind !== 'event')
     .map(t => ({
       key: `std:${t.id}`,
       id: t.id,

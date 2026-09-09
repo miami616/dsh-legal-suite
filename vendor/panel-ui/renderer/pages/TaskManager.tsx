@@ -316,11 +316,11 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
         }
       }
     }
-    // 独立任务 deadline
+    // 独立任务/日程 deadline（独立日程 kind=event 不过滤 status——日程无完成概念）。
     for (const t of standaloneTasks) {
-      if (t.deadline !== undefined && t.deadline !== '' && t.deadline >= todayStr && t.status !== 'done') {
-        items.push({ id: `st:${t.id}`, date: t.deadline, time: t.time, label: t.title, caseName: '独立', type: 'standalone' });
-      }
+      if (t.deadline === undefined || t.deadline === '' || t.deadline < todayStr) continue;
+      if (t.kind !== 'event' && t.status === 'done') continue;
+      items.push({ id: `st:${t.id}`, date: t.deadline, time: t.time, label: t.title, caseName: '独立', type: 'standalone' });
     }
     items.sort((a, b) => a.date.localeCompare(b.date));
     return items;
@@ -654,7 +654,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
               </div>
             </div>
 
-            {/* 进行中统计（已逾期/今天/明天/未来/未排程 = 进行中；已完成最后） */}
+            {/* 进行中统计（已逾期/今天/明天/未来/未排程 = 进行中；开「含已完成」才显示已完成） */}
             <div className="col-span-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--line-subtle)] px-6 py-2.5">
               <span className="mr-1 text-[0.6875rem] font-bold uppercase tracking-[.08em] text-[var(--ink-subtle)]">进行中</span>
               <button
@@ -666,9 +666,9 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                 }`}
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: bucketFilter === 'all' ? 'currentColor' : 'var(--ink-subtle)' }} />
-                全部 <b className="tabular-nums">{openTaskCount}</b>
+                全部 <b className="tabular-nums">{showDone ? allTasks.length : openTaskCount}</b>
               </button>
-              {BUCKETS.map(b => {
+              {BUCKETS.filter(b => showDone || b.key !== 'done').map(b => {
                 const n = bucketCounts[b.key] ?? 0;
                 if (!n) return null;
                 const active = bucketFilter === b.key;

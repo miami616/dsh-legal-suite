@@ -282,6 +282,8 @@ export interface AgentLexStandaloneTask {
   priority: TaskPriority;
   deadline?: string;          // YYYY-MM-DD
   time?: string;              // HH:mm — 具体时间，与 deadline 分开存
+  /** 独立日程（type=event）标记：'event' 只进未来日程，不进任务台账；缺省为任务。 */
+  kind?: 'event' | 'task';
   owner: string;
   creator: string;
   stage: string;
@@ -835,6 +837,7 @@ export function normalizeStandaloneTask(raw: DiskStandaloneTask): AgentLexStanda
     priority: (raw.priority as TaskPriority) ?? 'medium',
     deadline: raw.deadline,
     time: raw.time,
+    kind: raw.kind,
     owner: raw.owner ?? '',
     creator: raw.creator ?? '诉讼管家',
     stage: raw.stage ?? '',

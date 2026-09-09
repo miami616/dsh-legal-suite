@@ -470,6 +470,11 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
         )}
       </div>
 
+      {/* 案件看板（主题化数据面板，点击工具栏「案件看板」展开；置于卡片上方，先看总览再看明细） */}
+      {showBoard && (
+        <CaseBoard cases={cases} onClose={() => setShowBoard(false)} />
+      )}
+
       {/* Card grid or empty state */}
       {cases.length === 0 ? (
         <div className="text-center py-16 rounded-2xl bg-[var(--paper-elevated)] border border-dashed border-[var(--paper-inset)]">
@@ -603,11 +608,6 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
             );
           })}
         </div>
-      )}
-
-      {/* 案件看板（主题化数据面板，点击工具栏「案件看板」展开；置于卡片下方，不挤动卡片） */}
-      {showBoard && (
-        <CaseBoard cases={cases} onClose={() => setShowBoard(false)} />
       )}
 
       {deleteTarget && (

@@ -134,6 +134,14 @@ function useLitigationCalendarSyncTasks(): boolean {
   )
 }
 
+/** 诉讼日历同步目标日历名（默认「个人」）。 */
+function useLitigationCalendarName(): string {
+  return useSyncExternalStore(
+    (listener) => (litigationScope ? litigationScope.subscribe(listener) : () => {}),
+    () => litigationScope?.getSnapshot().value?.calendarName ?? '个人',
+  )
+}
+
 function Field({ label, description, value, onCommit, commitEmpty = false, onPick }: {
   label: string
   description?: string
@@ -313,6 +321,58 @@ export function AgentLexSettingsSection(props: {
   }, [])
   // 目录选择弹层目标：原生选择框在远程端不可用（pickDirectory 返回 null）时打开。
   const [dirPicker, setDirPicker] = useState<'litigation' | 'nonlitigation' | null>(null)
+  /** 备忘 #27：手动同步 Apple 日历（查漏补缺，已同步的不重复创建）。 */
+  const [calendarSyncState, setCalendarSyncState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
+  const [calendarSyncMsg, setCalendarSyncMsg] = useState('')
+  /** Apple 日历列表（设置页「同步到日历」下拉，用户反馈 2026-09-09：同步目标应可选）。 */
+  const [appleCalendars, setAppleCalendars] = useState<string[]>([])
+  /** 当前同步目标日历（在组件顶部取一次，避免在 JSX 条件分支里调用 hook 造成
+   *  hooks 调用次数不稳定 → React 崩溃 → 设置页空白。教训 2026-09-09）。 */
+  const litigationCalendarName = useLitigationCalendarName()
+  useEffect(() => {
+    let mounted = true
+    void (async () => {
+      try {
+        const res = await fetch('/api/agentlex-case/calendars', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: '{}',
+        })
+        const env = await res.json().catch(() => null) as { success: boolean; data?: { calendars?: string[] } } | null
+        if (mounted && env !== null && env.success === true && Array.isArray(env.data?.calendars)) {
+          setAppleCalendars(env.data!.calendars ?? [])
+        }
+      } catch { /* 列表加载失败不阻塞设置页 */ }
+    })()
+    return () => { mounted = false }
+  }, [])
+  const resyncAppleCalendar = async (): Promise<void> => {
+    if (calendarSyncState === 'running') return
+    setCalendarSyncState('running')
+    setCalendarSyncMsg('')
+    try {
+      const res = await fetch('/api/agentlex-case/calendar-resync', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: '{}',
+      })
+      const env = await res.json().catch(() => null) as { success: boolean; data?: { enabled: boolean; total?: number; synced?: number; failed?: number; skipped?: number; message?: string }; error?: string } | null
+      if (env === null || env.success === false) {
+        setCalendarSyncState('error')
+        setCalendarSyncMsg(env?.error ?? '同步失败，请重试')
+      } else if (env.data?.enabled === false) {
+        setCalendarSyncState('done')
+        setCalendarSyncMsg(env.data?.message ?? '日历同步未开启')
+      } else {
+        const { total = 0, synced = 0, failed = 0, skipped = 0 } = env.data ?? {}
+        setCalendarSyncState(failed > 0 ? 'error' : 'done')
+        setCalendarSyncMsg(`共 ${total} 条：同步 ${synced} 条${failed > 0 ? `，失败 ${failed} 条` : ''}${skipped > 0 ? `，跳过 ${skipped} 条（无日期或不在同步范围）` : ''}`)
+      }
+    } catch {
+      setCalendarSyncState('error')
+      setCalendarSyncMsg('同步请求失败，请检查 DSH 服务')
+    }
+  }
   // 远程端（dsh-bridge 远程登录）下 settingsScope 可能不可用 → scope 为 undefined。
   // 渲染只依赖本地 skin 配置（config 取自 useSkinConfig，恒有值），scope 仅用于写入
   // （可选）。因此设置页始终完整渲染，绝不因 scope 缺失而空白/加载中阻塞。
@@ -477,6 +537,68 @@ export function AgentLexSettingsSection(props: {
             checked={useLitigationCalendarSyncTasks()}
             onChange={(v) => void litigationScope?.set('calendarSyncTasks', v)}
           />
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 6 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--dsw-alias-label-secondary)' }}>同步到日历</span>
+            <select
+              value={litigationCalendarName}
+              onChange={(e) => void litigationScope?.set('calendarName', e.target.value)}
+              style={{
+                boxSizing: 'border-box',
+                height: 34,
+                padding: '0 8px',
+                border: '1px solid var(--dsw-alias-border-l2)',
+                borderRadius: 8,
+                background: 'var(--dsw-specific-input-major)',
+                color: 'var(--dsw-alias-label-primary)',
+                fontSize: 13,
+                outline: 'none',
+              }}
+            >
+              {appleCalendars.length === 0 ? (
+                <option value={litigationCalendarName}>{litigationCalendarName}</option>
+              ) : (
+                appleCalendars.map((c) => <option key={c} value={c}>{c}</option>)
+              )}
+            </select>
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+            <button
+              type="button"
+              onClick={() => void resyncAppleCalendar()}
+              disabled={calendarSyncState === 'running'}
+              style={{
+                flex: 'none',
+                height: 30,
+                padding: '0 12px',
+                border: '1px solid var(--dsw-alias-border-l2)',
+                borderRadius: 8,
+                background: 'var(--dsw-specific-input-major)',
+                color: 'var(--dsw-alias-label-primary)',
+                fontSize: 12.5,
+                fontWeight: 550,
+                cursor: calendarSyncState === 'running' ? 'wait' : 'pointer',
+                opacity: calendarSyncState === 'running' ? 0.6 : 1,
+              }}
+            >
+              {calendarSyncState === 'running' ? '同步中…' : '手动同步 Apple 日历'}
+            </button>
+            {calendarSyncMsg !== '' && (
+              <span
+                style={{
+                  fontSize: 11.5,
+                  lineHeight: 1.5,
+                  color: calendarSyncState === 'error'
+                    ? 'var(--dsw-alias-state-warning-primary)'
+                    : 'var(--dsw-alias-label-tertiary)',
+                }}
+              >
+                {calendarSyncMsg}
+              </span>
+            )}
+          </div>
+          <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)' }}>
+            手动同步用于查漏补缺：把此前漏同步的日程/任务补齐到 Apple 日历（仅今天及以后的日程，过去的日程不会同步），已同步的不会重复创建。
+          </p>
         </div>
       </div>
 

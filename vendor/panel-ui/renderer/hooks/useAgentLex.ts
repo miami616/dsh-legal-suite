@@ -1550,9 +1550,32 @@ async function updateStandaloneTask(id: string, updater: (t: AgentLexStandaloneT
 }
 
 async function deleteStandaloneTask(id: string): Promise<void> {
-  await mutateDisk('cmd_agentlex_delete_standalone_task', { taskId: id }, prev => ({
+  // 备忘 #26：独立任务删除在 DSH 浏览器环境（非 Tauri / 非 remote）下曾只改内存
+  // 不落盘（mutateDisk 走 localReducer），刷新后任务又回来。统一事项 items.json 才是
+  // 0.2.2 起的真相源（新建独立任务都写 items），所以删除必须先走 deleteItem 真实
+  // 落盘；standalone-tasks.json 仅作 legacy 清理（容错）。
+  let removedFromItems = false;
+  try {
+    const r = await deleteItem(id);
+    removedFromItems = r?.deleted === true;
+  } catch {
+    removedFromItems = false;
+  }
+  const cleanLegacy = () => mutateDisk('cmd_agentlex_delete_standalone_task', { taskId: id }, prev => ({
     ...prev, standaloneTasks: prev.standaloneTasks.filter(t => t.id !== id),
   }));
+  if (!removedFromItems) {
+    // items 里没有这条（老数据只存在 standalone-tasks.json）→ 走 legacy 删除；
+    // 仍然没有则忽略（前端已乐观移除）。
+    try {
+      await cleanLegacy();
+    } catch { /* 旧数据源也没有 → 忽略 */ }
+    return;
+  }
+  // items 删除成功；顺带清理 legacy 旧数据（容错）。
+  try {
+    await cleanLegacy();
+  } catch { /* 旧数据源没有这条 → 忽略 */ }
 }
 
 // ── 统一事项（v0.1.27 统一事项模型）──

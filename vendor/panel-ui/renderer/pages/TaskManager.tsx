@@ -179,6 +179,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [popupDate, setPopupDate] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
+  /** 归属编码值：'' = 独立；`case:<id>` = 诉讼案件；`proj:<id>` = 非诉项目（#25）。 */
   const [newCaseId, setNewCaseId] = useState('');
   const [newGroupId, setNewGroupId] = useState('');
   const [newDeadline, setNewDeadline] = useState('');
@@ -457,20 +458,43 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
     [deleteTask, deleteProjectTask, deleteStandaloneTask],
   );
 
-  const newCaseGroups = useMemo(() => {
-    if (!newCaseId) return [];
-    const c = cases.find(x => x.caseId === newCaseId);
-    return Array.isArray(c?.taskGroups) ? c!.taskGroups : [];
-  }, [newCaseId, cases]);
+  /** 归属解码：把 newCaseId（'' / case:X / proj:Y）解成 ownerId / ownerType / ownerName。 */
+  const newOwnerTarget = useMemo(() => {
+    if (newCaseId.startsWith('case:')) {
+      const cid = newCaseId.slice(5);
+      const c = cases.find(x => x.caseId === cid);
+      return { ownerId: cid, ownerType: 'litigation' as const, ownerName: c?.name };
+    }
+    if (newCaseId.startsWith('proj:')) {
+      const pid = newCaseId.slice(5);
+      const p = projects.find(x => x.projectId === pid);
+      return { ownerId: pid, ownerType: 'nonlitigation' as const, ownerName: p?.name };
+    }
+    return { ownerId: '', ownerType: 'standalone' as const, ownerName: undefined };
+  }, [newCaseId, cases, projects]);
+
+  const newOwnerGroups = useMemo(() => {
+    const t = newOwnerTarget;
+    if (t.ownerType === 'litigation') {
+      const c = cases.find(x => x.caseId === t.ownerId);
+      return Array.isArray(c?.taskGroups) ? c!.taskGroups : [];
+    }
+    if (t.ownerType === 'nonlitigation') {
+      const p = projects.find(x => x.projectId === t.ownerId);
+      return Array.isArray(p?.taskGroups) ? p!.taskGroups : [];
+    }
+    return [];
+  }, [newOwnerTarget, cases, projects]);
 
   const handleAdd = useCallback(() => {
     if (!newTitle.trim()) return;
     const timeOrUndef = newTime.trim() || undefined;
+    const t = newOwnerTarget;
     // 统一事项：登记一个事项（type: event/task/both），自动分流到日程/时间轴/任务树。
     void addItem({
-      ownerId: newCaseId || '',
-      ownerType: newCaseId ? 'litigation' : 'standalone',
-      ownerName: newCaseId ? cases.find(c => c.caseId === newCaseId)?.name : undefined,
+      ownerId: t.ownerId,
+      ownerType: t.ownerType,
+      ownerName: t.ownerName,
       type: newType,
       title: newTitle.trim(),
       date: newDeadline || undefined,
@@ -479,7 +503,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
       groupId: newGroupId || undefined,
     });
     setNewTitle(''); setNewCaseId(''); setNewGroupId(''); setNewDeadline(''); setNewTime(''); setNewPriority('medium'); setNewType('task'); setShowAdd(false);
-  }, [newTitle, newCaseId, newGroupId, newDeadline, newTime, newPriority, newType, addItem, cases]);
+  }, [newTitle, newOwnerTarget, newGroupId, newDeadline, newTime, newPriority, newType, addItem]);
 
   const openAddPrefill = useCallback((deadline?: string) => {
     setNewDeadline(deadline ?? '');
@@ -1024,24 +1048,27 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
               className="mb-4 w-full rounded-lg bg-[var(--paper)] px-4 py-3 text-sm text-[var(--ink)] outline-none ring-1 ring-inset ring-[var(--line)] placeholder:text-[var(--ink-faint)] focus:ring-2 focus:ring-[var(--accent-warm)]/30"
             />
             <div className="mb-4 flex flex-wrap items-end gap-3">
-              <div className="w-44">
-                <label className="mb-1.5 block text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">关联案件</label>
+              <div className="w-52">
+                <label className="mb-1.5 block text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">归属</label>
                 <CustomSelect
                   value={newCaseId}
                   onChange={(v) => { setNewCaseId(v); setNewGroupId(''); }}
                   options={[
                     { value: '', label: '独立任务/日程' },
-                    ...cases.filter(c => !c.archived).map(c => ({ value: c.caseId, label: `${c.caseId} · ${c.name}` })),
+                    { value: 'sep-lit', label: '诉讼案件', isSeparator: true },
+                    ...cases.filter(c => !c.archived).map(c => ({ value: `case:${c.caseId}`, label: `${c.caseId} · ${c.name}` })),
+                    { value: 'sep-nl', label: '非诉项目', isSeparator: true },
+                    ...projects.filter(p => !p.archived).map(p => ({ value: `proj:${p.projectId}`, label: `${p.projectId} · ${p.name.slice(0, 20)}` })),
                   ]}
                 />
               </div>
-              {newCaseId && (
+              {newCaseId !== '' && (
                 <div className="w-36">
                   <label className="mb-1.5 block text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">任务阶段</label>
                   <CustomSelect
                     value={newGroupId}
                     onChange={setNewGroupId}
-                    options={newCaseGroups.length > 0 ? newCaseGroups.map(g => ({ value: g.id, label: g.title })) : [{ value: '', label: '暂无阶段' }]}
+                    options={newOwnerGroups.length > 0 ? newOwnerGroups.map(g => ({ value: g.id, label: g.title })) : [{ value: '', label: '暂无阶段' }]}
                   />
                 </div>
               )}
@@ -1084,14 +1111,14 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
               <button onClick={() => setShowAdd(false)} className="rounded-lg px-4 py-2 text-sm text-[var(--ink-muted)] transition-colors hover:bg-[var(--hover-bg)] hover:text-[var(--ink)]">取消</button>
               <button
                 onClick={handleAdd}
-                disabled={!newTitle.trim() || (!!newCaseId && newCaseGroups.length === 0)}
+                disabled={!newTitle.trim() || (newCaseId !== '' && newOwnerGroups.length === 0)}
                 className="rounded-lg bg-[var(--accent-warm)] px-5 py-2 text-sm font-semibold text-[var(--on-accent)] shadow-sm transition-opacity hover:opacity-90 disabled:opacity-30"
               >
                 添加任务
               </button>
             </div>
-            {newCaseId && newCaseGroups.length === 0 && (
-              <p className="mt-3 text-xs text-[var(--warning)]">该案件还没有任务阶段，请先在案件详情页添加。</p>
+            {newCaseId !== '' && newOwnerGroups.length === 0 && (
+              <p className="mt-3 text-xs text-[var(--warning)]">该案件/项目还没有任务阶段，请先在其详情页添加。</p>
             )}
           </section>
         </div>

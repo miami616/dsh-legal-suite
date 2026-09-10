@@ -1,12 +1,10 @@
 /**
- * MemoTaskTab.tsx — 备忘录面板里的「任务」tab（#6）。
+ * MemoTaskTab.tsx — 备忘录面板里的「任务/日程」tab（#6）。
  *
- * 在备忘录入口提供一个与「进行中/已归档」同级的「任务」tab，快速新增任务。
- * 任务分三类，与三个模块匹配：
- *   - 临时（standalone）：独立任务，存 task store。
- *   - 诉讼（litigation）：关联案件，写穿到案件 taskGroups。
- *   - 非诉（nonlitigation）：关联项目，写穿到项目 taskGroups。
- * 新建任务字段与既有任务面板一致：标题 / 详情 / 优先级 / 截止日 / 子项。
+ * 在备忘录入口提供一个与「进行中/已归档」同级的「任务/日程」tab，快速新增任务/日程。
+ * 归属方式与任务模块的新建弹窗一致：一个下拉选择「独立」或具体案件/项目（#24），
+ * 不再用「临时/诉讼/非诉」三类按钮；类型（任务/日程/日程+任务）同样下拉单选。
+ * 新建字段与既有任务面板一致：标题 / 详情 / 优先级 / 截止日 / 子项。
  */
 import React from 'react'
 
@@ -15,10 +13,11 @@ interface MemoTaskTabProps {
   onSaved?: (text: string) => void
 }
 
-type TaskSource = 'standalone' | 'litigation' | 'nonlitigation'
-
 interface CaseOption { id: string; name: string; type: string; caseId?: string }
 interface ProjectOption { id: string; name: string; projectType: string; projectId?: string }
+
+/** 归属下拉的编码值：空 = 独立；`case:<id>` = 诉讼案件；`proj:<id>` = 非诉项目。 */
+type OwnerValue = '' | `case:${string}` | `proj:${string}`
 
 /** 统一 POST 并解包 { success, data|error }。 */
 async function post<T>(path: string, body: Record<string, unknown>): Promise<T> {
@@ -34,14 +33,8 @@ async function post<T>(path: string, body: Record<string, unknown>): Promise<T> 
   return env.data as T
 }
 
-const SOURCE_LABEL: Record<TaskSource, string> = {
-  standalone: '临时任务/日程',
-  litigation: '诉讼任务/日程',
-  nonlitigation: '非诉任务/日程',
-}
-
 export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
-  const [source, setSource] = React.useState<TaskSource>('standalone')
+  const [owner, setOwner] = React.useState<OwnerValue>('')
   const [itemType, setItemType] = React.useState<'event' | 'task' | 'both'>('task')
   const [title, setTitle] = React.useState('')
   const [detail, setDetail] = React.useState('')
@@ -50,14 +43,12 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
   const [priority, setPriority] = React.useState<'low' | 'medium' | 'high'>('medium')
   const [cases, setCases] = React.useState<CaseOption[]>([])
   const [projects, setProjects] = React.useState<ProjectOption[]>([])
-  const [caseId, setCaseId] = React.useState('')
-  const [projectId, setProjectId] = React.useState('')
   const [subtasks, setSubtasks] = React.useState<string[]>([])
   const [subtaskInput, setSubtaskInput] = React.useState('')
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState('')
 
-  // 加载案件 / 项目候选（供关联选择）。
+  // 加载案件 / 项目候选（供归属下拉使用）。
   React.useEffect(() => {
     let active = true
     void (async () => {
@@ -87,7 +78,7 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
     setSubtasks((prev) => prev.filter((_, i) => i !== index))
   }
 
-  const canSave = title.trim() !== '' && !busy && (source === 'standalone' || (source === 'litigation' ? caseId !== '' : projectId !== ''))
+  const canSave = title.trim() !== '' && !busy
 
   const save = async (): Promise<void> => {
     const t = title.trim()
@@ -100,16 +91,20 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
       const hasTime = deadlineTime.trim() !== '' && deadline !== ''
       const baseDetail = detail.trim()
       // 统一事项模型：写 /api/agentlex-item/item，type 分流（event/task/both）。
-      const ownerId = source === 'litigation' ? caseId : source === 'nonlitigation' ? projectId : ''
-      const ownerName = source === 'litigation'
-        ? cases.find((c) => c.id === caseId)?.name
-        : source === 'nonlitigation'
-          ? projects.find((p) => p.id === projectId)?.name
+      // 归属解码：case: → 诉讼案件；proj: → 非诉项目；空 → 独立。ownerType 必须
+      // 显式传（缺省时聚合层把非空 ownerId 当 litigation，项目任务会错归诉讼）。
+      const ownerId = owner.startsWith('case:') ? owner.slice(5) : owner.startsWith('proj:') ? owner.slice(5) : ''
+      const ownerType = owner.startsWith('case:') ? 'litigation' : owner.startsWith('proj:') ? 'nonlitigation' : 'standalone'
+      const ownerName = owner.startsWith('case:')
+        ? cases.find((c) => c.id === ownerId)?.name
+        : owner.startsWith('proj:')
+          ? projects.find((p) => p.id === ownerId)?.name
           : undefined
       // 子项拼进 subtasks（统一事项原生支持）。
       const subItems = subtasks.map((s) => ({ id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: s, done: false }))
       await post('/api/agentlex-item/item', {
         ownerId,
+        ownerType,
         ownerName,
         type: itemType,
         title: t,
@@ -122,7 +117,7 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
       // 重置表单。
       setTitle(''); setDetail(''); setDeadline(''); setDeadlineTime('09:00'); setPriority('medium')
       setSubtasks([]); setSubtaskInput(''); setItemType('task')
-      onSaved?.(`已新增${SOURCE_LABEL[source]}`)
+      onSaved?.('已新增任务/日程')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -130,56 +125,44 @@ export function MemoTaskTab({ onSaved }: MemoTaskTabProps): React.ReactElement {
     }
   }
 
+  const ownerLabel = (v: OwnerValue): string => {
+    if (v === '') return '独立任务/日程'
+    if (v.startsWith('case:')) {
+      const c = cases.find((x) => x.id === v.slice(5))
+      return c ? `案件 #${c.id} ${c.name}` : '诉讼案件'
+    }
+    if (v.startsWith('proj:')) {
+      const p = projects.find((x) => x.id === v.slice(5))
+      return p ? `项目 #${p.id} ${p.name}` : '非诉项目'
+    }
+    return '独立任务/日程'
+  }
+
   return (
     <div className="memo-task" data-agentlex-memo-root>
-      {/* 来源类型 */}
-      <div className="memo-task__source">
-        {(['standalone', 'litigation', 'nonlitigation'] as TaskSource[]).map((s) => (
-          <button
-            key={s}
-            type="button"
-            className={`memo-task__source-btn${source === s ? ' memo-task__source-btn--on' : ''}`}
-            onClick={() => setSource(s)}
-          >
-            {SOURCE_LABEL[s]}
-          </button>
-        ))}
-      </div>
-
-      {/* 事项类型（统一事项模型） */}
-      <div className="memo-task__source">
-        <span className="memo-task__label memo-task__label--inline">类型</span>
-        {(['task', 'event', 'both'] as Array<'event' | 'task' | 'both'>).map((tp) => (
-          <button
-            key={tp}
-            type="button"
-            className={`memo-task__source-btn${itemType === tp ? ' memo-task__source-btn--on' : ''}`}
-            onClick={() => setItemType(tp)}
-          >
-            {tp === 'task' ? '任务/日程' : tp === 'event' ? '日程' : '日程+任务'}
-          </button>
-        ))}
-      </div>
-
-      {/* 关联案件 / 项目 */}
-      {source === 'litigation' && (
-        <label className="memo-task__field">
-          <span className="memo-task__label">关联案件</span>
-          <select className="memo-task__select" value={caseId} onChange={(e) => setCaseId(e.target.value)}>
-            <option value="">选择案件…</option>
-            {cases.map((c) => <option key={c.id} value={c.id}>#{c.id} {c.name}</option>)}
+      {/* 归属（下拉单选：独立 / 案件 / 项目） + 事项类型 */}
+      <div className="memo-task__row">
+        <label className="memo-task__field memo-task__field--grow">
+          <span className="memo-task__label">归属</span>
+          <select className="memo-task__select" value={owner} onChange={(e) => setOwner(e.target.value as OwnerValue)}>
+            <option value="">独立任务/日程</option>
+            <optgroup label="诉讼案件">
+              {cases.map((c) => <option key={c.id} value={`case:${c.id}`}>案件 #{c.id} {c.name}</option>)}
+            </optgroup>
+            <optgroup label="非诉项目">
+              {projects.map((p) => <option key={p.id} value={`proj:${p.id}`}>项目 #{p.id} {p.name}</option>)}
+            </optgroup>
           </select>
         </label>
-      )}
-      {source === 'nonlitigation' && (
         <label className="memo-task__field">
-          <span className="memo-task__label">关联项目</span>
-          <select className="memo-task__select" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            <option value="">选择项目…</option>
-            {projects.map((p) => <option key={p.id} value={p.id}>#{p.id} {p.name}</option>)}
+          <span className="memo-task__label">类型</span>
+          <select className="memo-task__select" value={itemType} onChange={(e) => setItemType(e.target.value as 'event' | 'task' | 'both')}>
+            <option value="task">任务</option>
+            <option value="event">日程</option>
+            <option value="both">日程+任务</option>
           </select>
         </label>
-      )}
+      </div>
 
       {/* 标题 */}
       <label className="memo-task__field">

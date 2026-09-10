@@ -17,7 +17,7 @@ import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
-import { cp, mkdir, readdir, rm } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,7 +33,7 @@ import { nowIso } from './store/id.ts'
 import type { TimelineEvent } from './store/types.ts'
 import { defaultSourcePath, importFromAgentLex } from './import/agentlex-migrate.ts'
 import { makeRoutes } from './routes.ts'
-import { syncEventToAppleCalendar, removeAppleCalendarEvent } from '../calendar-sync/index.ts'
+import { syncEventToAppleCalendar, removeAppleCalendarEvent, listAppleCalendars } from '../calendar-sync/index.ts'
 import { registerLitigationHttpTool } from './tools.ts'
 import { installSettingsSection } from '../../shared/settings-adapter.ts'
 import {
@@ -118,6 +118,47 @@ export function resolveDataDir(configured?: string): string {
   const os = process.platform === 'win32' ? 'USERPROFILE' : 'HOME'
   const userHome = process.env[os] ?? '.'
   return `${userHome}/.dsh/agentlex/litigation`
+}
+
+/**
+ * 从 detail 自然语言里提取具体时间（HH:MM），无则 undefined。
+ * 与任务面板 extractTimeFromDetail 同规则：开庭/会议等日程的 items 可能只存了
+ * 纯日期（date），具体时间写在 detail（如「14:45 济南市历下区人民法院…」、
+ * 「09:00 第十三审判法庭」）。同步到 Apple 日历前先尝试提取，提取到就用具体
+ * 时间（不做全天），提取不到才按全天处理（用户反馈 2026-09-09：开庭/会议
+ * 有明确时间点的不该是全天）。
+ */
+export function extractTimeFromDetail(detail: string | undefined): string | undefined {
+  if (detail === undefined || detail === '') return undefined
+  const text = detail.trim()
+  // 冒号格式 HH:MM（如「14:45 济南市…」）。
+  const colon = /(?:^|[^0-9])(\d{1,2}):(\d{2})(?:[^0-9]|$)/.exec(text)
+  if (colon !== null) {
+    const h = Number(colon[1])
+    const min = Number(colon[2])
+    if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+    }
+  }
+  // 中文格式（如「下午3点10分」「9点半」）。
+  const cn = /(?:下午|晚上|上午|早上|凌晨)?(\d{1,2})\s*[点时]\s*((?:\d{1,2}\s*分?)|半)?/.exec(text)
+  if (cn !== null) {
+    let h = Number(cn[1])
+    let min = 0
+    if (cn[2] !== undefined && cn[2] !== '') {
+      if (cn[2] === '半') min = 30
+      else {
+        const minNum = Number(cn[2].replace(/分/g, '').trim())
+        if (!Number.isNaN(minNum)) min = minNum
+      }
+    }
+    if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+      if (/下午|晚上/.test(text) && h < 12) h += 12
+      if (/凌晨/.test(text) && h === 12) h = 0
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+    }
+  }
+  return undefined
 }
 
 /**
@@ -432,17 +473,22 @@ export function apply(ctx: Context, config: Config = {}): void {
     }))
     // Apple 日历同步：监听统一事项的日程变更（诉讼/非诉/独立的事件与任务），
     // 建立/更新时写 Apple 日历，删除时删 Apple 事件。监听常驻，handler 内检查开关。
-    disposers.push(ctx.on('agentlex:calendar-sync' as keyof Events, (item: { id: string; title?: string; ownerId?: string; date?: string; time?: string; detail?: string; type?: string }) => {
+    disposers.push(ctx.on('agentlex:calendar-sync' as keyof Events, (item: { id: string; title?: string; ownerId?: string; ownerName?: string; date?: string; time?: string; detail?: string; type?: string }) => {
       if (current().calendarSyncEnabled !== true) return
       if (item.date === undefined) return
       // 同步范围：事件 / 带日期任务，按 type 检查对应开关。
       if (item.type === 'event' && current().calendarSyncEvents !== true) return
       if (item.type === 'task' && current().calendarSyncTasks !== true) return
+      // 标题用案件/项目名（优先 item.ownerName，缺失时回退编号兜底）。
+      const ownerLabel = item.ownerName ?? (item.ownerId !== undefined && item.ownerId !== '' ? item.ownerId : '')
+      // 时间：优先 item.time；缺失时从 detail 提取（开庭/会议等日程的明确时间点
+      // 常写在 detail 里）——提取到就用具体时间，不做全天。
+      const resolvedTime = item.time ?? extractTimeFromDetail(item.detail)
       void syncEventToAppleCalendar({
         itemId: item.id,
-        title: `${item.title ?? '日程'}${item.ownerId !== undefined && item.ownerId !== '' ? ` - ${item.ownerId}` : ''}`,
+        title: `${item.title ?? '日程'}${ownerLabel !== '' ? ` - ${ownerLabel}` : ''}`,
         date: item.date,
-        time: item.time,
+        time: resolvedTime,
         detail: item.detail,
         calendarName: current().calendarName ?? '个人',
       })
@@ -450,6 +496,103 @@ export function apply(ctx: Context, config: Config = {}): void {
     disposers.push(ctx.on('agentlex:calendar-sync-delete' as keyof Events, (payload: { id: string }) => {
       if (current().calendarSyncEnabled !== true) return
       void removeAppleCalendarEvent(payload.id)
+    }))
+    // 列出 Apple 日历（设置页选同步目标用；只返回可写日历，用户反馈 2026-09-09）。
+    disposers.push(ctx.webServer.register({
+      kind: 'exact',
+      path: '/api/agentlex-case/calendars',
+      handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+        try {
+          const calendars = await listAppleCalendars()
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({ success: true, data: { calendars, current: current().calendarName ?? '个人' } }))
+        } catch (error) {
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          }))
+        }
+      },
+    }))
+    // 备忘 #27：手动同步 Apple 日历（设置页按钮触发）。遍历 items.json 中所有带日期的
+    // 日程/任务，按设置里选定的同步范围（事件 / 带日期任务）逐条 upsert 到 Apple 日历。
+    // syncEventToAppleCalendar 按 itemId→uid 幂等——已同步的走更新，不会重复创建；
+    // 此前漏同步的（如同步功能上线前建的日程）这次补上。
+    // 只同步「今天及以后」的日程：过去的日程同步进日历毫无意义（用户实测反馈 2026-09-09），
+    // 手动同步的定位是查漏补缺未来日程，不是把历史日程灌进日历。
+    disposers.push(ctx.webServer.register({
+      kind: 'exact',
+      path: '/api/agentlex-case/calendar-resync',
+      handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+        try {
+          if (current().calendarSyncEnabled !== true) {
+            res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+            res.end(JSON.stringify({ success: true, data: { enabled: false, message: '日历同步未开启，请在设置中先打开' } }))
+            return
+          }
+          const items = await itemStore.listItems()
+          const syncEvents = current().calendarSyncEvents === true
+          const syncTasks = current().calendarSyncTasks === true
+          const todayStr = new Date().toISOString().slice(0, 10)
+          // 标题用案件/项目名而非编号（用户反馈 2026-09-09：日历里只有编号不好认）。
+          // 构建 ownerId → 名称 查找表：诉讼从 caseStore，非诉从 project-registry.json。
+          const ownerNameById = new Map<string, string>()
+          try {
+            const caseReg = await caseStore.readRegistry()
+            for (const [id, c] of Object.entries(caseReg.cases ?? {})) {
+              if (c?.name) ownerNameById.set(id, c.name)
+            }
+          } catch { /* 案件名补全失败不阻塞同步 */ }
+          try {
+            const projDir = join(resolveDataDir(), '..', 'nonlitigation')
+            const projRaw = await readFile(join(projDir, 'project-registry.json'), 'utf8')
+            const projReg = JSON.parse(projRaw) as { projects?: Record<string, { name?: string }> }
+            for (const [id, p] of Object.entries(projReg.projects ?? {})) {
+              if (p?.name) ownerNameById.set(id, p.name)
+            }
+          } catch { /* 项目名补全失败不阻塞同步 */ }
+          let synced = 0
+          let failed = 0
+          let skipped = 0
+          for (const it of items) {
+            if (it.date === undefined || it.date === null || it.date === '') { skipped++; continue }
+            // 只同步今天及以后的日程（过去的日程不同步进日历）。
+            if (it.date < todayStr) { skipped++; continue }
+            // 同步范围：events 开关覆盖 event/both；tasks 开关覆盖 task/both。
+            const isEvent = it.type === 'event' || it.type === 'both'
+            const isTask = it.type === 'task' || it.type === 'both'
+            if (!(isEvent && syncEvents) && !(isTask && syncTasks)) { skipped++; continue }
+            // 标题：事项名 + 案件/项目名（优先 item.ownerName，其次查找表，最后编号兜底）。
+            const ownerLabel = it.ownerName ?? (it.ownerId !== undefined && it.ownerId !== '' ? (ownerNameById.get(it.ownerId) ?? it.ownerId) : '')
+            // 时间：优先 item.time；缺失时从 detail 提取（开庭/会议等日程的明确时间点
+            // 常写在 detail 里，如「14:45 济南市历下区人民法院…」）——提取到就用具体
+            // 时间，不做全天（用户反馈 2026-09-09）。
+            const resolvedTime = it.time ?? extractTimeFromDetail(it.detail)
+            const uid = await syncEventToAppleCalendar({
+              itemId: it.id,
+              title: `${it.title ?? '日程'}${ownerLabel !== '' ? ` - ${ownerLabel}` : ''}`,
+              date: it.date,
+              time: resolvedTime,
+              detail: it.detail,
+              calendarName: current().calendarName ?? '个人',
+            })
+            if (uid !== null) synced++
+            else failed++
+          }
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({
+            success: true,
+            data: { enabled: true, total: items.length, synced, failed, skipped },
+          }))
+        } catch (error) {
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          }))
+        }
+      },
     }))
     disposers.push(makeRoutes(ctx, {
       caseStore,

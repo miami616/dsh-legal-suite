@@ -12,11 +12,15 @@ import { ToastProvider } from '@/components/Toast'
 import TaskManager from '@/pages/TaskManager'
 import '@/i18n'
 import { injectOriginalStyles } from '../../../shared/original-styles'
+import { useColorScheme } from '../../../shared/color-scheme.ts'
 
 export function OriginalTaskPanel(): React.JSX.Element {
   useEffect(() => {
     injectOriginalStyles()
   }, [])
+
+  // Follow the DSH palette (the vendored theme owns the dark token set).
+  const scheme = useColorScheme()
 
   return (
     <ImagePreviewProvider>
@@ -24,7 +28,7 @@ export function OriginalTaskPanel(): React.JSX.Element {
         <div
           className="agentlex-original-root"
           data-theme-id="myagents-default"
-          data-color-scheme="light"
+          data-color-scheme={scheme}
           style={{ height: '100%', width: '100%', overflow: 'hidden', background: 'var(--paper, #faf6ee)' }}
         >
           <TaskManager

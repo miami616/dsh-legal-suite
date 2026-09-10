@@ -46,14 +46,14 @@ export default memo(function CaseTimeline({ events, onEdit, onDelete }: CaseTime
 
   if (!sorted.length) return (
     <section className="space-y-2">
-      <h2 className="text-xs font-semibold tracking-widest uppercase text-[var(--ink-muted)] opacity-60">办案时间轴</h2>
+      <h2 className="text-sm font-bold text-[var(--ink)]">办案时间轴</h2>
       <p className="text-xs text-[var(--ink-muted)]">暂无已发生节点</p>
     </section>
   );
 
   return (
     <section className="space-y-2">
-      <h2 className="text-xs font-semibold tracking-widest uppercase text-[var(--ink-muted)] opacity-60">办案时间轴</h2>
+      <h2 className="text-sm font-bold text-[var(--ink)]">办案时间轴</h2>
       <div className="relative pl-6 border-l-2 border-[var(--paper-inset)] space-y-0">
         {sorted.map((e, i) => {
           const last = i === sorted.length - 1;

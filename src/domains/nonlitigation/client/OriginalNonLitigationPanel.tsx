@@ -13,6 +13,7 @@ import NonLitigationManager from '@/pages/NonLitigationManager'
 import { useAgentLex } from '@/hooks/useAgentLex'
 import '@/i18n'
 import { injectOriginalStyles } from '../../../shared/original-styles'
+import { useColorScheme } from '../../../shared/color-scheme.ts'
 
 export interface OriginalNonLitigationPanelProps {
   launchManager: (opts?: { context?: string; projectName?: string; existingSessionId?: string; onLaunched?: (sessionId: string) => void }) => Promise<string | undefined>
@@ -25,6 +26,8 @@ export interface OriginalNonLitigationPanelProps {
 export function OriginalNonLitigationPanel({ launchManager, onClose, getArchivedSessionIds }: OriginalNonLitigationPanelProps): React.JSX.Element {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const { projects, bindProjectSession } = useAgentLex()
+  // Follow the DSH palette (the vendored theme owns the dark token set).
+  const scheme = useColorScheme()
 
   useEffect(() => {
     injectOriginalStyles()
@@ -57,7 +60,7 @@ export function OriginalNonLitigationPanel({ launchManager, onClose, getArchived
         <div
           className="agentlex-original-root"
           data-theme-id="myagents-default"
-          data-color-scheme="light"
+          data-color-scheme={scheme}
           style={{ height: '100%', width: '100%', overflow: 'hidden', background: 'var(--paper, #faf6ee)' }}
         >
           <NonLitigationManager

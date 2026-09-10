@@ -4,7 +4,7 @@
  * 复用共享的 sidebar-entry-core 注入逻辑；行属性 data-agentlex-skills-entry
  * 不在皮肤侧栏组的收纳清单内，保持为 AGENTLEX 组的兄弟行（组下方）。
  */
-import { mountSidebarEntry as mountSharedSidebarEntry } from './sidebar-entry-core.ts'
+import { mountSidebarEntry as mountSharedSidebarEntry } from '../../../shared/sidebar-entry-core.ts'
 import css from './skills-tools.module.css'
 
 /** 稳定 data 属性标识注入的入口行。 */

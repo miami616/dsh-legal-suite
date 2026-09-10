@@ -113,7 +113,7 @@ export default memo(function ServiceLog({ entries }: ServiceLogProps) {
 
   return (
     <section className="space-y-2">
-      <h2 className="text-xs font-semibold tracking-widest uppercase text-[var(--ink-muted)] opacity-60">服务日志</h2>
+      <h2 className="text-sm font-bold text-[var(--ink)]">服务日志</h2>
       <div className="relative pl-5 border-l-2 border-[var(--paper-inset)] space-y-0">
         {tree.result.map(({ main, children }) => {
           const isRecent = now - main.ts < HOUR_MS;

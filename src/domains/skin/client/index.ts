@@ -17,6 +17,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { AgentLexBrandMark, AgentLexBrandName, AgentLexHeroMark } from './brand.tsx'
+import { HERO_BRAND_CSS } from './hero-brand.ts'
 import { AGENTLEX_THEME_TOKENS } from './theme.ts'
 import { AGENTLEX_SIDEBAR_CSS } from './sidebar.css.ts'
 import { CONVERSATION_TYPOGRAPHY_CSS, CONVERSATION_ENHANCE_CSS, CONVERSATION_TITLE_CSS } from './conversation-typography.ts'
@@ -26,6 +27,7 @@ import { CENTER_CARD_CSS, mountCenterCard } from './center-card.tsx'
 import { setupTurnDataSource, emptyTurnDataSource, type TurnDataSource } from './conversation-turn-data.ts'
 import { injectInlineCodeWbr } from './conversation-inline-code.ts'
 import { BUSINESS_MODULES_CSS } from './business-modules.ts'
+import { isDarkScheme } from '../../../shared/color-scheme.ts'
 import { mountAgentLexSidebarGroup } from './sidebar-group.ts'
 import { buildThemesCss, findTheme, DEFAULT_THEME_KEY } from './themes.ts'
 import { getSkinConfig, guardStoredBrand, initThemeFromStorage, loadSkinConfig, restoreBrandFromStorage, setSkinConfig, subscribe as subscribeSkinConfig, type AgentLexSkinConfig } from './config.ts'
@@ -257,7 +259,7 @@ export function apply(ctx: ClientContext): void {
   const applyLitVars = (): void => {
     const key = getSkinConfig().theme || DEFAULT_THEME_KEY
     const def = findTheme(key)
-    const dark = document.documentElement.hasAttribute('data-ds-dark-theme')
+    const dark = isDarkScheme()
     const vars = dark ? def.litDark : def.litLight
     const root = document.documentElement
     for (const [k, v] of Object.entries(vars)) {
@@ -290,9 +292,13 @@ export function apply(ctx: ClientContext): void {
     try {
       skinDisposers.push(injectStyle('themes', buildThemesCss()))
       applyTheme()
-      // 深浅色切换时刷新内联 lit 变量（body[data-ds-dark-theme] 由 DSH 管理）
+      // 深浅色切换时刷新内联 lit 变量。DSH 的主题呈现器把 `data-ds-dark-theme`
+      // 打在 body 上（老版本打在 html），所以两处都要观察，否则深色下 lit 变量
+      // 仍是浅色调色板，业务模块会出现「深色卡片 + 浅色文字」的错配。
       darkObserver = new MutationObserver(() => applyLitVars())
       darkObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+      if (document.body) darkObserver.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+      skinDisposers.push(injectStyle('hero-brand', HERO_BRAND_CSS))
       skinDisposers.push(injectStyle('sidebar', AGENTLEX_SIDEBAR_CSS))
       skinDisposers.push(injectStyle('business', BUSINESS_MODULES_CSS))
       skinDisposers.push(mountAgentLexSidebarGroup())

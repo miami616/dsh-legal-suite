@@ -14,6 +14,7 @@ import CaseManager from '@/pages/CaseManager'
 import { useAgentLex, type CaseEntry } from '@/hooks/useAgentLex'
 import '@/i18n'
 import { injectOriginalStyles } from '../../../shared/original-styles'
+import { useColorScheme } from '../../../shared/color-scheme.ts'
 import type { PanelController } from './controller.ts'
 
 interface OriginalLitigationPanelProps {
@@ -39,6 +40,8 @@ interface OriginalLitigationPanelProps {
 export function OriginalLitigationPanel({ launchManager, onClose, openCaseFolder, getArchivedSessionIds, controller, initialSelectedCaseId = null }: OriginalLitigationPanelProps): React.JSX.Element {
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(initialSelectedCaseId)
   const { bindSession } = useAgentLex()
+  // Follow the DSH palette (the vendored theme owns the dark token set).
+  const scheme = useColorScheme()
 
   useEffect(() => {
     injectOriginalStyles()
@@ -127,7 +130,7 @@ export function OriginalLitigationPanel({ launchManager, onClose, openCaseFolder
   return (
     <ImagePreviewProvider>
       <ToastProvider>
-        <div className="agentlex-original-root" data-theme-id="myagents-default" data-color-scheme="light" style={{ height: '100%', width: '100%', overflow: 'hidden', background: 'var(--paper, #faf6ee)' }}>
+        <div className="agentlex-original-root" data-theme-id="myagents-default" data-color-scheme={scheme} style={{ height: '100%', width: '100%', overflow: 'hidden', background: 'var(--paper, #faf6ee)' }}>
           <CaseManager
             isActive
             selectedCaseId={selectedCaseId}

@@ -1385,6 +1385,21 @@ async function unbindSession(sessionId: string): Promise<void> {
  * fetch wiping every binding. */
 async function pruneStaleSessions(validSessionIds: Set<string>): Promise<void> {
   if (validSessionIds.size === 0) return;
+
+  // 上下文保护（2026-09-10 数据事故）：本客户端「可见的会话」只覆盖当前工作区，
+  // 而案件/项目的绑定可能属于**其它**工作区。若一条绑定都对不上，说明拿到的是错的
+  // 会话全集，此时「清理过期绑定」会把全部绑定清空——事故里测试实例就这样把 55 条
+  // 案件-会话绑定全剪掉了。一条都对不上不是「全部过期」，是上下文不对，直接跳过。
+  const boundIds = [
+    ...state.cases.flatMap(c => (c.boundSessions ?? []).map(b => b.sessionId)),
+    ...state.projects.flatMap(p => (p.boundSessions ?? []).map(b => b.sessionId)),
+  ];
+  if (boundIds.length > 0 && !boundIds.some(id => validSessionIds.has(id))) {
+    console.warn('[agentlex] pruneStaleSessions 已跳过：当前可见会话里没有任何一条绑定会话，'
+      + '疑似不在绑定所属的工作区上下文，拒绝清理（避免误删全部绑定）。');
+    return;
+  }
+
   await rewriteBoundSessions(sid => validSessionIds.has(sid));
   // Also prune project bound sessions
   const projectAffected = state.projects.filter(p =>

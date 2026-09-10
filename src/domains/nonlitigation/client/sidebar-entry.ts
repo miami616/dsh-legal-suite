@@ -4,7 +4,7 @@
 import type { PanelController } from './controller.ts'
 import { tt } from './i18n.ts'
 import css from './panel.module.css'
-import { mountSidebarEntry as mountSharedSidebarEntry } from './sidebar-entry-core.ts'
+import { mountSidebarEntry as mountSharedSidebarEntry } from '../../../shared/sidebar-entry-core.ts'
 
 export const ENTRY_SELECTOR = '[data-dsh-nonlitigation-entry]'
 

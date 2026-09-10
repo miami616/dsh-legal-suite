@@ -691,7 +691,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
     );
   }
 
-  const sectionTitle = 'text-sm font-bold tracking-widest uppercase text-[var(--ink)]';
+  const sectionTitle = 'text-sm font-bold text-[var(--ink)]';
 
   // ── Masthead 计算（阵营语义：我方=与 ourSide 同侧的所有主体；对方=对侧） ──
   const caseIdDash = entry.caseId.indexOf('-');

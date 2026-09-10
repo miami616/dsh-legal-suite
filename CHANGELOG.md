@@ -1,5 +1,17 @@
 # Changelog
 
+## 未发布（0.2.x 待定版号）
+
+### 前端：只留一套面板 + 深色模式接线（视觉一律不动）
+
+> 说明：本版曾尝试重做三业务模块的卡面/配色/标签体系，**用户看过全部否决，已完整还原到原版观感**。
+> 下面只列最终保留的、肉眼看不见的改动。
+
+- **删除被取代的原生重复面板实现**：三个业务模块早已统一挂载原 AgentLex（`vendor/panel-ui`）渲染层，原生那套已无人引用，删除 `task/client/TaskPanel.tsx`、`TaskDetailDrawer.tsx`、`mobile.module.css`、`use-mobile.ts`、`api.ts`、`nonlitigation/client/board.module.css`（含 `api.ts` / `format.ts` / `project-taxonomy.ts`）、`litigation/client/{case-format,case-taxonomy,party}.ts`、`litigation/client/detail/{tasktree,timeline}.module.css`、`skin/client/embed.ts` 及 3 个空目录；5 份完全相同的 `sidebar-entry-core.ts`（168 行/份）合并为 `src/shared/sidebar-entry-core.ts`。三个 `panel.module.css` **保持原样不动**（里面承载着不含类名的全局激活规则，见下方事故记录）。
+- **深色模式接线**（浅色下零差异）：三个 `Original*Panel` 原本写死 `data-color-scheme="light"`，改为 `useColorScheme()`（`src/shared/color-scheme.ts`）跟随 DSH 的 `data-ds-dark-theme`（同时观察 `html` 与 `body`）；皮肤侧 `applyLitVars` 同样补上 body 观察，避免深色下 `--lit-*` 仍是浅色导致「深卡片 + 深字」。
+- **新增防回归脚本** `scripts/verify-ui-consistency.mjs`：只断言结构与接线（面板激活规则仍在 / 只保留 vendor 一套面板 / 深色接线在位），**不断言任何视觉设计**。`node scripts/verify-ui-consistency.mjs`，1 秒跑完，失败退出码 1。
+- ⚠️ **事故记录（务必保留）**：曾按「未引用类名」脚本剪枝三个 `panel.module.css`，把同一文件里**不含类名的全局规则**（`[data-dsh-*-view]{display:none}`、`html[data-dsh-*-active] …{display:block}`、会话列隐藏、`:root` 的 `--lit-*` token 块）当死代码删掉，三个侧栏入口点击毫无反应（面板 `display` 永远 none）。已 `git checkout` 还原；这些文件不再脚本化清理。
+
 ## 0.2.10（2026-09-10）
 
 ### 适配 DSH 0.1.5-rc.1：会话区 data-slot 变更（conversation → main.conversation）

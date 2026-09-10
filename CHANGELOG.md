@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.10（2026-09-10）
+
+### 适配 DSH 0.1.5-rc.1：会话区 data-slot 变更（conversation → main.conversation）
+
+- **根因**：0.1.5-rc.1 将顶层 `conversation` slot 迁移为 `main.conversation`，slot 渲染器注入的 `data-slot` 从 `"conversation"` 变为 `"main.conversation"`，皮肤 CSS 的 164 处 `[data-slot="conversation"]` 锚点（轮次导航 / 会话排版 / 会话头部 / 行内代码 / 侧栏会话区样式）全部失效，导航条美化等不生效。
+- **修复**：全部改为 `:is([data-slot="conversation"], [data-slot="main.conversation"])` 双锚点（含 3 处 JS querySelector），兼容 0.1.3 与 0.1.5；子 slot（`conversation.session` / `conversation.session.header` / `conversation.composer.bar`）data-slot 值不变，未动。
+- 已在 3081 测试实例（0.1.5-rc.1）目测验证通过。
+
 ## 0.2.9（2026-09-10）
 
 ### 期限提醒自包含化（不再依赖 dsh-timer-agent / dsh-im）

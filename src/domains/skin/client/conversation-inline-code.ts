@@ -44,7 +44,7 @@ function splitWithWbr(el: Element, text: string): void {
 /** 处理会话区内所有未处理/内容变化的行内代码。 */
 function processInlineCode(root: ParentNode): void {
   const codes = root.querySelectorAll(
-    '[data-slot="conversation"] [class$="_body"] :not(pre) > code',
+    ':is([data-slot="conversation"], [data-slot="main.conversation"]) [class$="_body"] :not(pre) > code',
   )
   codes.forEach((el) => {
     const text = el.textContent ?? ''

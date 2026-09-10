@@ -26,7 +26,7 @@
  */
 /** 圆角卡片 CSS：html.agentlex-center-card-on 门控（独立于 harmonizer）。 */
 export const CENTER_CARD_CSS = `
-html.agentlex-center-card-on div:has(>[data-slot="conversation"]) {
+html.agentlex-center-card-on div:has(>:is([data-slot="conversation"], [data-slot="main.conversation"])) {
   border-radius: 18px 0 0;
 }
 html.agentlex-center-card-on .agentlex-center-card {
@@ -63,7 +63,7 @@ const TOP_SHIM = 1
  * display:contents）是它的直接 DOM 子节点——哈希无关的稳定接缝。
  */
 function findCenterColumn(): HTMLElement | null {
-  const slot = document.querySelector('[data-slot="conversation"]')
+  const slot = document.querySelector(':is([data-slot="conversation"], [data-slot="main.conversation"])')
   if (slot === null) return null
   return slot.parentElement
 }

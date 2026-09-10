@@ -40,8 +40,8 @@ import { statusLabel } from './conversation-turn-data.ts'
 /** 轨迹导航美化 + 左右切换规则。 */
 export const CONVERSATION_NAV_CSS = `
 /* ============ 轨道（nav.frame）：透明，去掉背景块/圆角/阴影 ============ */
-[data-slot="conversation"] nav[aria-label="Turn navigation"],
-[data-slot="conversation"] nav[aria-label="轮次导航"] {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"],
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] {
   background: transparent !important;
   border-radius: 0 !important;
   box-shadow: none !important;
@@ -51,8 +51,8 @@ export const CONVERSATION_NAV_CSS = `
 /* ============ 标记（mark）：细短横，低对比，悬停变宽 ============ */
 /* 原生 mark 按钮 pointer-events:none，悬停落在父级 markPosition 上，
  * 因此悬停/波动选择器都挂在 markPosition（结构选择器，哈希无关）。 */
-[data-slot="conversation"] nav[aria-label="Turn navigation"] button::before,
-[data-slot="conversation"] nav[aria-label="轮次导航"] button::before {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] button::before {
   width: 9px;
   height: 3px;
   background: var(--dsw-alias-label-tertiary, #aeb3bf);
@@ -60,10 +60,10 @@ export const CONVERSATION_NAV_CSS = `
   border-radius: 2px;
   transition: opacity 0.12s, width 0.12s, background-color 0.12s;
 }
-[data-slot="conversation"] nav[aria-label="Turn navigation"] > div:first-child > div > div:hover button::before,
-[data-slot="conversation"] nav[aria-label="轮次导航"] > div:first-child > div > div:hover button::before,
-[data-slot="conversation"] nav[aria-label="Turn navigation"] > div:first-child > div > div:focus-within button::before,
-[data-slot="conversation"] nav[aria-label="轮次导航"] > div:first-child > div > div:focus-within button::before {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:hover button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:hover button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:focus-within button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:focus-within button::before {
   opacity: 0.9;
   width: 39px;
   background: var(--dsw-alias-label-primary, #191b1f);
@@ -71,32 +71,32 @@ export const CONVERSATION_NAV_CSS = `
 
 /* ============ 分级波动（codex 风格）：悬停标记 39px，邻近 30/21/15px ============ */
 /* 原生 markPosition 是 DOM 兄弟，用 :has() 做相邻波动（与哈希无关）。 */
-[data-slot="conversation"] nav[aria-label="Turn navigation"] > div:first-child > div > div:has(+ div:hover) button::before,
-[data-slot="conversation"] nav[aria-label="轮次导航"] > div:first-child > div > div:has(+ div:hover) button::before,
-[data-slot="conversation"] nav[aria-label="Turn navigation"] > div:first-child > div > div:hover + div button::before,
-[data-slot="conversation"] nav[aria-label="轮次导航"] > div:first-child > div > div:hover + div button::before {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:has(+ div:hover) button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:has(+ div:hover) button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:hover + div button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:hover + div button::before {
   width: 30px;
 }
-[data-slot="conversation"] nav[aria-label="Turn navigation"] > div:first-child > div > div:has(+ div + div:hover) button::before,
-[data-slot="conversation"] nav[aria-label="轮次导航"] > div:first-child > div > div:has(+ div + div:hover) button::before,
-[data-slot="conversation"] nav[aria-label="Turn navigation"] > div:first-child > div > div:hover + div + div button::before,
-[data-slot="conversation"] nav[aria-label="轮次导航"] > div:first-child > div > div:hover + div + div button::before {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:has(+ div + div:hover) button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:has(+ div + div:hover) button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:hover + div + div button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:hover + div + div button::before {
   width: 21px;
 }
-[data-slot="conversation"] nav[aria-label="Turn navigation"] > div:first-child > div > div:has(+ div + div + div:hover) button::before,
-[data-slot="conversation"] nav[aria-label="轮次导航"] > div:first-child > div > div:has(+ div + div + div:hover) button::before,
-[data-slot="conversation"] nav[aria-label="Turn navigation"] > div:first-child > div > div:hover + div + div + div button::before,
-[data-slot="conversation"] nav[aria-label="轮次导航"] > div:first-child > div > div:hover + div + div + div button::before {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:has(+ div + div + div:hover) button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:has(+ div + div + div:hover) button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:hover + div + div + div button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:hover + div + div + div button::before {
   width: 15px;
 }
 
 /* ============ 当前回合：主文字色（非主题色），加粗但不过长 ============ */
 /* 原生用 markActive 类标记当前回合（CSS Modules 后缀 _markActive），
  * 同时带 aria-current="true"。用类后缀匹配（哈希无关）。 */
-[data-slot="conversation"] nav[aria-label="Turn navigation"] button[class$="_markActive"]::before,
-[data-slot="conversation"] nav[aria-label="轮次导航"] button[class$="_markActive"]::before,
-[data-slot="conversation"] nav[aria-label="Turn navigation"] button[aria-current="true"]::before,
-[data-slot="conversation"] nav[aria-label="轮次导航"] button[aria-current="true"]::before {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] button[class$="_markActive"]::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] button[class$="_markActive"]::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] button[aria-current="true"]::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] button[aria-current="true"]::before {
   background: var(--dsw-alias-label-primary, #191b1f);
   opacity: 0.55;
   width: 9px;
@@ -107,8 +107,8 @@ export const CONVERSATION_NAV_CSS = `
  * 不再覆盖背景色（保持原生 bg-layer-1），只增强内容布局。 ============ */
 
 /* ============ 预览卡元信息行（JS 注入）：位置 + 时间 + 状态 ============ */
-[data-slot="conversation"] nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-meta],
-[data-slot="conversation"] nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-meta] {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-meta],
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-meta] {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -117,33 +117,33 @@ export const CONVERSATION_NAV_CSS = `
   font-size: 12px;
   line-height: 18px;
 }
-[data-slot="conversation"] nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-meta] strong,
-[data-slot="conversation"] nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-meta] strong {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-meta] strong,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-meta] strong {
   color: var(--dsw-alias-label-primary, #191b1f);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-[data-slot="conversation"] nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-time],
-[data-slot="conversation"] nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-time] {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-time],
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-time] {
   font-variant-numeric: tabular-nums;
 }
 /* 状态颜色：与参考插件一致（进行中 brand / 已完成 success） */
-[data-slot="conversation"] nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-status],
-[data-slot="conversation"] nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-status] {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-status],
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-status] {
   font-variant-numeric: tabular-nums;
 }
-[data-slot="conversation"] nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-status="open"],
-[data-slot="conversation"] nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-status="open"] {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-status="open"],
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-status="open"] {
   color: var(--dsw-alias-brand-primary, #4a6cf7);
 }
-[data-slot="conversation"] nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-status="closed"],
-[data-slot="conversation"] nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-status="closed"] {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-status="closed"],
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-status="closed"] {
   color: var(--dsw-alias-state-success-primary, #2e7d32);
 }
 
 /* ============ 预览卡性能指标行（JS 注入）：TTFT · tok/s ============ */
-[data-slot="conversation"] nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-metrics],
-[data-slot="conversation"] nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-metrics] {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] [role="tooltip"] [data-agentlex-nav-metrics],
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] [role="tooltip"] [data-agentlex-nav-metrics] {
   color: var(--dsw-alias-label-secondary, #5c6370);
   font-size: 12px;
   line-height: 18px;
@@ -152,8 +152,8 @@ export const CONVERSATION_NAV_CSS = `
 }
 
 /* ============ 预览卡 prompt/response：两行摘要（codex 风格） ============ */
-[data-slot="conversation"] nav[aria-label="Turn navigation"] [role="tooltip"] > div:not([data-agentlex-nav-meta]):not([data-agentlex-nav-metrics]),
-[data-slot="conversation"] nav[aria-label="轮次导航"] [role="tooltip"] > div:not([data-agentlex-nav-meta]):not([data-agentlex-nav-metrics]) {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] [role="tooltip"] > div:not([data-agentlex-nav-meta]):not([data-agentlex-nav-metrics]),
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] [role="tooltip"] > div:not([data-agentlex-nav-meta]):not([data-agentlex-nav-metrics]) {
   white-space: pre-line;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -163,35 +163,35 @@ export const CONVERSATION_NAV_CSS = `
 }
 
 /* ============ 左右切换：原生用 right 定位，覆盖为 left 即切到左侧 ============ */
-[data-slot="conversation"] nav[aria-label="Turn navigation"][data-agentlex-nav="left"],
-[data-slot="conversation"] nav[aria-label="轮次导航"][data-agentlex-nav="left"] {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"][data-agentlex-nav="left"],
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"][data-agentlex-nav="left"] {
   right: auto;
   left: calc(12px - (var(--dsh-composer-side-clearance, 16px) + 16px));
 }
-[data-slot="conversation"] nav[aria-label="Turn navigation"][data-agentlex-nav="right"],
-[data-slot="conversation"] nav[aria-label="轮次导航"][data-agentlex-nav="right"] {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"][data-agentlex-nav="right"],
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"][data-agentlex-nav="right"] {
   left: auto;
   right: calc(12px - (var(--dsh-composer-side-clearance, 16px) + 16px));
 }
 
 /* ============ 预览卡方向适配：右侧轨道→预览卡在左；左侧轨道→预览卡在右 ============ */
 /* 右侧轨道（默认）：预览卡在轨道左侧弹出（原生 right 定位） */
-[data-slot="conversation"] nav[aria-label="Turn navigation"][data-agentlex-nav="right"] [role="tooltip"],
-[data-slot="conversation"] nav[aria-label="轮次导航"][data-agentlex-nav="right"] [role="tooltip"] {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"][data-agentlex-nav="right"] [role="tooltip"],
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"][data-agentlex-nav="right"] [role="tooltip"] {
   right: calc(100% + 10px);
   left: auto;
 }
 /* 左侧轨道：预览卡在轨道右侧弹出（避免被左侧边栏遮住） */
-[data-slot="conversation"] nav[aria-label="Turn navigation"][data-agentlex-nav="left"] [role="tooltip"],
-[data-slot="conversation"] nav[aria-label="轮次导航"][data-agentlex-nav="left"] [role="tooltip"] {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"][data-agentlex-nav="left"] [role="tooltip"],
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"][data-agentlex-nav="left"] [role="tooltip"] {
   left: calc(100% + 10px);
   right: auto;
 }
 
 /* ============ 窄屏隐藏（与原生一致，避免挤占正文） ============ */
 @media (max-width: 900px) {
-  [data-slot="conversation"] nav[aria-label="Turn navigation"],
-  [data-slot="conversation"] nav[aria-label="轮次导航"] {
+  :is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"],
+  :is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] {
     display: none;
   }
 }
@@ -227,7 +227,7 @@ export function mountConversationNav(
 
   /** 找到会话区域内的 TurnNavigator nav 元素。 */
   const findNav = (): HTMLElement | null => {
-    const conversation = document.querySelector('[data-slot="conversation"]')
+    const conversation = document.querySelector(':is([data-slot="conversation"], [data-slot="main.conversation"])')
     if (!conversation) return null
     // TurnNavigator 的 nav 带 aria-label（英文 "Turn navigation" / 中文 "轮次导航"）。
     // 注意：会话区域里还有别的 nav（如面包屑 "Session hierarchy"），必须精确匹配。
@@ -364,7 +364,7 @@ export function mountConversationNav(
    */
   const readTurnTime = (turn: number | null, marks: NodeListOf<HTMLButtonElement>): string => {
     if (turn === null) return ''
-    const conversation = document.querySelector('[data-slot="conversation"]')
+    const conversation = document.querySelector(':is([data-slot="conversation"], [data-slot="main.conversation"])')
     if (!conversation) return ''
     const timeStarts = conversation.querySelectorAll('[class*="timeStart"], [class*="time-start"]')
     const idx = turn - 1

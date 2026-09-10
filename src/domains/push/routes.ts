@@ -2,8 +2,8 @@
  * Host half route family: /api/agentlex-push/*.
  *
  * Same-origin POST with a JSON body; envelope { success, data|error, hint? }.
- * These routes let the browser half read/write the push config, enumerate the
- * dsh-im delivery targets, send a test message, and trigger a manual push run.
+ * These routes let the browser half read/write the push config, send a test
+ * Feishu card, and trigger a manual push run.
  *
  * Security: loopback-only binding is enforced by the webServer service's host
  * config; bodies are treated as untrusted and cloned.
@@ -12,8 +12,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PushStore } from './store/push-config.ts'
-import type { DshImService } from './push.ts'
 import { runDeadlinePush } from './push.ts'
+import { sendDeadlineCard } from './feishu-card.ts'
+import { isFeishuConfigured, loadFeishuConfig, saveFeishuConfig } from './feishu-config.ts'
 
 /** Route prefix for the whole family. */
 export const API_PREFIX = '/api/agentlex-push'
@@ -22,14 +23,14 @@ export const API_PREFIX = '/api/agentlex-push'
 export interface PushRouteDeps {
   /** The push store (config + ledger). */
   store: PushStore
-  /** The dsh-im delivery service (in-process or HTTP fallback). */
-  dshIm?: DshImService
-  /** The litigation data directory (reads case-registry.json / case-timeline.json). */
+  /** The litigation data directory (reads case-registry.json / items.json). */
   litigationDataDir: string
   /** The nonlitigation data directory (reads project-registry.json). */
   nonlitigationDataDir: string
   /** The task data directory (reads standalone-tasks.json). */
   tasksDataDir: string
+  /** Called after a config write (e.g. push time changed) so the host can reschedule. */
+  onConfigChange?: () => void
 }
 
 /** Parse the request body as a JSON object (untrusted → {} on failure). */
@@ -99,78 +100,65 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
     const current = await d.store.readConfig()
     const next = { ...current }
     if (typeof b.enabled === 'boolean') next.enabled = b.enabled
-    if (typeof b.botId === 'string') next.botId = b.botId.trim()
-    if (typeof b.targetId === 'string') next.targetId = b.targetId.trim()
-    if (typeof b.channel === 'string') next.channel = b.channel.trim()
+    if (typeof b.pushTime === 'string') next.pushTime = b.pushTime.trim()
     if (typeof b.titlePrefix === 'string') next.titlePrefix = b.titlePrefix.trim()
-    if (typeof b.testOnSave === 'boolean') next.testOnSave = b.testOnSave
-    // 若未显式传 channel，尝试从 dsh-im 查询投递目标所属渠道。
-    if (next.channel === undefined && next.botId !== '' && d.dshIm?.listTargets !== undefined) {
-      try {
-        const result = await d.dshIm.listTargets(next.botId)
-        if (result?.channel !== undefined) next.channel = result.channel
-      } catch { /* 查询失败则保持 undefined */ }
-    }
     ok(res, await d.store.writeConfig(next))
+    // 配置变更（如推送时间）后让 host 重建定时器。
+    d.onConfigChange?.()
   })
 
-  // Enumerate the dsh-im delivery targets (for the settings dropdown).
-  // Requires the in-process dsh-im service (dsh-im exposes no HTTP list-targets
-  // endpoint); the HTTP fallback alone cannot enumerate targets.
-  route(`${API_PREFIX}/targets`, async (d, b, res) => {
-    if (d.dshIm === undefined || typeof d.dshIm.listTargets !== 'function') {
-      ok(res, { available: false, targets: [] })
+  // 飞书凭据配置：GET 返回是否已配置（不含 secret）；POST 保存 appId/appSecret/接收人。
+  route(`${API_PREFIX}/feishu-config`, async (d, b, res, method) => {
+    if (method === 'GET') {
+      const configured = await isFeishuConfigured()
+      let appId: string | undefined
+      let ownerOpenId: string | undefined
+      if (configured) {
+        try {
+          const bot = await loadFeishuConfig()
+          appId = bot.appId
+          ownerOpenId = bot.ownerOpenIds?.[0]
+        } catch { /* 保持 undefined */ }
+      }
+      ok(res, { configured, appId, ownerOpenId })
       return
     }
-    const botId = typeof b.botId === 'string' ? b.botId.trim() : ''
-    if (botId === '') {
-      ok(res, { available: true, targets: [] })
-      return
-    }
+    const appId = typeof b.appId === 'string' ? b.appId : ''
+    const appSecret = typeof b.appSecret === 'string' ? b.appSecret : ''
+    const ownerOpenId = typeof b.ownerOpenId === 'string' ? b.ownerOpenId : ''
     try {
-      const result = await d.dshIm.listTargets(botId)
-      const targets = result?.targets ?? []
-      ok(res, { available: true, targets: targets.map((t) => ({ targetId: t.targetId, name: t.name })) })
+      await saveFeishuConfig(appId, appSecret, ownerOpenId)
+      ok(res, { configured: true, appId: appId.trim(), ownerOpenId: ownerOpenId.trim() })
     } catch (error) {
-      ok(res, { available: true, targets: [], error: error instanceof Error ? error.message : String(error) })
+      fail(res, error, 400)
     }
   })
 
-  // Send a test message to the configured target.
+  // Send a test Feishu card to the bot owner.
   route(`${API_PREFIX}/test`, async (d, b, res) => {
-    if (d.dshIm === undefined) {
-      fail(res, 'dsh-im 未检测到：请先安装并接入 dsh-im（配置机器人 + 投递目标）', 501)
-      return
-    }
-    const botId = typeof b.botId === 'string' ? b.botId.trim() : ''
-    const targetId = typeof b.targetId === 'string' ? b.targetId.trim() : ''
-    if (botId === '' || targetId === '') {
-      fail(res, 'botId / targetId 不能为空', 400)
-      return
-    }
     const prefix = typeof b.titlePrefix === 'string' ? b.titlePrefix.trim() : ''
-    const text = `${prefix}【期限提醒】测试消息：IM 推送配置已生效。`
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+    const today = new Date().toISOString().slice(0, 10)
+    const sample: Array<Parameters<typeof sendDeadlineCard>[0][number]> = [
+      { caseId: 'sample', caseName: '示例案件', caseNumber: '（2026）X民初XXXX号', court: 'XX市XX区人民法院', time: '09:00', detail: '第X法庭', date: tomorrow, label: '开庭', kind: 'hearing', daysLeft: 1, urgent: true, overdue: false, source: 'sample' },
+      { caseId: 'sample2', caseName: '某顾问单位', date: today, label: '案件沟通会', kind: 'keydate', daysLeft: 0, urgent: true, overdue: false, source: 'sample' },
+    ]
     try {
-      await d.dshIm.send(botId, targetId, text)
+      await sendDeadlineCard(sample, prefix)
       ok(res, { sent: true })
     } catch (error) {
-      fail(res, error, 502, '请检查 dsh-im 机器人是否在线、投递目标是否有效')
+      fail(res, error, 502, '请检查飞书凭据（integrations/dsh-feishu/config.json 与 .credentials.yaml）')
     }
   })
 
-  // Trigger a manual push run now (for testing).
+  // Trigger a manual push run now (for testing). force=true 绕过台账推全部。
   route(`${API_PREFIX}/run`, async (d, b, res) => {
-    if (d.dshIm === undefined) {
-      fail(res, 'dsh-im 未检测到', 501)
-      return
-    }
     const cfg = await d.store.readConfig()
     if (typeof b.enabled === 'boolean') cfg.enabled = b.enabled
-    if (typeof b.botId === 'string') cfg.botId = b.botId.trim()
-    if (typeof b.targetId === 'string') cfg.targetId = b.targetId.trim()
+    if (typeof b.titlePrefix === 'string') cfg.titlePrefix = b.titlePrefix.trim()
     const result = await runDeadlinePush(
       { litigation: d.litigationDataDir, nonlitigation: d.nonlitigationDataDir, tasks: d.tasksDataDir },
-      cfg, d.store, d.dshIm,
+      cfg, d.store, { force: b.force === true },
     )
     ok(res, result)
   })

@@ -1,11 +1,15 @@
 /**
- * Feishu card sender — renders a markdown reminder as a structured Feishu
+ * Feishu card sender — renders deadline reminders as a structured Feishu
  * interactive card (分区卡片), mirroring the proven feishu_push.py logic.
  *
- * Feishu text messages do NOT render markdown (bold/headings/separators), so
- * the push domain uses this card path for the feishu channel to get a clean,
- * scannable, sectioned card (bold section titles, hr separators, large text).
- * Other channels (weixin etc.) keep the plain-text path.
+ * Two entry points:
+ *  - sendDeadlineCard(rows, titlePrefix): the deadline-reminder card. Each
+ *    deadline is a structured block: a bold title row (事项 + 时间) with a
+ *    colored 「今天/明天」text_tag, then the case name, then a meta line
+ *    (案号 · 法院 · 法庭). A date subtitle sits under the header and a
+ *    source note at the bottom.
+ *  - sendFeishuCard(markdown): generic markdown-section card (used by the
+ *    settings test button).
  *
  * Credentials are read from the dsh-im feishu integration config
  * ($DSH_HOME/integrations/dsh-feishu/config.json) and the credential store
@@ -15,46 +19,10 @@
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import type { DeadlineItem } from '../litigation/deadlines.ts'
+import { loadFeishuConfig, loadSecret } from './feishu-config.ts'
 
 const FEISHU_BASE = 'https://open.feishu.cn'
-
-/** Feishu integration config (dsh-im). */
-interface FeishuBotConfig {
-  appId: string
-  secretRef: string
-  ownerOpenIds: string[]
-}
-
-/** Parse the credential store (YAML refs or fallback regex). */
-async function loadSecret(ref: string): Promise<string> {
-  const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
-  const credsPath = join(home, '.credentials.yaml')
-  const raw = await readFile(credsPath, 'utf8')
-  // Try YAML refs first.
-  try {
-    const yaml = await import('js-yaml')
-    const d = yaml.load(raw) as { refs?: Record<string, string> } | null
-    const val = d?.refs?.[ref]
-    if (val) return val
-  } catch { /* fall through */ }
-  // Fallback: regex refs.
-  const m = new RegExp(`^\\s{2}${ref}:\\s*(.+?)\\s*$`, 'm').exec(raw)
-  if (m !== null) return m[1]
-  const env = process.env[ref]
-  if (env) return env
-  throw new Error(`feishu secret not found: ${ref}`)
-}
-
-/** Read the feishu bot config (first bot). */
-async function loadFeishuConfig(): Promise<FeishuBotConfig> {
-  const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
-  const cfgPath = join(home, 'integrations', 'dsh-feishu', 'config.json')
-  const raw = await readFile(cfgPath, 'utf8')
-  const cfg = JSON.parse(raw) as { bots?: FeishuBotConfig[] }
-  const bot = cfg.bots?.[0]
-  if (bot === undefined) throw new Error('feishu bot not configured')
-  return bot
-}
 
 /** One JSON request to the Feishu open API. */
 async function httpJson(url: string, payload?: unknown, token?: string): Promise<Record<string, unknown>> {
@@ -79,6 +47,96 @@ async function getToken(appId: string, appSecret: string): Promise<string> {
     app_secret: appSecret,
   })
   return String(res.tenant_access_token)
+}
+
+/** 案号/法院占位值（不展示）。 */
+const PLACEHOLDER_NUMBER = '【尚未立案】'
+const PLACEHOLDER_COURT = '【尚未分配】'
+
+/** 一行期限的元信息（案号 · 法院），无则 undefined。detail 单独一行完整展示。 */
+function metaLine(row: DeadlineItem): string | undefined {
+  const parts: string[] = []
+  if (row.caseNumber !== undefined && row.caseNumber !== '' && row.caseNumber !== PLACEHOLDER_NUMBER) {
+    parts.push(`案号：${row.caseNumber}`)
+  }
+  if (row.court !== undefined && row.court !== '' && row.court !== PLACEHOLDER_COURT) {
+    parts.push(`法院：${row.court}`)
+  }
+  return parts.length > 0 ? parts.join(' · ') : undefined
+}
+
+/**
+ * Send a structured deadline-reminder card to the bot owner.
+ *
+ * Layout:
+ *   header (blue)  「{prefix}重要日程提醒」
+ *   subtitle       「M月D日 · 今日与明日到期的关键日程」
+ *   ── per deadline ──
+ *     title row    **{事项}** · {时间}   [今天|明天] (colored text_tag)
+ *     case name    （案件名，与事项同名时省略）
+ *     meta line    案号：… · 法院：… · 法庭：…
+ *   ──
+ *   note           「由 AgentLex 自动推送 · 每天早上 8:30」
+ *
+ * @param rows - the deadline rows to render (today/tomorrow).
+ * @param titlePrefix - optional prefix for the header title.
+ * @returns the Feishu API response.
+ */
+export async function sendDeadlineCard(rows: DeadlineItem[], titlePrefix?: string): Promise<Record<string, unknown>> {
+  const bot = await loadFeishuConfig()
+  const secret = await loadSecret(bot.secretRef)
+  const token = await getToken(bot.appId, secret)
+  const owner = bot.ownerOpenIds[0]
+
+  const prefix = titlePrefix !== undefined && titlePrefix.trim() !== '' ? `${titlePrefix.trim()} ` : ''
+  const now = new Date()
+  const dateLine = `${now.getMonth() + 1}月${now.getDate()}日`
+
+  const elements: Array<Record<string, unknown>> = []
+  // 副标题：日期 + 说明（日程与任务都覆盖）。
+  elements.push({ tag: 'div', text: { tag: 'lark_md', content: `**${dateLine}** · 今日与明日到期的日程与任务` } })
+  elements.push({ tag: 'hr' })
+
+  if (rows.length === 0) {
+    elements.push({ tag: 'div', text: { tag: 'lark_md', content: '今日与明日暂无到期日程 🎉' } })
+  }
+
+  rows.forEach((row, i) => {
+    if (i > 0) elements.push({ tag: 'hr' })
+    const time = row.time !== undefined && row.time !== '' ? ` · ${row.time}` : ''
+    // 今天 → 红色标签；明天 → 橙色标签（lark_md 内联 text_tag 语法）。
+    const tagHtml = row.daysLeft === 0
+      ? `<text_tag color='red'>今天</text_tag>`
+      : `<text_tag color='orange'>明天</text_tag>`
+    elements.push({ tag: 'div', text: { tag: 'lark_md', content: `**${row.label}**${time} ${tagHtml}` } })
+    // 案件名（与事项同名或为空时省略，如独立任务/无归属事项）。
+    if (row.caseName !== undefined && row.caseName !== '' && row.caseName !== row.label) {
+      elements.push({ tag: 'div', text: { tag: 'lark_md', content: row.caseName } })
+    }
+    const meta = metaLine(row)
+    if (meta !== undefined) {
+      elements.push({ tag: 'div', text: { tag: 'lark_md', content: meta } })
+    }
+    // 完整详情（时间/地点/要求等）单独一行展示。
+    if (row.detail !== undefined && row.detail !== '') {
+      elements.push({ tag: 'div', text: { tag: 'lark_md', content: row.detail } })
+    }
+  })
+
+  elements.push({ tag: 'hr' })
+  elements.push({ tag: 'note', elements: [{ tag: 'plain_text', content: '由 AgentLex 自动推送 · 每天早上 8:30' }] })
+
+  const card = {
+    config: { wide_screen_mode: true },
+    header: { template: 'blue', title: { tag: 'plain_text', content: `${prefix}重要日程与任务提醒` } },
+    elements,
+  }
+  const url = `${FEISHU_BASE}/open-apis/im/v1/messages?receive_id_type=open_id`
+  return httpJson(url, {
+    receive_id: owner,
+    msg_type: 'interactive',
+    content: JSON.stringify(card),
+  }, token)
 }
 
 /**

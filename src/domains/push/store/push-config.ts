@@ -1,16 +1,18 @@
 /**
  * Push domain store: push-config.json + push-ledger.json.
  *
- * - push-config.json: the user's IM push configuration (enabled, dsh-im
- *   botId/targetId, title prefix). Credentials are NOT stored here — the
- *   dsh-im plugin owns all channel credentials; this module only keeps the
- *   two opaque identifiers {botId, targetId}.
+ * - push-config.json: the user's reminder config (enabled, title prefix).
+ *   Delivery is FIXED to the Feishu card channel (direct Feishu open API,
+ *   same credentials as feishu_push.py) — no dsh-im dependency, no
+ *   botId/targetId/channel to configure.
  * - push-ledger.json: dedupe ledger. Key = `caseId|date|label`; a key present
- *   means that deadline was already pushed within its reminder window, so the
- *   next tick skips it (no duplicate bombardment).
+ *   with a pushedAt of TODAY means that deadline was already pushed in this
+ *   day's run, so a second run the same day skips it. Records from previous
+ *   days are treated as expired — the next day's 8:30 run re-pushes the
+ *   window (today + tomorrow) fresh.
  *
  * Both ride the shared JsonFileStore (single-writer, on-disk lock, atomic
- * rename) so the host half and the command-job script can share them safely.
+ * rename) so the host half and any manual trigger can share them safely.
  */
 
 import { JsonFileStore } from '../../litigation/store/file-store.ts'
@@ -19,22 +21,27 @@ import { JsonFileStore } from '../../litigation/store/file-store.ts'
 export interface PushConfig {
   /** Master switch. */
   enabled: boolean
-  /** dsh-im bot call identifier (copied from the dsh-im settings page). */
-  botId: string
-  /** dsh-im delivery target (copied/selected from the dsh-im settings page). */
-  targetId: string
-  /** Delivery channel (e.g. 'feishu', 'weixin') — feishu renders a card. */
-  channel?: string
+  /** 每日推送时间（HH:mm，默认 08:30）。 */
+  pushTime?: string
   /** Optional title prefix prepended to the fixed template. */
   titlePrefix?: string
-  /** Send a test message on save. */
-  testOnSave?: boolean
   updatedAt?: string
 }
 
-/** Default push config (disabled, no target). */
+/** Default push config (disabled, 08:30). */
 export function pushConfigDefault(): PushConfig {
-  return { enabled: false, botId: '', targetId: '' }
+  return { enabled: false, pushTime: '08:30' }
+}
+
+/** 解析推送时间（HH:mm）→ [时, 分]；非法值回退默认 08:30。 */
+export function parsePushTime(value: string | undefined): [number, number] {
+  const m = /^(\d{1,2}):(\d{2})$/.exec((value ?? '').trim())
+  if (m !== null) {
+    const h = Number(m[1])
+    const min = Number(m[2])
+    if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return [h, min]
+  }
+  return [8, 30]
 }
 
 /** One ledger entry: a deadline key already pushed. */
@@ -63,7 +70,7 @@ export function ledgerKey(caseId: string, date: string, label: string): string {
 export interface PushStore {
   readConfig(): Promise<PushConfig>
   writeConfig(config: PushConfig): Promise<PushConfig>
-  /** Whether a deadline key was already pushed. */
+  /** Whether a deadline key was already pushed TODAY (yesterday's records are expired). */
   hasPushed(key: string): Promise<boolean>
   /** Record pushed keys (idempotent). */
   recordPushed(keys: string[]): Promise<void>
@@ -90,7 +97,9 @@ export function createPushStore(dataDir: string): PushStore {
     },
     async hasPushed(key: string): Promise<boolean> {
       const ledger = await ledgerStore.read()
-      return ledger.entries.some((entry) => entry.key === key)
+      // 只认「今天」的记录：昨天的推送记录视为过期，次日 8:30 重新推送窗口内期限。
+      const today = new Date().toISOString().slice(0, 10)
+      return ledger.entries.some((entry) => entry.key === key && entry.pushedAt.slice(0, 10) === today)
     },
     async recordPushed(keys: string[]): Promise<void> {
       if (keys.length === 0) return

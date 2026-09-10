@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.9（2026-09-10）
+
+### 期限提醒自包含化（不再依赖 dsh-timer-agent / dsh-im）
+
+- **内置定时器**：每天按配置时间（pushTime，默认 08:30，设置页可改）推送一次「今日 + 明日」到期的日程与任务；删除对 dsh-timer-agent 的依赖（删 syncTimerJob / push-cli.mjs / copy-push-cli.mjs）。
+- **固定飞书卡片**：直连飞书 open API 发结构化卡片（加粗标题 + 彩色「今天/明天」text_tag 标签 + 案件名/元信息/详情分层 + 日期副标题 + 来源 note），删除对 dsh-im 的依赖。
+- **飞书凭据自包含配置**：设置页「期限提醒」新增「飞书机器人」表单（App ID / App Secret / 接收人 Open ID），写入 `$DSH_HOME/integrations/dsh-feishu/config.json` + `.credentials.yaml`（与每日早报同一套格式）；secret 只写不读回。新用户无需安装 dsh-im。
+- **推送内容修正**：案件名按 ownerId 从 case/project-registry 补全（items ownerName 大量缺失）、detail 完整展示时间地点、按日期+时间排序。
+- **去重按推送日**：台账只认今天的记录，次日 8:30 重新推送窗口内期限；手动「立即执行一次」force 绕过台账推全部（自动=去重，手动=全量）。
+- **设置项归类**：期限提醒设置并入「日程与提醒」分区（PushSettings 直接渲染进 settings-section.tsx，删除独立 workbench item 与 workbench-slot.ts）。
+- 卡片文案统一为「重要日程与任务提醒」。
+
 ## 0.2.8（2026-09-09）
 
 ### 融合 dsh-ui-harmonizer 设计：圆角卡片 + 会话页融合设计 + 段距调大

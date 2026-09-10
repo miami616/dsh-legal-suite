@@ -16,6 +16,8 @@ import { AGENTLEX_THEMES } from './themes.ts'
 import DirectoryPickerDialog from '../../workspace-sidebar/client/DirectoryPickerDialog.tsx'
 // 运行中插件版本：跨域复用 litigation 域的 self-version 接口（零网络开销）。
 import { getSelfPluginVersion } from '../../litigation/client/api.ts'
+// 期限提醒设置块（push 域）：并入「日程与提醒」分区。
+import { PushSettings } from '../../push/client/PushSettings.tsx'
 
 /**
  * agentlex.workbench.item — 套件内设置槽位契约（由本页拥有）。
@@ -599,6 +601,12 @@ export function AgentLexSettingsSection(props: {
           <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)' }}>
             手动同步用于查漏补缺：把此前漏同步的日程/任务补齐到 Apple 日历（仅今天及以后的日程，过去的日程不会同步），已同步的不会重复创建。
           </p>
+        </div>
+
+        {/* 期限提醒（push 域，2026-09-10 并入本分区） */}
+        <div style={{ paddingTop: 12, marginTop: 12, borderTop: '1px solid var(--dsw-alias-border-l2)' }}>
+          <p style={{ margin: '0 0 10px', fontSize: 13.5, fontWeight: 650, color: 'var(--dsw-alias-label-primary)' }}>期限提醒</p>
+          <PushSettings />
         </div>
       </div>
 

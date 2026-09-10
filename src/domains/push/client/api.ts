@@ -42,18 +42,9 @@ async function call<T>(path: string, body: Record<string, unknown> = {}, method 
 /** The push config shape (mirrors the host store). */
 export interface PushConfigView {
   enabled: boolean
-  botId: string
-  targetId: string
-  channel?: string
+  pushTime?: string
   titlePrefix?: string
-  testOnSave?: boolean
   updatedAt?: string
-}
-
-/** A dsh-im delivery target (for the dropdown). */
-export interface DeliveryTarget {
-  targetId: string
-  name?: string
 }
 
 /** Read the current push config. */
@@ -66,17 +57,29 @@ export function writePushConfig(config: Partial<PushConfigView>): Promise<PushCo
   return call('config', config)
 }
 
-/** Enumerate the dsh-im delivery targets for a bot. */
-export function listPushTargets(botId: string): Promise<{ available: boolean; targets: DeliveryTarget[]; error?: string }> {
-  return call('targets', { botId })
-}
-
-/** Send a test message to a target. */
-export function sendPushTest(config: { botId: string; targetId: string; titlePrefix?: string }): Promise<{ sent: boolean }> {
+/** Send a test Feishu card. */
+export function sendPushTest(config: { titlePrefix?: string }): Promise<{ sent: boolean }> {
   return call('test', config)
 }
 
-/** Trigger a manual push run now. */
-export function runPushNow(): Promise<{ due: number; pushed: number; attempted: boolean; error?: string }> {
-  return call('run', {})
+/** Trigger a manual push run now (force=true 绕过台账推全部). */
+export function runPushNow(force = true): Promise<{ due: number; pushed: number; attempted: boolean; error?: string }> {
+  return call('run', { force })
+}
+
+/** 飞书凭据配置状态（不含 secret）。 */
+export interface FeishuConfigView {
+  configured: boolean
+  appId?: string
+  ownerOpenId?: string
+}
+
+/** 读取飞书凭据配置状态。 */
+export function readFeishuConfig(): Promise<FeishuConfigView> {
+  return call('feishu-config', {}, 'GET')
+}
+
+/** 保存飞书凭据（appId / appSecret / 接收人 openId）。 */
+export function writeFeishuConfig(config: { appId: string; appSecret: string; ownerOpenId: string }): Promise<FeishuConfigView> {
+  return call('feishu-config', config)
 }

@@ -1,17 +1,18 @@
 /**
  * dsh-legal-suite/push — host half.
  *
- * 期限 IM 推送：关键日期快到期（提前 1 天 + 当天）时，向用户配置的 dsh-im
- * 投递目标推送固定模板提醒。
+ * 期限提醒：每天早上 8:30 统一推送「今日 + 明日」到期的关键日期，飞书卡片。
  *
- * 架构（2026-09-03 确认）：
- *  - 定时 = dsh-timer-agent 的 command 任务（固定 1 个，不随案件数增长）。
- *  - 推送 = @xmanrui/dsh-im 的主动投递（ctx.get('dshIm').send()）。
- *  - 本域只做「读期限 → 组文案 → 调投递 → 去重」的编排层。
+ * 架构（2026-09-10 确认，自包含化）：
+ *  - 定时 = 插件内置 ticker（setTimeout 排到每天 8:30，host 常驻，GUI 关闭也照常）。
+ *    不再依赖 dsh-timer-agent 的 command 任务。
+ *  - 推送 = 直连飞书 open API 发分区卡片（与 feishu_push.py 同一套凭据）。
+ *    不再依赖 @xmanrui/dsh-im。
+ *  - 本域只做「读期限 → 过滤今日/明日 → 组卡片文案 → 发飞书 → 按日去重」。
  *
  * 数据：$DSH_HOME/agentlex/push/（push-config.json + push-ledger.json）。
- * 依赖：dsh-im 与 dsh-timer-agent 均为已装 bundle；不声明为 peer 依赖，
- * 缺席时降级提示而非崩溃（决策 4）。
+ * 依赖：飞书凭据（$DSH_HOME/integrations/dsh-feishu/config.json +
+ *       $DSH_HOME/.credentials.yaml），与每日早报共用；缺席时推送失败并告警，不崩溃。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -19,11 +20,10 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-settings'
 import z from 'schemastery'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { installSettingsSection } from '../../shared/settings-adapter.ts'
-import { createPushStore, type PushConfig } from './store/push-config.ts'
+import { createPushStore, parsePushTime } from './store/push-config.ts'
 import { makeRoutes } from './routes.ts'
-import { createHttpDshIm, type DshImService } from './push.ts'
+import { runDeadlinePush } from './push.ts'
 
 /** Stable cordis plugin name. */
 export const name = 'push'
@@ -36,7 +36,7 @@ export const PUSH_SETTINGS_NAMESPACE = 'agentlex-push' as const
 
 /** Plugin config, validated by the same-named schemastery schema. */
 export interface Config {
-  /** Master switch for the plugin (routes, command job). */
+  /** Master switch for the plugin (routes, built-in timer). */
   enabled?: boolean
   /** Data directory override (default: $DSH_HOME/agentlex/push). */
   dataDir?: string
@@ -60,11 +60,7 @@ export function resolveDataDir(configured?: string): string {
   return `${userHome}/.dsh/agentlex/push`
 }
 
-/**
- * Resolve the litigation data directory (where case-registry.json /
- * case-timeline.json live). The push domain reads deadlines from here; it is
- * a sibling of the push data dir under $DSH_HOME/agentlex/.
- */
+/** Resolve the litigation data directory (where case-registry.json lives). */
 export function litigationDataDir(): string {
   const home = process.env.DSH_HOME ?? ''
   if (home !== '') return `${home}/agentlex/litigation`
@@ -91,93 +87,40 @@ export function tasksDataDir(): string {
   return `${userHome}/.dsh/agentlex/tasks`
 }
 
-/** The dsh web base URL (for the command job to reach the host). */
-export function webBaseUrl(): string {
-  return (process.env.DSH_WEB_URL ?? 'http://127.0.0.1:3080').replace(/\/+$/, '')
-}
-
-/** The absolute path to the push-cli command-job script. */
-export function pushCliPath(): string {
-  return new URL('./push-cli.mjs', import.meta.url).pathname
-}
-
-/** The fixed command-job title (the timer board shows exactly one row). */
-export const PUSH_JOB_TITLE = '期限IM推送'
-
-/** The command-job cron (every 5 minutes). */
-export const PUSH_JOB_CRON = '*/5 * * * *'
+/** 每日推送默认时间：早上 8:30（可在设置页配置 pushTime）。 */
+export const DEFAULT_PUSH_HOUR = 8
+export const DEFAULT_PUSH_MINUTE = 30
 
 /**
- * Register (or sync) the single timer-agent command job that triggers the
- * push run. Idempotent: looks up the job by its stable TITLE (the timer-agent
- * POST route assigns a random UUID, so a client-supplied id cannot be used to
- * find it), updates cron if present, creates if absent. Uses the timer-agent
- * HTTP API (it provides no service). Best-effort — a failure to reach
- * timer-agent is logged, never fatal.
+ * 排下一次推送：计算到下一个「配置的推送时间」的毫秒数，setTimeout 到点执行后
+ * 再排下一次。间隔恒 < 24h，远小于 setTimeout 的 2^31-1 ms 上限。
+ * 每次排程时现读配置时间——用户改了推送时间后，下一次排程即用新时间。
  */
-export async function syncTimerJob(enabled: boolean): Promise<void> {
-  const base = webBaseUrl()
-  const url = `${base}/api/dsh-timer-agent/jobs`
-  try {
-    // 1. Read the current ledger to find our job by title.
-    const listRes = await fetch(url, { method: 'GET', headers: { accept: 'application/json' } })
-    if (!listRes.ok) {
-      console.warn(`[agentlex-push] timer-agent list failed (${listRes.status})`)
-      return
+export function scheduleNextRun(fn: () => void, getPushTime: () => string): NodeJS.Timeout {
+  const now = new Date()
+  const [hour, minute] = parsePushTime(getPushTime())
+  const next = new Date(now)
+  next.setHours(hour, minute, 0, 0)
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1)
+  return setTimeout(() => {
+    try {
+      fn()
+    } finally {
+      // 无论 fn 是否抛错，都排下一次（异常只记日志，不中断排程）。
+      scheduleNextRun(fn, getPushTime)
     }
-    const listBody = await listRes.json() as { jobs?: Array<{ id: string; title?: string; schedule?: { enabled?: boolean; cron?: string } }> }
-    const matches = (listBody.jobs ?? []).filter((job) => job.title === PUSH_JOB_TITLE)
-    const existing = matches[0]
-
-    // Clean up any duplicate jobs left by earlier buggy versions (which could
-    // not find the job by a client-supplied id and created a new one per
-    // apply). Keep the first match, remove the rest.
-    for (const dup of matches.slice(1)) {
-      await fetch(`${url}?id=${encodeURIComponent(dup.id)}`, { method: 'DELETE' }).catch(() => undefined)
-    }
-
-    const payload = {
-      title: PUSH_JOB_TITLE,
-      description: '关键日期快到期（提前 1 天 + 当天）时，向 dsh-im 投递目标推送固定模板提醒。',
-      kind: 'command',
-      command: process.execPath,
-      args: `"${pushCliPath()}"`,
-      target: { workdir: '', sessionId: '' },
-      cron: PUSH_JOB_CRON,
-      scheduleEnabled: enabled,
-    }
-
-    if (existing === undefined) {
-      const createRes = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (!createRes.ok) {
-        console.warn(`[agentlex-push] timer-agent create failed (${createRes.status})`)
-      }
-    } else {
-      const updateRes = await fetch(`${url}?id=${encodeURIComponent(existing.id)}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        // 同时校正 command/args 指向本实例的 push-cli（共享台账时避免残留旧路径）。
-        body: JSON.stringify({ cron: PUSH_JOB_CRON, scheduleEnabled: enabled, command: process.execPath, args: `"${pushCliPath()}"` }),
-      })
-      if (!updateRes.ok) {
-        console.warn(`[agentlex-push] timer-agent update failed (${updateRes.status})`)
-      }
-    }
-  } catch (error) {
-    console.warn('[agentlex-push] timer-agent sync failed:', error instanceof Error ? error.message : String(error))
-  }
+  }, next.getTime() - now.getTime())
 }
 
 /** Module-level surface registry (survives fiber reloads). */
 interface PushSurface {
   token: object
+  timer: NodeJS.Timeout | undefined
   dispose: () => void
 }
 let pushSurface: PushSurface | undefined
+/** 异步创建定时器前的路由 disposers（sync 再次调用时先清理，避免泄漏）。 */
+let pendingDisposers: Array<() => void> = []
 
 export function apply(ctx: Context, config: Config = {}): void {
   let current: () => Config = () => config
@@ -190,61 +133,65 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const sync = (): void => {
     const value = resolve()
+    // 清理旧 surface 与 pending 路由（含异步未完成的）。
     if (pushSurface !== undefined) { pushSurface.dispose(); pushSurface = undefined }
+    for (const dispose of pendingDisposers.splice(0).reverse()) dispose()
     if (!value.enabled) return
 
     const dataDir = resolveDataDir(value.dataDir)
     const store = createPushStore(dataDir)
+    const dirs = {
+      litigation: litigationDataDir(),
+      nonlitigation: nonlitigationDataDir(),
+      tasks: tasksDataDir(),
+    }
 
-    // dsh-im delivery client. Prefer the in-process service (ctx.get('dshIm'))
-    // when visible (it also exposes listTargets for the settings dropdown);
-    // otherwise fall back to the HTTP endpoint for sending (documented
-    // integration path, robust to cordis service-scope differences).
-    const base = webBaseUrl()
-    const ctxGet = (ctx as unknown as { get?: (name: string) => unknown }).get
-    const rootGet = (ctx as unknown as { root?: { get?: (name: string) => unknown } }).root?.get
-    // Try the root ctx first (dsh-im provides on its own ctx; the root shares
-    // the store), then the local ctx, then fall back to HTTP for sending.
-    let inProcess: DshImService | undefined
-    if (typeof rootGet === 'function') {
-      inProcess = rootGet.call((ctx as unknown as { root?: object }).root, 'dshIm') as DshImService | undefined
-    }
-    if (inProcess === undefined && typeof ctxGet === 'function') {
-      inProcess = ctxGet.call(ctx, 'dshIm') as DshImService | undefined
-    }
-    const inProcessUsable = inProcess !== undefined && typeof inProcess.send === 'function'
-    const httpClient = createHttpDshIm(base)
-    // Combined service: send via in-process (preferred) or HTTP; listTargets
-    // only via in-process (dsh-im exposes no HTTP list-targets endpoint).
-    const dshIm: DshImService = {
-      send: (botId, targetId, text, options) =>
-        inProcessUsable ? inProcess!.send(botId, targetId, text, options) : httpClient.send(botId, targetId, text, options),
-      ...(inProcessUsable && typeof inProcess!.listTargets === 'function'
-        ? { listTargets: (botId: string) => inProcess!.listTargets!(botId) }
-        : {}),
-    }
     const disposers: Array<() => void> = []
     disposers.push(makeRoutes(ctx, {
       store,
-      dshIm,
-      litigationDataDir: litigationDataDir(),
-      nonlitigationDataDir: nonlitigationDataDir(),
-      tasksDataDir: tasksDataDir(),
+      litigationDataDir: dirs.litigation,
+      nonlitigationDataDir: dirs.nonlitigation,
+      tasksDataDir: dirs.tasks,
+      // 配置变更（含推送时间）后重建定时器。
+      onConfigChange: sync,
     }))
+    pendingDisposers = disposers
 
-    // Sync the timer-agent command job (best-effort). Enable/disable purely
-    // on the user's master switch — the HTTP delivery fallback pushes without
-    // the in-process dsh-im service, so dshImAvailable must NOT gate this
-    // (it is false on nested-plugin scopes where dsh-im's ctx isn't visible,
-    // which would wrongly disable the scheduled job).
-    void store.readConfig().then((cfg) => {
-      void syncTimerJob(cfg.enabled === true)
-    })
-
-    pushSurface = {
-      token,
-      dispose: () => { for (const dispose of disposers.splice(0).reverse()) dispose() },
+    // 内置定时器：每天按配置的推送时间触发一次（防重入：上一次未跑完则跳过本轮）。
+    let inFlight = false
+    const run = async (): Promise<void> => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        const cfg = await store.readConfig()
+        if (!cfg.enabled) return
+        const result = await runDeadlinePush(dirs, cfg, store)
+        if (result.error !== undefined) {
+          console.warn(`[agentlex-push] 推送失败: ${result.error}`)
+        } else {
+          console.log(`[agentlex-push] due=${result.due} pushed=${result.pushed} attempted=${result.attempted}`)
+        }
+      } catch (error) {
+        console.warn('[agentlex-push] 定时推送异常:', error instanceof Error ? error.message : String(error))
+      } finally {
+        inFlight = false
+      }
     }
+
+    // 异步读配置拿到推送时间后再建定时器（首次排程即用真实配置时间）。
+    void store.readConfig().then((cfg) => {
+      if (pendingDisposers !== disposers) return // 已被新的 sync 取代，放弃。
+      const timer = scheduleNextRun(() => { void run() }, () => cfg.pushTime ?? '08:30')
+      pushSurface = {
+        token,
+        timer,
+        dispose: () => {
+          if (timer !== undefined) clearTimeout(timer)
+          for (const dispose of disposers.splice(0).reverse()) dispose()
+          if (pendingDisposers === disposers) pendingDisposers = []
+        },
+      }
+    })
   }
 
   const disposeSettings = installSettingsSection(ctx, PUSH_SETTINGS_NAMESPACE, Config, config, {
@@ -258,6 +205,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       pushSurface.dispose()
       pushSurface = undefined
     }
+    for (const dispose of pendingDisposers.splice(0).reverse()) dispose()
   }, 'agentlex-push: teardown')
 
   sync()

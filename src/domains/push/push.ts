@@ -1,69 +1,33 @@
 /**
- * Push core: read deadlines → filter to those whose reminder time has arrived
- * → format the FIXED template → send via dsh-im proactive delivery → record
- * the dedupe ledger.
+ * Push core: read deadlines → filter to today/tomorrow → format the FIXED
+ * template → send as a Feishu card → record the dedupe ledger.
  *
- * Design decisions (confirmed 2026-09-03):
- *  - Reminder timing is PRECISE per deadline: a deadline with a concrete time
- *    (e.g. 开庭 09:00) is reminded exactly 24h before (yesterday 09:00); a
- *    deadline with no concrete time is reminded 1 day ahead at 08:00 (a
- *    reasonable morning hour, not midnight — a 0:00 push would be ignored).
+ * Design decisions (confirmed 2026-09-10):
+ *  - Reminder timing is a DAILY 8:30 run: every morning the run pushes the
+ *    deadlines due TODAY (daysLeft === 0) and TOMORROW (daysLeft === 1) as
+ *    one Feishu card. No per-deadline 24h-precise reminders anymore.
+ *  - Delivery is FIXED to the Feishu card channel (direct Feishu open API,
+ *    same credentials as feishu_push.py). No dsh-im dependency, no channel
+ *    detection — the card path is the only path.
  *  - The push text uses a FIXED template (a code constant) — field-complete
- *    but compact, identical across channels and times, never varying with
- *    content.
- *  - Channel credentials live entirely in dsh-im; this module only holds
- *    {botId, targetId} and calls dshIm.send().
+ *    but compact, identical across runs, never varying with content.
+ *  - Dedupe is per-day: a deadline pushed in today's run is skipped by a
+ *    second run the same day; tomorrow's run re-pushes the fresh window.
  *
- * The same core is used by the host half (in-process, via ctx.get('dshIm'))
- * and by the command-job script (standalone, via the HTTP delivery endpoint).
+ * The same core is used by the host half (in-process, from the built-in
+ * 8:30 timer or a manual /run trigger).
  */
 
 import { computeDeadlines, type DeadlineItem } from '../litigation/deadlines.ts'
 import { createCaseStore } from '../litigation/store/case-store.ts'
-import { createTimelineStore } from '../litigation/store/timeline-store.ts'
-import { createTaskStore } from '../task/store/task-store.ts'
+import { JsonFileStore } from '../litigation/store/file-store.ts'
 import { createItemStore } from '../item/store/item-store.ts'
-import { sendFeishuCard } from './feishu-card.ts'
+import { sendDeadlineCard } from './feishu-card.ts'
 import { ledgerKey, type PushConfig, type PushStore } from './store/push-config.ts'
 import { join } from 'node:path'
 
-/** 无具体时间的期限：提前 1 天，早上 8:00 提醒（避免 0 点被忽略）。 */
-export const DEFAULT_REMIND_HOUR = 8
-/** 提前量：24 小时（有具体时间的期限按此精确提醒）。 */
-export const REMIND_LEAD_HOURS = 24
-
-/** The dsh-im delivery service face (ctx.get('dshIm') or an HTTP client). */
-export interface DshImService {
-  send(botId: string, targetId: string, text: string, options?: { signal?: AbortSignal }): Promise<{ sent: boolean }>
-  listTargets?(botId: string): Promise<{ botId: string; channel: string; targets: Array<{ targetId: string; name?: string }> }>
-}
-
-/**
- * Build an HTTP-backed dsh-im delivery client that POSTs to the dsh-im
- * delivery endpoint. This is the documented integration path for external
- * callers and avoids cordis service-scope issues (dsh-im provides `dshIm` on
- * its own ctx, which a nested plugin cannot always see).
- *
- * @param baseUrl - the dsh web base URL (e.g. http://127.0.0.1:3080).
- */
-export function createHttpDshIm(baseUrl: string): DshImService {
-  const deliveryUrl = `${baseUrl.replace(/\/+$/, '')}/api/dsh-im/delivery/messages`
-  return {
-    async send(botId, targetId, text, options) {
-      const res = await fetch(deliveryUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ botId, targetId, text }),
-        signal: options?.signal,
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error((body as { error?: { message?: string } }).error?.message ?? `dsh-im delivery failed (${res.status})`)
-      }
-      return { sent: true }
-    },
-  }
-}
+/** 提醒窗口：今天（daysLeft === 0）与明天（daysLeft === 1）。 */
+export const WINDOW_DAYS = [0, 1]
 
 /** Human "remaining" label for a deadline row. */
 export function remainingLabel(daysLeft: number): string {
@@ -121,7 +85,7 @@ export function formatPush(rows: DeadlineItem[], titlePrefix?: string): string {
 }
 
 /**
- * Build the FIXED push text as Feishu-card markdown (for the feishu channel).
+ * Build the FIXED push text as Feishu-card markdown (the ONLY delivery path).
  * Each deadline becomes a `## ` section (bold heading + large text), so the
  * Feishu card renders clean sectioned blocks with hr separators.
  */
@@ -141,7 +105,7 @@ export function formatPushMarkdown(rows: DeadlineItem[], titlePrefix?: string): 
 
 /** Result of one push run. */
 export interface PushRunResult {
-  /** Number of deadline rows whose reminder time has arrived (before dedupe). */
+  /** Number of deadline rows in the window (today/tomorrow, before dedupe). */
   due: number
   /** Number actually pushed (fresh, after dedupe). */
   pushed: number
@@ -149,38 +113,6 @@ export interface PushRunResult {
   attempted: boolean
   /** Error text when the send failed (undefined on success). */
   error?: string
-}
-
-/**
- * Compute a deadline's reminder time (ms epoch).
- *
- * - With a concrete time (e.g. "09:00"): reminder = deadline date+time − 24h
- *   (precise to the minute — 明天 09:00 开庭 → 今天 09:00 提醒).
- * - Without a concrete time: reminder = deadline date − 1 day at 08:00
- *   (a reasonable morning hour, not midnight).
- *
- * Returns undefined when the deadline date is unparseable.
- */
-export function reminderTimeMs(item: DeadlineItem): number | undefined {
-  const date = new Date(`${item.date}T00:00:00`)
-  if (Number.isNaN(date.getTime())) return undefined
-  let remind: Date
-  if (item.time !== undefined && item.time !== '') {
-    const m = /^(\d{1,2}):(\d{2})$/.exec(item.time.trim())
-    if (m !== null) {
-      remind = new Date(date.getTime())
-      remind.setHours(Number(m[1]), Number(m[2]), 0, 0)
-      remind = new Date(remind.getTime() - REMIND_LEAD_HOURS * 3600_000)
-    } else {
-      // 无法解析的时间 → 按无时间处理。
-      remind = new Date(date.getTime() - 24 * 3600_000)
-      remind.setHours(DEFAULT_REMIND_HOUR, 0, 0, 0)
-    }
-  } else {
-    remind = new Date(date.getTime() - 24 * 3600_000)
-    remind.setHours(DEFAULT_REMIND_HOUR, 0, 0, 0)
-  }
-  return remind.getTime()
 }
 
 /** 从日期字符串提取日期部分（YYYY-MM-DD）。 */
@@ -199,8 +131,7 @@ function timePart(value: string): string | undefined {
  *
  * 独立任务/非诉任务的 deadline 只存纯日期（界面 type="date"），具体时间点
  * 写在 detail 字段（如「9月4日下午3点10分开会」）。本函数解析常见中文/数字
- * 时间格式，使非诉/独立任务与诉讼（timeline 的 time 字段）统一按具体时间
- * 提前 24 小时提醒。
+ * 时间格式，使非诉/独立任务与诉讼（timeline 的 time 字段）统一带具体时间。
  *
  * 支持格式：
  *  - HH:MM / H:MM（如 09:00、14:45）
@@ -282,8 +213,8 @@ function makeItem(partial: {
 }
 
 /**
- * 聚合所有数据源的期限：诉讼（case-registry + case-timeline）、非诉
- * （project-registry）、独立任务（standalone-tasks）。统一成 DeadlineItem[]。
+ * 聚合所有数据源的期限：诉讼（case-registry + items）、非诉（project-registry）、
+ * 独立任务（standalone）。统一成 DeadlineItem[]。
  *
  * @param litigationDir - 诉讼数据目录。
  * @param nonlitigationDir - 非诉数据目录。
@@ -298,13 +229,27 @@ export async function collectAllDeadlines(
 
   // 统一事项：从 items.json 读所有事项（event/task/both），自动分流。
   // 一个事项一次登记，type 决定它进日程/时间轴还是任务树。
-  // 补充 owner 元信息（案号/法院）来自 case/project registry——push 文本需要。
-  const ownerMeta = new Map<string, { caseNumber?: string; court?: string }>()
+  // 补充 owner 元信息（案件名/案号/法院）来自 case/project registry——push 文本需要。
+  // 注意：items 的 ownerName 大量缺失（历史数据），必须按 ownerId 从 registry 补全，
+  // 否则卡片上只有案号看不出是哪个案子。
+  const ownerMeta = new Map<string, { name?: string; caseNumber?: string; court?: string }>()
   try {
     const caseStore = createCaseStore(litigationDir)
     const reg = await caseStore.readRegistry()
     for (const c of Object.values(reg.cases)) {
-      ownerMeta.set(c.caseId, { caseNumber: c.caseNumber, court: c.court })
+      ownerMeta.set(c.caseId, { name: c.name, caseNumber: c.caseNumber, court: c.court })
+    }
+  } catch { /* best-effort */ }
+  // 非诉项目：project-registry.json 补项目名。
+  try {
+    const projectStore = new JsonFileStore<{ projects?: Record<string, { name?: string }> }>(
+      join(nonlitigationDir, 'project-registry.json'),
+      () => ({ projects: {} }),
+    )
+    const reg = await projectStore.read()
+    for (const [pid, p] of Object.entries(reg.projects ?? {})) {
+      const existing = ownerMeta.get(pid)
+      ownerMeta.set(pid, { ...existing, name: p.name ?? existing?.name })
     }
   } catch { /* best-effort */ }
 
@@ -314,10 +259,11 @@ export async function collectAllDeadlines(
     for (const it of all) {
       if (it.status === 'done' || it.status === 'cancelled' || !it.date) continue
       const ownerId = it.ownerId ?? ''
-      const ownerName = it.ownerName ?? ''
+      // ownerName 缺失时从 registry 补全（历史数据大量缺失）。
+      const meta = ownerId === '' ? undefined : ownerMeta.get(ownerId)
+      const ownerName = (it.ownerName ?? '').trim() !== '' ? it.ownerName! : (meta?.name ?? '')
       // ownerType 区分同号案件/项目/独立（2026-09-04）；缺省按历史（案件/独立）。
       const ownerType = it.ownerType ?? (ownerId === '' ? 'standalone' : 'litigation')
-      const meta = ownerId === '' ? undefined : ownerMeta.get(ownerId)
       const isEvent = it.type === 'event' || it.type === 'both'
       const isTask = it.type === 'task' || it.type === 'both'
       const source = ownerType === 'standalone' ? 'standalone' : ownerType === 'nonlitigation' ? 'nonlitigation' : 'litigation'
@@ -356,6 +302,9 @@ export async function collectAllDeadlines(
     console.warn('[agentlex-push] 统一事项期限读取失败:', error instanceof Error ? error.message : String(error))
   }
 
+  // 按日期 + 时间排序（今天在前、明天在后；同日按时间）。
+  items.sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? '') || a.caseId.localeCompare(b.caseId))
+
   return items
 }
 
@@ -365,7 +314,7 @@ export async function collectAllDeadlines(
  * @param dirs - the data directories for all sources.
  * @param cfg - the resolved push config.
  * @param store - the push store (config + ledger).
- * @param dshIm - the dsh-im delivery service.
+ * @param opts - force: true 时绕过台账去重，推送窗口内全部（手动「立即执行」用）。
  * @param now - current time (ms epoch); injectable for tests.
  * @returns the run result.
  */
@@ -373,56 +322,36 @@ export async function runDeadlinePush(
   dirs: { litigation: string; nonlitigation: string; tasks: string },
   cfg: PushConfig,
   store: PushStore,
-  dshIm: DshImService,
+  opts: { force?: boolean } = {},
   now: number = Date.now(),
 ): Promise<PushRunResult> {
   if (!cfg.enabled) return { due: 0, pushed: 0, attempted: false }
-  if (cfg.botId === '' || cfg.targetId === '') return { due: 0, pushed: 0, attempted: false }
 
   // 1. Aggregate deadlines from all data sources (litigation + nonlitigation + standalone tasks).
   const items = await collectAllDeadlines(dirs.litigation, dirs.nonlitigation, dirs.tasks)
 
-  // 2. Filter to deadlines whose reminder time has arrived (and not overdue).
-  const due = items.filter((item) => {
-    if (item.daysLeft < 0) return false
-    const remind = reminderTimeMs(item)
-    return remind !== undefined && remind <= now
-  })
+  // 2. Filter to the daily window: today (daysLeft === 0) and tomorrow (daysLeft === 1).
+  const due = items.filter((item) => WINDOW_DAYS.includes(item.daysLeft))
 
-  // 3. Dedupe against the ledger.
+  // 3. Dedupe against the ledger (per-day: only today's records count).
+  //    force=true（手动触发）绕过台账，推送窗口内全部。
   const fresh = []
   for (const item of due) {
     const key = ledgerKey(item.caseId, item.date, item.label)
-    if (!(await store.hasPushed(key))) fresh.push(item)
+    if (opts.force === true || !(await store.hasPushed(key))) fresh.push(item)
   }
   if (fresh.length === 0) return { due: due.length, pushed: 0, attempted: false }
 
-  // 4. Format the fixed template (feishu → card markdown; others → plain text).
-  // 渠道实时解析：配置可能没存 channel（旧版保存时 dsh-im listTargets 不可用），
-  // 推送前用 botId 现查投递目标渠道——避免「配了飞书却发普通文字」。
-  let channel = cfg.channel
-  if (channel === undefined && dshIm.listTargets !== undefined) {
-    try {
-      const result = await dshIm.listTargets(cfg.botId)
-      if (result?.channel !== undefined && result.channel !== '') channel = result.channel
-    } catch { /* 查询失败则保持 undefined → 走普通文字 */ }
-  }
-  const isFeishu = channel === 'feishu'
-  const text = isFeishu ? formatPushMarkdown(fresh, cfg.titlePrefix) : formatPush(fresh, cfg.titlePrefix)
-
-  // 5. Send: feishu renders a structured card; others use dsh-im plain text.
+  // 4. Format the FIXED template as a structured Feishu card (the only delivery path).
+  // 5. Send the Feishu card (direct Feishu open API — no dsh-im dependency).
   try {
-    if (isFeishu) {
-      await sendFeishuCard(text)
-    } else {
-      await dshIm.send(cfg.botId, cfg.targetId, text)
-    }
+    await sendDeadlineCard(fresh, cfg.titlePrefix)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return { due: due.length, pushed: 0, attempted: true, error: message }
   }
 
-  // 6. Record the ledger (only on success — a failure retries next tick).
+  // 6. Record the ledger (only on success — a failure retries next run).
   await store.recordPushed(fresh.map((item) => ledgerKey(item.caseId, item.date, item.label)))
   return { due: due.length, pushed: fresh.length, attempted: true }
 }

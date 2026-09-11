@@ -196,19 +196,33 @@ export function computeDeadlines(
   return merged.slice(0, opts.maxItems ?? 500)
 }
 
+/** 非案件归属（非诉项目/独立事项）的元信息——引擎的 registry 里没有它们。 */
+export interface OwnerMeta {
+  name?: string
+  caseNumber?: string
+  court?: string
+  /** 归属来源标签，落到 DeadlineItem.source（litigation/nonlitigation/standalone）。 */
+  source?: string
+}
+
 /**
  * 统一事项版 deadline 计算（v2）：事件来自 items + legacy 合并，任务期限
  * 来自 items（type=task/both）。registry 仍提供案件元信息（名称/案号/法院）
  * 与 keyDates。兼容旧入口——旧 computeDeadlines 保留给无 item 的调用方。
  *
+ * **这是全库唯一的期限聚合出口**（0.2.12）：期限汇总工具、飞书推送、体检都走它，
+ * 保证「同一件事只出一行、口径不分叉」。非诉项目与独立事项通过 `opts.ownerMeta`
+ * 补元信息，因此不再需要各调用方自建一份聚合。
+ *
  * @param taskDeadlines - items 里的任务期限：Map<taskId, {caseId,title,date,time,status}>。
+ * @param opts.ownerMeta - 非案件归属（项目/独立）的元信息：Map<ownerId, OwnerMeta>。
  */
 export function computeDeadlinesV2(
   registry: CaseRegistry,
   events: TimelineEvent[],
   taskDeadlines: Map<string, { caseId: string; title: string; date: string; time?: string; status: string }>,
   caseId?: string,
-  opts: { includeOverdue?: boolean; maxItems?: number } = {},
+  opts: { includeOverdue?: boolean; maxItems?: number; ownerMeta?: Map<string, OwnerMeta> } = {},
 ): DeadlineItem[] {
   const today = TODAY()
   const items: DeadlineItem[] = []
@@ -220,14 +234,25 @@ export function computeDeadlinesV2(
     task: 1,
   }
 
-  const push = (rec: CaseRecord, date: string, label: string, kind: DeadlineItem['kind'], source: string, extra?: { time?: string; detail?: string }): void => {
+  // 归属解析：案件走 registry；项目/独立走 ownerMeta（0.2.12 统一出口）。
+  const ownerOf = (ownerId: string): { caseId: string; caseName: string; caseNumber?: string; court?: string; sourceTag?: string } | undefined => {
+    const rec = byCase.get(ownerId)
+    if (rec !== undefined) {
+      return { caseId: rec.caseId, caseName: rec.name, caseNumber: rec.caseNumber, court: rec.court }
+    }
+    const meta = opts.ownerMeta?.get(ownerId)
+    if (meta === undefined) return undefined
+    return { caseId: ownerId, caseName: meta.name ?? ownerId, caseNumber: meta.caseNumber, court: meta.court, sourceTag: meta.source }
+  }
+
+  const push = (rec: { caseId: string; caseName: string; caseNumber?: string; court?: string; sourceTag?: string }, date: string, label: string, kind: DeadlineItem['kind'], source: string, extra?: { time?: string; detail?: string }): void => {
     if (!date) return
     const normLabel = String(label ?? '').trim()
     if (normLabel === '') return
     const daysLeft = Math.round((new Date(`${date}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86_400_000)
     const item: DeadlineItem = {
       caseId: rec.caseId,
-      caseName: rec.name,
+      caseName: rec.caseName,
       caseNumber: rec.caseNumber,
       court: rec.court,
       time: extra?.time !== undefined && extra.time.trim() !== '' ? extra.time.trim() : undefined,
@@ -238,7 +263,7 @@ export function computeDeadlinesV2(
       daysLeft,
       urgent: daysLeft >= 0 && daysLeft <= URGENT_HORIZON_DAYS,
       overdue: daysLeft < 0,
-      source,
+      source: rec.sourceTag ?? source,
     }
     const key = `${rec.caseId}|${date}|${normLabel}`
     const existing = byKey.get(key)
@@ -264,27 +289,29 @@ export function computeDeadlinesV2(
   // 事件（items + legacy 合并）：kind 按事件类型。
   for (const e of events) {
     if (caseId !== undefined && e.caseId !== caseId) continue
-    const rec = byCase.get(e.caseId)
-    if (rec === undefined) continue
+    const owner = ownerOf(e.caseId)
+    if (owner === undefined) continue
     if (e.status === 'done' || e.status === 'cancelled') continue
     if (!e.date) continue
-    push(rec, e.date, e.title || eventTypeLabel(e.type), eventKind(e.type), e.type, { time: e.time, detail: e.detail })
+    push(owner, e.date, e.title || eventTypeLabel(e.type), eventKind(e.type), e.type, { time: e.time, detail: e.detail })
   }
 
   // 任务期限（items 的 task/both）。
   const processedCases = new Set<string>()
   for (const td of taskDeadlines.values()) {
     if (caseId !== undefined && td.caseId !== caseId) continue
-    const rec = byCase.get(td.caseId)
-    if (rec === undefined) continue
+    const owner = ownerOf(td.caseId)
+    if (owner === undefined) continue
     if (td.status === 'done' || td.status === 'cancelled') continue
     processedCases.add(td.caseId)
-    push(rec, td.date, td.title, 'task', 'task', { time: td.time })
+    push(owner, td.date, td.title, 'task', 'task', { time: td.time })
   }
 
   // keyDates：registry 里仍未 done 的（含任务派生的 keydate）。
   for (const [cid, rec] of byCase) {
     if (caseId !== undefined && cid !== caseId) continue
+    const owner = ownerOf(cid)
+    if (owner === undefined) continue
     for (const kd of rec.keyDates ?? []) {
       if (kd.done || !kd.date) continue
       let time: string | undefined
@@ -294,7 +321,7 @@ export function computeDeadlinesV2(
         if (e.time !== undefined && e.time !== '') time = e.time
         if (e.detail !== undefined && e.detail !== '') detail = e.detail
       }
-      push(rec, kd.date, kd.label, 'keydate', 'keydate', { time, detail })
+      push(owner, kd.date, kd.label, 'keydate', 'keydate', { time, detail })
     }
   }
 

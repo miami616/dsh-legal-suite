@@ -20,6 +20,8 @@ import {
   planStageExpansion,
 } from './stage-expansion.ts'
 import { applyPeriodRegistration, listRules, planPeriodRegistration, type ServiceRequest } from './period-service.ts'
+import { runPatrol, groupItemsByCase } from './patrol.ts'
+import { PERIOD_RULES, type PeriodRule } from '../../shared/playbook/period-rules.ts'
 import { computeCaseHealth, computeRegistryHealth } from './health.ts'
 
 /** Stores the tool operates on (same instances as the route family). */
@@ -29,10 +31,20 @@ export interface ToolDeps {
   scheduleStore?: ScheduleStore
   /** 统一事项 store —— 时间轴事件/任务写统一事项（v0.1.27）。 */
   itemStore?: import('../item/store/item-store.ts').ItemStore
+  /** 期限规则本地补丁表 + 提案（0.2.12）。 */
+  periodRuleStore?: import('./store/period-rule-store.ts').PeriodRuleStore
+  /** 账实核对台账（去重推送 + 已确认留档）。 */
+  patrolLedgerStore?: import('./store/patrol-ledger-store.ts').PatrolLedgerStore
   /** Deadline engine summary (optional when unavailable). */
   deadlines?(caseId?: string, opts?: { includeOverdue?: boolean }): unknown | Promise<unknown>
   /** Apple 日历同步配置（日程建立时自动写入 Apple Calendar）。 */
   calendarSync?: { enabled: boolean; calendarName: string }
+}
+
+/** 生效规则集合（内置 + 本地补丁表）；store 缺席时退回内置表。 */
+async function effectiveRulesOf(deps: ToolDeps): Promise<PeriodRule[]> {
+  if (deps.periodRuleStore === undefined) return PERIOD_RULES
+  return deps.periodRuleStore.effectiveRules()
 }
 
 const ACTIONS = [
@@ -43,6 +55,7 @@ const ACTIONS = [
   'delete_case',
   'add_keydate',
   'toggle_keydate',
+  'delete_keydate',
   'upsert_group',
   'delete_group',
   'upsert_task',
@@ -64,6 +77,11 @@ const ACTIONS = [
   'case_health',
   'case_info',
   'period_rules',
+  'patrol_scan',
+  'mute_patrol_finding',
+  'mute_period_gate',
+  'propose_period_rule',
+  'resolve_period_rule',
   'derive_deadline',
   'register_service',
 ] as const
@@ -130,6 +148,16 @@ const PARAMETERS = {
   serviceFact: { type: 'string', description: '事实类型：送达/收到/作出/生效（默认 送达）' },
   docKind: { type: 'string', description: '文书种类定性：非终局裁决/终局裁决/判决/裁定。定性本身是判断（不由系统猜）——终局裁决时劳动者 15 日起诉、用人单位 30 日申请撤裁，路径不同' },
   clientRole: { type: 'string', description: '我方实体身份：劳动者/用人单位（终局裁决的救济路径靠它区分；普通诉讼不必传）' },
+  proposalId: { type: 'string', description: '提案 id（resolve_period_rule 必填，形如 ppr-<ruleId>）' },
+  decision: { type: 'string', description: 'resolve_period_rule：accept（采纳→写本地补丁表立即生效）| reject（丢弃）' },
+  correction: { type: 'object', additionalProperties: true, description: 'resolve_period_rule(accept) 时对草案的修正（如把期间/术语改对）' },
+  note: { type: 'string', description: 'resolve_period_rule 处理说明' },
+  muted: { type: 'boolean', description: 'mute_period_gate：false = 取消确认（重新纳入巡检）' },
+  reason: { type: 'string', description: 'mute_period_gate / mute_patrol_finding 确认理由（备查，如「二审独立建档，上诉期由 2026-058 跟踪」）' },
+  reasoning: { type: 'string', description: 'propose_period_rule 提案理由（内置表为何未覆盖）' },
+  cite: { type: 'string', description: '法律依据（propose_period_rule 必填，如「劳动争议调解仲裁法 §50」；无依据的提案不予受理）' },
+  ruleId: { type: 'string', description: '规则 id：propose_period_rule 用稳定语义键（如 labor_arbitration.objection_to_award）；mute_patrol_finding 用 patrol_scan 结果里的 ruleId（如 period.duplicate_registration）' },
+  rule: { type: 'object', additionalProperties: true, description: 'propose_period_rule 规则草案（scope/trigger/period/start/term/cite/effective）' },
   procedure: { type: 'string', description: '程序轨：劳动仲裁/一审/二审/再审/首次执行/恢复执行/商事仲裁/刑事。register_service/derive_deadline/period_rules 可选，缺省取案件 level' },
 } as const
 
@@ -157,7 +185,8 @@ const DESCRIPTION = [
   '一律用 register_service 登记，只给事实（收到什么文书、哪天送达），系统查规则表算届满日、',
   '取规范术语、带法律依据，并自动铺「提前量任务链」（T-10 研读 → T-7 分析 → T-5 确认 → T-3 定稿 → T-2 递交）。',
   '- 拿不准时先用 derive_deadline 只读预览（不落库）：返回候选、届满日、计算过程、依据与将落的任务；',
-  '- 规则表查不到（period_rules 可看全集）→ 不要编日期：依法条提案并说明依据，交律师确认后再落库；',
+  '- 规则表查不到（period_rules 可看全集）→ 不要编日期：用 propose_period_rule 依法条提案并说明依据，律师 resolve_period_rule(accept) 确认后才生效；',
+  '- 账实核对用 patrol_scan：列出「实际状态与登记不一致」的案件（漏登记/登记错/该推进没推进），每条带证据+期望+动作；确认无需处理的用 mute_patrol_finding；',
   '  法院在文书中指定的期间（举证期限/答辩期等以通知书载明为准）仍按文书日期直接登记。',
   '- 触发事由归一：判决书/裁定书/裁决书 → 「裁判文书送达」（status=done，进时间轴纪年）；',
   '- 标签纪律：劳动仲裁裁决之后登记「起诉期届满」（无上诉！终局裁决用人单位才走「撤销裁决申请期届满」）；',
@@ -193,7 +222,8 @@ const DESCRIPTION = [
   '',
   '【状态变更 → 阶段展开（三态 expandOnStatus，默认 confirm）】',
   '改状态档位（如 立案中→庭前准备）= 宣告进入下一阶段，任务树应跟着展开该阶段标准任务：',
-  '- confirm：update_case 改 status 后响应里会带 pendingExpand（stageId/stageName/预览清单）——必须当场向用户确认',
+  '- confirm：**只用于手动改状态的 UI 语义**（前端会弹确认框）；管家调 update_case 改状态时不会走 confirm，一律 agent 态，因此不会弹框；',
+  '- confirm 态下 update_case 改 status 后响应里会带 pendingExpand（stageId/stageName/预览清单）——须当场向用户确认',
   '  「是否展开 X 阶段」(给出清单)，用户同意 → resolve_pending_expand(expand) 落库；用户拒绝 → resolve_pending_expand(ignore) 清除；',
   '- agent：改状态后同样读 pendingExpand（mode=agent），按管家纪律自主处理：有明确程序依据（收到开庭传票、',
   '  切审级轨等）直接 apply_stage_template 或 resolve_pending_expand(expand) 展开；情况模糊先与用户确认；',
@@ -323,7 +353,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           // 0.2.2 并库退役，不再合并 legacy。
           if (deps.itemStore !== undefined) {
             const itemsEvents = (await deps.itemStore.listItems(args.caseId === undefined ? undefined : String(args.caseId)))
-              .filter((it) => it.type !== 'task')
+              .filter((it) => it.type !== 'task' && it.type !== 'keydate')
             const { itemToTimelineEvent } = await import('../item/shape.ts')
             const out = itemsEvents.map((it) => itemToTimelineEvent(it))
             return clean({ count: out.length, events: out })
@@ -392,9 +422,94 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           return clean({ count: rows.length, cases: rows })
         }
 
-        /* ------------------- 法定期限规则表（0.2.11） -------------------- */
+        /* ------------------- 法定期限规则表（0.2.11/0.2.12） -------------- */
         case 'period_rules': {
-          return clean({ count: listRules(s(args.procedure)).length, rules: listRules(s(args.procedure)) })
+          // 生效规则集合 = 内置表 + 本地补丁表（0.2.12）；proposed 不参与匹配。
+          const rules = await effectiveRulesOf(deps)
+          const rows = listRules(s(args.procedure), rules)
+          return clean({ count: rows.length, rules: rows })
+        }
+        case 'mute_period_gate': {
+          // 确认闸门（不再提醒）：确实无需在本案登记期限时用（如二审独立建档、
+          // 一审案的上诉期由二审案跟踪）。传 muted=false 取消确认。
+          requireIds({ caseId: s(args.caseId) })
+          const muted = args.muted === false ? undefined : { at: new Date().toISOString(), reason: s(args.reason) }
+          const record = await cs.setPeriodGateMuted(String(args.caseId), muted)
+          return clean({
+            caseId: record.caseId,
+            muted: record.periodGateMuted !== undefined,
+            reason: record.periodGateMuted?.reason,
+            notice: muted === undefined
+              ? '已取消确认，巡检会重新纳入该案'
+              : '已确认无需在本案登记期限（不再提醒）；如后续需要登记，register_service 后闸门自然解除。',
+          })
+        }
+        case 'patrol_scan': {
+          // 案件账实核对（0.2.12）：只读。规则见 patrol.ts——定位是"实际状态与登记不一致"，
+          // 不碰字段完整性（case_health）与任务逾期（任务台账）。
+          const rules = await effectiveRulesOf(deps)
+          const registry = await cs.readRegistry()
+          const items = deps.itemStore === undefined ? [] : await deps.itemStore.listItems()
+          const result = runPatrol(Object.values(registry.cases), groupItemsByCase(items), rules)
+          const muted: string[] = []
+          const findings = []
+          for (const f of result.findings) {
+            const isMuted = deps.patrolLedgerStore === undefined
+              ? false
+              : await deps.patrolLedgerStore.isMuted(f.caseId, f.ruleId)
+            if (isMuted) muted.push(`${f.caseId}/${f.ruleId}`)
+            findings.push({ ...f, muted: isMuted })
+          }
+          return clean({ ...result, findings, muted })
+        }
+        case 'mute_patrol_finding': {
+          // 确认某条发现无需处理（留 reason）；muted=false 取消确认。
+          if (deps.patrolLedgerStore === undefined) throw new Error('patrolLedgerStore 不可用')
+          requireIds({ caseId: s(args.caseId) })
+          const ruleId = s(args.ruleId) ?? ''
+          if (ruleId === '') throw new Error('ruleId 必填（见 patrol_scan 结果里的 ruleId）')
+          if (args.muted === false) {
+            const r = await deps.patrolLedgerStore.unmute(String(args.caseId), ruleId)
+            return clean({ ok: r.removed, muted: false, notice: '已取消确认，下次核对会重新纳入' })
+          }
+          const row = await deps.patrolLedgerStore.mute(String(args.caseId), ruleId, s(args.reason))
+          return clean({ ok: true, muted: true, ruleId: row.ruleId, reason: row.reason, notice: '已确认无需处理，不再提醒（留档备查）' })
+        }
+        case 'propose_period_rule': {
+          // 表未命中时**只能提案**（带 cite），不得自行推算日期；律师确认后才生效。
+          if (deps.periodRuleStore === undefined) throw new Error('periodRuleStore 不可用')
+          const draft = args.rule as Record<string, unknown> | undefined
+          const rule = (draft ?? {}) as unknown as PeriodRule
+          const ruleId = s(args.ruleId) ?? s(rule.id) ?? ''
+          if (ruleId === '') throw new Error('ruleId（或 rule.id）必填')
+          const proposal = await deps.periodRuleStore.propose({
+            rule: { ...rule, id: ruleId } as PeriodRule,
+            cite: String(args.cite ?? rule.cite ?? ''),
+            reasoning: String(args.reasoning ?? ''),
+            caseId: s(args.caseId),
+          })
+          return clean({
+            proposalId: proposal.id,
+            ruleId: proposal.ruleId,
+            status: proposal.status,
+            cite: proposal.cite,
+            notice: `提案已登记（${proposal.ruleId}）。**确认前不生效**：请律师用 resolve_period_rule(accept) 采纳后再用 register_service 登记。`,
+          })
+        }
+        case 'resolve_period_rule': {
+          if (deps.periodRuleStore === undefined) throw new Error('periodRuleStore 不可用')
+          const proposalId = s(args.proposalId) ?? ''
+          if (proposalId === '') throw new Error('proposalId 必填')
+          const decision = s(args.decision) ?? 'accept'
+          const result = await deps.periodRuleStore.resolve(
+            proposalId,
+            decision === 'reject' ? 'reject' : 'accept',
+            {
+              correction: args.correction as Partial<PeriodRule> | undefined,
+              note: s(args.note),
+            },
+          )
+          return clean(result)
         }
         case 'derive_deadline':
         case 'register_service': {
@@ -412,10 +527,11 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           if (request.doc === '' || request.date === '') {
             throw new Error('doc 与 serviceDate 均必填（只登记触发事由，届满日由规则表派生）')
           }
+          const rules = await effectiveRulesOf(deps)
           if (action === 'derive_deadline') {
-            return clean(await planPeriodRegistration(cs, String(args.caseId), request))
+            return clean(await planPeriodRegistration(cs, String(args.caseId), request, rules))
           }
-          return clean(await applyPeriodRegistration(cs, String(args.caseId), request, deps.itemStore))
+          return clean(await applyPeriodRegistration(cs, String(args.caseId), request, deps.itemStore, rules))
         }
 
         /* ---------------------- case folder memory file ------------------ */
@@ -520,11 +636,16 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
               ok: true,
               stageSuggestions: found?.suggestions ?? [],
             }
-            // 三态展开：状态档位变化 → 按 expandOnStatus（confirm/agent/off）挂起或忽略。
+            // 三态展开：状态档位变化 → 挂起或忽略。
+            //
+            // ⚠ 管家自己推进状态时**一律走 agent 态**（除非案件设了 off）：'confirm'
+            // 是给**手动改状态**用的 UI 语义——它会让前端弹「是否展开阶段任务」确认框，
+            // 而管家自己推进时那个框是多余的（管家在同一回合按纪律自行 expand/ignore）。
+            // 案件级 expandOnStatus 表达的是「用户手动改时要不要问」，不该被管家继承。
             if (deps.itemStore !== undefined) {
               const { handleStatusTransition } = await import('./status-transition.ts')
-              const modeCandidate = String(patch.expandOnStatus ?? record.expandOnStatus ?? 'confirm')
-              const mode = (['confirm', 'agent', 'off'].includes(modeCandidate) ? modeCandidate : 'confirm') as never
+              const setting = String(patch.expandOnStatus ?? record.expandOnStatus ?? '')
+              const mode = (setting === 'off' ? 'off' : 'agent') as never
               const trans = await handleStatusTransition({
                 caseStore: cs,
                 itemStore: deps.itemStore,
@@ -574,6 +695,15 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           // right away (toggle_keydate requires keyDateId) without re-reading.
           const created = (record.keyDates ?? []).at(-1)
           return clean({ caseId: record.caseId, ok: true, keyDateId: created?.id, label: created?.label, date: created?.date })
+        }
+        case 'delete_keydate': {
+          requireIds({ caseId: s(args.caseId), keyDateId: s(args.keyDateId) })
+          const record = await cs.deleteKeyDate(String(args.caseId), String(args.keyDateId))
+          return clean({
+            caseId: record.caseId,
+            keyDates: (record.keyDates ?? []).map((k) => ({ id: k.id, label: k.label, date: k.date })),
+            ok: true,
+          })
         }
         case 'toggle_keydate': {
           requireIds({ caseId: s(args.caseId), keyDateId: s(args.keyDateId) })
@@ -792,7 +922,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           requireIds({ eventId: s(args.eventId) })
           if (deps.itemStore !== undefined) {
             const existing = await deps.itemStore.readItem(String(args.eventId))
-            if (existing !== undefined && existing.type !== 'task') {
+            if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
               const updated = await deps.itemStore.toggleItem(String(args.eventId))
               return { eventId: updated.id, status: updated.status, ok: true }
             }
@@ -806,7 +936,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           // 回落 legacy case-timeline.json，保证两种来源都能删掉（备忘录 #3）。
           if (deps.itemStore !== undefined) {
             const existing = await deps.itemStore.readItem(String(args.eventId))
-            if (existing !== undefined && existing.type !== 'task') {
+            if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
               await deps.itemStore.deleteItem(String(args.eventId))
               return { deleted: true }
             }
@@ -936,6 +1066,7 @@ const HTTP_ROUTE: Record<Action, { route: string; map?: (data: unknown) => unkno
   delete_case: { route: 'delete-case' },
   add_keydate: { route: 'add-keydate' },
   toggle_keydate: { route: 'toggle-keydate' },
+  delete_keydate: { route: 'delete-keydate' },
   upsert_group: { route: 'group' },
   delete_group: { route: 'delete-group' },
   upsert_task: { route: 'task' },
@@ -955,6 +1086,11 @@ const HTTP_ROUTE: Record<Action, { route: string; map?: (data: unknown) => unkno
   case_health: { route: 'case-health' },
   case_info: { route: 'case-info' },
   period_rules: { route: 'period-rules' },
+  patrol_scan: { route: 'patrol-scan' },
+  mute_patrol_finding: { route: 'mute-patrol-finding' },
+  mute_period_gate: { route: 'mute-period-gate' },
+  propose_period_rule: { route: 'propose-period-rule' },
+  resolve_period_rule: { route: 'resolve-period-rule' },
   derive_deadline: { route: 'derive-deadline' },
   register_service: { route: 'register-service' },
 }
@@ -981,7 +1117,10 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
       if (args.instances !== undefined) body.instances = clean(JSON.parse(String(args.instances)) as unknown)
       return body
     case 'get_case': case 'update_case': case 'delete_case':
-    case 'add_keydate': case 'toggle_keydate':
+    case 'add_keydate': case 'toggle_keydate': case 'delete_keydate':
+      // 标记调用方：管家改状态走 agent 态（不弹前端确认框）——见 routes.ts update-case。
+      // 浏览器改状态走 api.ts，不带 actor，按案件设置（confirm/agent/off）。
+      if (action === 'update_case') body.actor = 'agent'
       body.caseId = s(args.caseId)
       if (args.keyDateId !== undefined) body.keyDateId = s(args.keyDateId)
       if (args.label !== undefined) body.label = s(args.label)
@@ -1024,6 +1163,32 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
       return body
     case 'period_rules':
       if (args.procedure !== undefined) body.procedure = s(args.procedure)
+      return body
+    case 'patrol_scan':
+      return body
+    case 'mute_patrol_finding':
+      body.caseId = s(args.caseId)
+      if (args.ruleId !== undefined) body.ruleId = s(args.ruleId)
+      if (typeof args.muted === 'boolean') body.muted = args.muted
+      if (args.reason !== undefined) body.reason = s(args.reason)
+      return body
+    case 'mute_period_gate':
+      body.caseId = s(args.caseId)
+      if (typeof args.muted === 'boolean') body.muted = args.muted
+      if (args.reason !== undefined) body.reason = s(args.reason)
+      return body
+    case 'propose_period_rule':
+      if (args.caseId !== undefined) body.caseId = s(args.caseId)
+      if (args.ruleId !== undefined) body.ruleId = s(args.ruleId)
+      if (args.rule !== undefined) body.rule = args.rule
+      if (args.cite !== undefined) body.cite = s(args.cite)
+      if (args.reasoning !== undefined) body.reasoning = s(args.reasoning)
+      return body
+    case 'resolve_period_rule':
+      if (args.proposalId !== undefined) body.proposalId = s(args.proposalId)
+      if (args.decision !== undefined) body.decision = s(args.decision)
+      if (args.correction !== undefined) body.correction = args.correction
+      if (args.note !== undefined) body.note = s(args.note)
       return body
     case 'derive_deadline': case 'register_service':
       body.caseId = s(args.caseId)

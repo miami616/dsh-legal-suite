@@ -218,7 +218,9 @@ export function registerLegacyCompatRoutes(ctx: Context, deps: RouteDeps): () =>
   })
 
   route('/api/agentlex/update-case', async (body, res) => {
-    const { caseId, ...patch } = body
+    // actor 是调用方标记，不是案件字段——从 patch 剔除，避免写进 registry。
+    const { caseId, actor: actorRaw, ...patch } = body
+    const actor = actorRaw === 'agent' ? 'agent' : undefined
     const cid = String(caseId ?? '')
     // 详情页（vendor CaseDetailPage）改状态走这里（cmd_agentlex_update_case →
     // /api/agentlex/update-case）。与 /api/agentlex-case/update-case 同钩子：
@@ -228,8 +230,12 @@ export function registerLegacyCompatRoutes(ctx: Context, deps: RouteDeps): () =>
     const out: Record<string, unknown> = { ...toLegacyCase(record as unknown as Record<string, unknown>) }
     if (patch.status !== undefined && record.status !== prev?.status && deps.itemStore !== undefined) {
       const { handleStatusTransition } = await import('./status-transition.ts')
-      const modeCandidate = String(patch.expandOnStatus ?? record.expandOnStatus ?? 'confirm')
-      const mode = (['confirm', 'agent', 'off'].includes(modeCandidate) ? modeCandidate : 'confirm') as never
+      // 与 /api/agentlex-case/update-case 同口径：actor='agent' → agent 态（不弹窗）。
+      const isAgent = actor === 'agent'
+      const setting = String(patch.expandOnStatus ?? record.expandOnStatus ?? '')
+      const mode = (isAgent
+        ? (setting === 'off' ? 'off' : 'agent')
+        : (['confirm', 'agent', 'off'].includes(setting) ? setting : 'confirm')) as never
       const trans = await handleStatusTransition({
         caseStore: deps.caseStore,
         itemStore: deps.itemStore,
@@ -330,7 +336,7 @@ export function registerLegacyCompatRoutes(ctx: Context, deps: RouteDeps): () =>
     const eventId = String(body.eventId ?? '')
     if (deps.itemStore !== undefined) {
       const existing = await deps.itemStore.readItem(eventId)
-      if (existing !== undefined && existing.type !== 'task') {
+      if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
         ok(res, await deps.itemStore.deleteItem(eventId))
         return
       }
@@ -342,7 +348,7 @@ export function registerLegacyCompatRoutes(ctx: Context, deps: RouteDeps): () =>
     const eventId = String(body.eventId ?? '')
     if (deps.itemStore !== undefined) {
       const existing = await deps.itemStore.readItem(eventId)
-      if (existing !== undefined && existing.type !== 'task') {
+      if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
         ok(res, await deps.itemStore.toggleItem(eventId))
         return
       }

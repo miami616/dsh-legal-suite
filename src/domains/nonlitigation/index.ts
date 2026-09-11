@@ -267,12 +267,13 @@ export function apply(ctx: Context, config: Config = {}): void {
         void migrateDataDirIfChanged(dataDir)
         void snapshotDataDir('nonlitigation', dataDir, home)
       })
-    const projectStore = createProjectStore(dataDir, ctx)
-    const serviceStore = createServiceStore(dataDir, ctx)
     // 统一事项 store：$DSH_HOME/agentlex/items。
     const itemsDir = `${dataDir.replace(/[\\/]+nonlitigation$/, '')}/items`
     const itemStore = createItemStore(itemsDir, ctx)
-    // 0.2.2：一次性并库迁移（project-registry 任务镜像 → items，成功后剥离）。
+    // 0.2.12：project-store 只存项目元信息；任务/关键日期一律走 items（唯一真相源）。
+    const projectStore = createProjectStore(dataDir, ctx, itemStore)
+    const serviceStore = createServiceStore(dataDir, ctx)
+    // 0.2.2 + 0.2.12：一次性并库迁移（任务镜像 / keyDates → items，成功后剥离字段）。
     void snapshotDataDir('nonlitigation', dataDir, home)
       .then(async () => {
         const { mergeProjectLegacyIntoItems } = await import('./merge-legacy.ts')
@@ -280,6 +281,13 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (result.mergedTasks > 0 || result.strippedProjects > 0) {
           console.warn(
             `[agentlex-nonlitigation] 0.2.2 并库完成：任务 ${result.mergedTasks}、剥离 registry 镜像 ${result.strippedProjects} 个项目`,
+          )
+        }
+        const { unifyProjectStore } = await import('./unify-store.ts')
+        const unified = await unifyProjectStore(projectStore, itemStore, dataDir)
+        if (unified.mergedKeyDates > 0 || unified.strippedProjects > 0) {
+          console.warn(
+            `[agentlex-nonlitigation] 0.2.12 统一完成：关键日期 ${unified.mergedKeyDates}、剥离残留字段 ${unified.strippedProjects} 个项目`,
           )
         }
       })

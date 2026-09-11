@@ -1,19 +1,30 @@
 /**
  * Case store: the case registry (CaseRegistry document) plus all
- * case-scoped task operations. Single-writer via JsonFileStore.
+ * case-scoped task/key-date operations.
+ *
+ * 0.2.12「全面完整统一」：case-registry.json 只存**案件元信息**（当事人/案号/
+ * 法院/审级/卷宗路径…）。任务、事件、关键日期一律存 items.json（唯一真相源）：
+ *   - 写：本 store 的 task/keyDate 方法全部委托 itemStore（不再有第二个写入口）；
+ *   - 读：readCase / readRegistry 从 items 实时装配 keyDates + taskGroups，
+ *     所有既有消费方（期限汇总/健康检查/阶段检测/读接口/GUI）拿到的形状不变，
+ *     但盘上只有一处存储。
  *
  * Business rules preserved from AgentLex:
  *   - caseId YYYY-NNN system-assigned (nextCaseId, retried on collision).
  *   - parent task "done" requires all subtasks done (or cascadeSubtasks:true).
- *   - tasks live under named groups (taskGroups[]), ordered by `order`.
+ *   - 任务按阶段组（items.groups）分组，组内顺序由 order 决定。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import { assertSafePathSegment, JsonFileStore, clone } from './file-store.ts'
-import { childId, keyDateId, nextCaseId, nowIso, taskGroupId, taskId } from './id.ts'
+import { childId, nextCaseId, nowIso } from './id.ts'
 import { normalizePartiesBlock, normalizeOurSide, OUR_SIDE_PRIMARY_ROLE, canonicalRoleOf } from '../party-vocab.ts'
+import type { ItemStore } from '../../item/store/item-store.ts'
+import type { Item } from '../../item/store/types.ts'
+import { isKeyDateItem, isTaskItem } from '../../item/store/types.ts'
+import { buildOwnerTaskGroups, itemToKeyDate, itemToLegacyTask } from '../../item/shape.ts'
 import type {
-  CaseRecord, CaseRegistry, CaseTask, ChecklistItem, KeyDate, Parties, Subtask, TaskGroup,
+  CaseRecord, CaseRegistry, CaseTask, ChecklistItem, KeyDate, Parties, PeriodGate, Subtask, TaskGroup,
 } from './types.ts'
 
 export type { CaseRecord, CaseRegistry, TaskGroup, CaseTask }
@@ -45,67 +56,28 @@ function normalizePartiesInput(value: unknown, ourSideValue?: unknown): Parties 
   return normalized as unknown as Parties
 }
 
-/** Find a case's task group by id (mutating helper — assumes group exists). */
-function findGroup(record: CaseRecord, groupId: string): TaskGroup {
-  const group = (record.taskGroups ?? []).find((g) => g.id === groupId)
-  if (group === undefined) throw new Error(`task group not found: ${groupId}`)
-  return group
-}
-
-/** Find a task by id inside a group. */
-function findTask(group: TaskGroup, taskIdToFind: string): CaseTask {
-  const task = group.tasks.find((t) => t.id === taskIdToFind)
-  if (task === undefined) throw new Error(`task not found: ${taskIdToFind}`)
-  return task
-}
-
-/** Recompute a task's status from its subtasks (parent done ⇒ all subtasks done). */
-function syncTaskStatus(task: CaseTask, cascade: boolean): void {
-  const subtasks = task.subtasks ?? []
-  if (cascade && subtasks.length > 0 && subtasks.every((s) => s.done)) {
-    task.status = 'done'
-  } else if (task.status === 'done' && subtasks.length > 0 && !subtasks.every((s) => s.done)) {
-    task.status = 'doing'
-  }
-}
-
 /**
- * Normalize one case's keyDates in place:
- *  - backfill a stable `id` for legacy entries that lack one (so toggle_keydate
- *    works on imported data — Issue 附);
- *  - fold legacy AgentLex `completed` boolean into `done` and strip it.
- * Returns true when anything changed (caller decides whether to persist).
+ * Recompute a task's status from its subtasks (parent done ⇒ all subtasks done).
+ * 统一存储后子项在 items.json，父任务状态仍按同一条规则回算（保持旧行为）。
  */
-function normalizeKeyDates(record: CaseRecord): boolean {
-  let changed = false
-  for (const kd of record.keyDates ?? []) {
-    const legacy = kd as unknown as { id?: string; completed?: unknown; done?: boolean }
-    if (legacy.id === undefined || legacy.id === '') {
-      legacy.id = keyDateId()
-      changed = true
-    }
-    if (legacy.completed !== undefined) {
-      legacy.done = legacy.completed === true
-      delete legacy.completed
-      changed = true
-    }
-  }
-  return changed
+function recomputeTaskStatus(subtasks: Array<{ done?: boolean }>, current: string): string {
+  if (current === 'done' && subtasks.length > 0 && !subtasks.every((s) => s.done === true)) return 'doing'
+  return current
 }
 
-/** Whether a case's keyDates need normalization before use. */
-function needsKeyDateNormalization(record: CaseRecord): boolean {
-  return (record.keyDates ?? []).some((kd) => {
-    const legacy = kd as unknown as { id?: string; completed?: unknown }
-    return legacy.id === undefined || legacy.id === '' || legacy.completed !== undefined
-  })
+/** 旧 task 状态（todo/in_progress/done）→ 统一事项状态。 */
+function toItemStatus(status: unknown): 'pending' | 'doing' | 'done' {
+  const s = String(status ?? '')
+  if (s === 'done') return 'done'
+  if (s === 'doing' || s === 'in_progress') return 'doing'
+  return 'pending'
 }
 
-/** Collect key-date ids linked by the tasks of one group. */
-function linkedKeyDateIds(group: TaskGroup): string[] {
+/** Collect key-date ids linked by the tasks of one group（items 版）。 */
+function linkedKeyDateIds(tasks: Item[]): string[] {
   const ids: string[] = []
-  for (const task of group.tasks) {
-    if (task.keyDateId !== undefined) ids.push(task.keyDateId)
+  for (const task of tasks) {
+    if (task.keyDateId !== undefined && task.keyDateId !== '') ids.push(task.keyDateId)
   }
   return ids
 }
@@ -117,6 +89,11 @@ function linkedKeyDateIds(group: TaskGroup): string[] {
 export interface CaseStore {
   /** Full registry document. */
   readRegistry(): Promise<CaseRegistry>
+  /**
+   * 盘上原始 registry（**不**从 items 装配 keyDates/taskGroups）。
+   * 仅供一次性迁移读取历史残留字段；业务读路径一律用 readRegistry()。
+   */
+  readRegistryRaw(): Promise<CaseRegistry>
   /** One case by id. */
   readCase(caseId: string): Promise<CaseRecord | undefined>
   /** Register a new case (caseId assigned; throws on collision). */
@@ -129,6 +106,12 @@ export interface CaseStore {
    * 键，字段无法借 merge 删除；此方法显式删除。
    */
   clearPendingExpand(caseId: string): Promise<CaseRecord>
+  /** 落法定期限闸门标记（0.2.12）。 */
+  setPeriodGate(caseId: string, gate: PeriodGate): Promise<CaseRecord>
+  /** 清除法定期限闸门标记（期限登记齐了 / 已结案）。 */
+  clearPeriodGate(caseId: string): Promise<CaseRecord>
+  /** 确认闸门（不再提醒）：用于确实无需在本案登记期限的情形；传 undefined 取消确认。 */
+  setPeriodGateMuted(caseId: string, muted: { at: string; reason?: string } | undefined): Promise<CaseRecord>
   /** Delete a case. */
   deleteCase(caseId: string): Promise<{ deleted: boolean }>
   /** Key dates. */
@@ -138,16 +121,28 @@ export interface CaseStore {
    */
   addKeyDate(caseId: string, label: string, date: string, meta?: Partial<KeyDate>): Promise<CaseRecord>
   toggleKeyDate(caseId: string, keyDateIdToToggle: string): Promise<CaseRecord>
+  /**
+   * 删除一条关键日期（0.2.12）。
+   * 为什么需要：脏记录/录错的关键日期此前**没有任何删除入口**，只能手工改 JSON。
+   * 记录不实的关键日期比缺失更有害——它会让「闸门/巡检」基于假事实报警。
+   */
+  deleteKeyDate(caseId: string, keyDateId: string): Promise<CaseRecord>
   /** Task groups. */
   upsertTaskGroup(caseId: string, group: Partial<TaskGroup>): Promise<CaseRecord>
   deleteTaskGroup(caseId: string, groupId: string): Promise<CaseRecord>
   reorderTaskGroups(caseId: string, orderedIds: string[]): Promise<CaseRecord>
   /**
    * 0.2.2：从 registry 案件记录剥离 taskGroups 镜像（任务已并入库统一事项）。
-   * 一次性并库迁移后调用——registry 从此只存案件元信息/keyDates，不含任务正文。
    * 幂等：无 taskGroups 时直接返回。
+   * ⚠ 只剥 taskGroups，**不动 keyDates**——keyDates 由 0.2.12 统一迁移负责并入
+   * items，若在此处一并删掉会造成关键日期静默丢失。
    */
   stripTaskGroups(caseId: string): Promise<CaseRecord>
+  /**
+   * 0.2.12：剥离 registry 里**全部**第二份存储字段（taskGroups + keyDates）。
+   * 只在 keyDates 已确认并入 items 之后调用（unify-store 迁移末段）。
+   */
+  stripLegacyFields(caseId: string): Promise<CaseRecord>
   /** Tasks. */
   upsertTask(caseId: string, groupId: string, task: Partial<CaseTask>): Promise<CaseRecord>
   deleteTask(caseId: string, groupId: string, taskIdToDelete: string): Promise<CaseRecord>
@@ -171,24 +166,41 @@ export interface CaseStore {
  * Create the case store over a data directory.
  * @param dataDir - where case-registry.json lives.
  * @param ctx - host ctx for change broadcasts (optional in tests).
+ * @param itemStore - 统一事项 store（唯一真相源）。任务/事件/关键日期都在这里，
+ *   本 store 只存案件元信息；缺省时任务与关键日期方法会抛错（0.2.12 起必须提供）。
  */
-export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
+export function createCaseStore(dataDir: string, ctx?: Context, itemStore?: ItemStore): CaseStore {
   const store = new JsonFileStore<CaseRegistry>(
     `${dataDir}/case-registry.json`,
     caseRegistryDefault,
     ctx,
   )
 
-  /** Read a case or throw if missing (normalizes legacy keyDates on read). */
+  /** 统一事项 store；缺省即配置错误（0.2.12 起任务/关键日期只有 items 一处）。 */
+  function items(): ItemStore {
+    if (itemStore === undefined) {
+      throw new Error('case-store: itemStore is required (0.2.12 统一存储) — 任务与关键日期只存 items.json')
+    }
+    return itemStore
+  }
+
+  /** 把一条 registry 记录补上从 items 派生的 keyDates / taskGroups（只读装配）。 */
+  async function hydrate(record: CaseRecord): Promise<CaseRecord> {
+    const out = clone(record)
+    if (itemStore === undefined) return out
+    const [groups, allItems] = await Promise.all([itemStore.listGroups(), itemStore.listItems()])
+    const own = allItems.filter((i) => i.ownerId === record.caseId && (i.ownerType ?? 'litigation') === 'litigation')
+    out.keyDates = own.filter(isKeyDateItem).map((i) => itemToKeyDate(i) as unknown as KeyDate)
+    out.taskGroups = buildOwnerTaskGroups(record.caseId, 'litigation', groups, allItems) as unknown as TaskGroup[]
+    return out
+  }
+
+  /** Read a case or throw if missing. */
   async function requireCase(caseId: string): Promise<CaseRecord> {
     const reg = await store.read()
     const record = reg.cases[caseId]
     if (record === undefined) throw new Error(`case not found: ${caseId}`)
-    if (needsKeyDateNormalization(record)) {
-      await persistKeyDateNormalization(caseId)
-    }
-    const reg2 = await store.read()
-    const out = clone(reg2.cases[caseId])
+    const out = await hydrate(record)
     // 存量/工具链路字符串形态 parties → 解析为对象（issue：当事人信息不显示）。
     // 读路径兜底让历史数据无需手工迁移即可在界面正常渲染。
     const rawParties = (out.parties as unknown) as string | undefined
@@ -205,47 +217,65 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
     return out
   }
 
-  /** Persist id/`completed` backfill for one case's keyDates (Issue 附). */
-  async function persistKeyDateNormalization(caseId: string): Promise<void> {
-    await store.mutate((reg) => {
-      const current = reg.cases[caseId]
-      if (current === undefined) return reg
-      const next = clone(reg)
-      const record = next.cases[caseId]
-      const changed = normalizeKeyDates(record)
-      if (!changed) return reg
-      record.updatedAt = record.updatedAt ?? nowIso()
-      next.lastUpdated = record.updatedAt
-      return next
-    }, 'case', caseId, 'keydate-normalize')
+  /** 任务 → 统一事项（写路径共用）。 */
+  function taskToItem(caseId: string, groupId: string, task: Partial<CaseTask>, groupName?: string): Partial<Item> {
+    return {
+      ...(task.id === undefined ? {} : { id: String(task.id) }),
+      ownerId: caseId,
+      ownerType: 'litigation',
+      type: 'task',
+      title: String(task.title ?? '新任务'),
+      date: task.deadline === undefined ? undefined : String(task.deadline),
+      time: task.time === undefined ? undefined : String(task.time),
+      detail: task.detail === undefined ? undefined : String(task.detail),
+      status: toItemStatus(task.status),
+      priority: (task.priority as Item['priority']) ?? 'medium',
+      groupId: groupId === '' ? undefined : groupId,
+      groupName,
+      templateTitle: task.templateTitle === undefined ? undefined : String(task.templateTitle),
+      remindKeyDate: task.remindKeyDate === true ? true : undefined,
+      keyDateId: task.keyDateId === undefined ? undefined : String(task.keyDateId),
+      subtasks: Array.isArray(task.subtasks) ? clone(task.subtasks) as unknown as Item['subtasks'] : undefined,
+      checklist: Array.isArray(task.checklist) ? clone(task.checklist) as unknown as Item['checklist'] : undefined,
+    }
   }
 
-  /** Keep a linked keydate in step with its task (title / deadline edits). */
-  function syncLinkedKeyDate(record: CaseRecord, task: CaseTask): void {
-    if (task.remindKeyDate !== true || task.keyDateId === undefined) return
-    const kd = (record.keyDates ?? []).find((k) => k.id === task.keyDateId)
+  /** 任务 ↔ 关键日期联动：把任务标题/截止日同步到它派生的 keydate 事项。 */
+  async function syncLinkedKeyDate(task: Item): Promise<void> {
+    if (task.remindKeyDate !== true || task.keyDateId === undefined || task.keyDateId === '') return
+    const kd = await itemStore!.readItem(task.keyDateId)
     if (kd === undefined) return
-    kd.label = task.title
-    if (task.deadline !== undefined && task.deadline !== '') kd.date = task.deadline
-    kd.updatedAt = nowIso()
+    await itemStore!.upsertItem({
+      id: kd.id,
+      title: task.title,
+      ...(task.date !== undefined && task.date !== '' ? { date: task.date } : {}),
+    })
+  }
+
+  /** 子项变更后回算父任务状态（父 done 但仍有未完成子项 → 退回 doing）。 */
+  async function resyncTaskStatus(taskIdToEdit: string): Promise<void> {
+    const is = items()
+    const task = await is.readItem(taskIdToEdit)
+    if (task === undefined) return
+    const next = recomputeTaskStatus(task.subtasks ?? [], task.status)
+    if (next !== task.status) await is.upsertItem({ id: taskIdToEdit, status: next as Item['status'] })
   }
 
   return {
     async readRegistry(): Promise<CaseRegistry> {
       const reg = await store.read()
-      const anyLegacy = Object.values(reg.cases).some((c) => needsKeyDateNormalization(c))
-      if (!anyLegacy) return reg
-      await store.mutate((doc) => {
-        const next = clone(doc)
-        let changed = false
-        for (const rec of Object.values(next.cases)) {
-          if (normalizeKeyDates(rec)) changed = true
+      if (itemStore === undefined) return reg
+      const [groups, allItems] = await Promise.all([itemStore.listGroups(), itemStore.listItems()])
+      const next: CaseRegistry = { ...reg, cases: {} }
+      for (const [id, rec] of Object.entries(reg.cases)) {
+        const own = allItems.filter((i) => i.ownerId === id && (i.ownerType ?? 'litigation') === 'litigation')
+        next.cases[id] = {
+          ...clone(rec),
+          keyDates: own.filter(isKeyDateItem).map((i) => itemToKeyDate(i) as unknown as KeyDate),
+          taskGroups: buildOwnerTaskGroups(id, 'litigation', groups, allItems) as unknown as TaskGroup[],
         }
-        if (!changed) return doc
-        next.lastUpdated = nowIso()
-        return next
-      }, 'cases', undefined, 'keydate-normalize-all')
-      return store.read()
+      }
+      return next
     },
 
     async readCase(caseId: string): Promise<CaseRecord | undefined> {
@@ -253,11 +283,11 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
       const reg = await store.read()
       const record = reg.cases[caseId]
       if (record === undefined) return undefined
-      if (needsKeyDateNormalization(record)) {
-        await persistKeyDateNormalization(caseId)
-      }
-      const reg2 = await store.read()
-      return clone(reg2.cases[caseId])
+      return requireCase(caseId)
+    },
+
+    async readRegistryRaw(): Promise<CaseRegistry> {
+      return store.read()
     },
 
     async registerCase(input: Record<string, unknown>): Promise<CaseRecord> {
@@ -300,15 +330,15 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
           tags: input.tags === undefined ? undefined : clone(input.tags as string[] | undefined),
           archived: input.archived === undefined ? undefined : Boolean(input.archived),
           expandOnStatus: input.expandOnStatus === undefined ? undefined : String(input.expandOnStatus) as CaseRecord['expandOnStatus'],
-          keyDates: input.keyDates === undefined ? [] : clone(input.keyDates as KeyDate[] | undefined) ?? [],
-          taskGroups: input.taskGroups === undefined ? [] : clone(input.taskGroups as TaskGroup[] | undefined) ?? [],
+          // keyDates / taskGroups **不是 registry 字段**（0.2.12 起只存 items.json）。
+          // 这里连空数组都不建：留下 `keyDates: []` 空壳会让「盘上只有一处存储」
+          // 这句话在字段层面失真（实测 live 有 20 个案件残留空壳）。
           boundSessions: input.boundSessions === undefined ? [] : clone(input.boundSessions as string[] | undefined) ?? [],
           linkedContracts: input.linkedContracts === undefined ? [] : clone(input.linkedContracts as string[] | undefined) ?? [],
           linkedResearch: input.linkedResearch === undefined ? [] : clone(input.linkedResearch as string[] | undefined) ?? [],
           createdAt: now,
           updatedAt: now,
         }
-        normalizeKeyDates(created)
         // 建案即建首个审级节点：level 已定且未显式传 instances 时自动生成，
         // 回填案号/法院/承办法官/立案日期/双方当事人（备忘录 #14 审级历程缺信息——
         // 新建案件信息齐全却审级面板缺数据，根因之一就是 register 不建首节点）。
@@ -341,7 +371,10 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
           normalizedPatch.parties = normalizePartiesInput(patch.parties, partiesSide)
         }
         const merged = { ...clone(current), ...clone(normalizedPatch), caseId, updatedAt: nowIso() }
-        normalizeKeyDates(merged)
+        // 0.2.12：keyDates / taskGroups 不是 registry 字段（存 items.json），
+        // 任何写路径都不许把它们塞回案件档案——发现即删，杜绝第二份存储复活。
+        delete (merged as { keyDates?: unknown }).keyDates
+        delete (merged as { taskGroups?: unknown }).taskGroups
         // 审级历程自动同步：patch 携带 level 时，若该审级不在 instances 历程里，
         // 自动追加节点。让管家只需设 level（如 一审→二审），审级历程面板自动补全。
         // 新节点回填当前案件已知信息（案号/法院/承办法官/立案日期/我方当事人），
@@ -384,6 +417,67 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
       return record!
     },
 
+    async setPeriodGate(caseId: string, gate: PeriodGate): Promise<CaseRecord> {
+      assertSafePathSegment(caseId, 'caseId')
+      let record: CaseRecord | undefined
+      await store.mutate((reg) => {
+        const current = reg.cases[caseId]
+        if (current === undefined) throw new Error(`case not found: ${caseId}`)
+        const next = clone(reg)
+        const target = next.cases[caseId]
+        target.periodGate = clone(gate)
+        target.updatedAt = nowIso()
+        next.lastUpdated = target.updatedAt
+        record = clone(target)
+        return next
+      }, 'case', caseId, 'period-gate-set')
+      return hydrate(record!)
+    },
+
+    async clearPeriodGate(caseId: string): Promise<CaseRecord> {
+      assertSafePathSegment(caseId, 'caseId')
+      let record: CaseRecord | undefined
+      await store.mutate((reg) => {
+        const current = reg.cases[caseId]
+        if (current === undefined) throw new Error(`case not found: ${caseId}`)
+        if (current.periodGate === undefined && !Object.prototype.hasOwnProperty.call(current, 'periodGate')) {
+          return reg
+        }
+        const next = clone(reg)
+        const target = next.cases[caseId]
+        delete target.periodGate
+        target.updatedAt = nowIso()
+        next.lastUpdated = target.updatedAt
+        record = clone(target)
+        return next
+      }, 'case', caseId, 'period-gate-clear')
+      return hydrate(record!)
+    },
+
+    async setPeriodGateMuted(caseId: string, muted: { at: string; reason?: string } | undefined): Promise<CaseRecord> {
+      assertSafePathSegment(caseId, 'caseId')
+      let record: CaseRecord | undefined
+      await store.mutate((reg) => {
+        const current = reg.cases[caseId]
+        if (current === undefined) throw new Error(`case not found: ${caseId}`)
+        const next = clone(reg)
+        const target = next.cases[caseId]
+        if (muted === undefined) {
+          if (target.periodGateMuted === undefined) return reg
+          delete target.periodGateMuted
+        } else {
+          target.periodGateMuted = clone(muted)
+          // 确认即撤下当前告警（不再提醒）。
+          delete target.periodGate
+        }
+        target.updatedAt = nowIso()
+        next.lastUpdated = target.updatedAt
+        record = clone(target)
+        return next
+      }, 'case', caseId, muted === undefined ? 'period-gate-unmute' : 'period-gate-mute')
+      return hydrate(record!)
+    },
+
     async deleteCase(caseId: string): Promise<{ deleted: boolean }> {
       assertSafePathSegment(caseId, 'caseId')
       let deleted = false
@@ -395,122 +489,112 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
         deleted = true
         return next
       }, 'cases', caseId, 'delete')
+
+      // 级联清理该案的统一事项（任务/日程/关键日期）与阶段组壳（0.2.12）。
+      //
+      // 为什么必须在 store 层做：编号会被复用（nextCaseId 取 max+1，删掉末尾案件后
+      // 新案会拿回同一编号）。事项若留在 items 里，新案一读就"继承"了旧案的关键日期/
+      // 任务——实测「删案后重建同号案，旧的上诉期届满复活」。cascadeDeleteCase 也清，
+      // 这里再清一次是幂等的（deleteItem 对不存在的 id 返回 deleted:false）。
+      if (deleted && itemStore !== undefined) {
+        try {
+          for (const g of await itemStore.listGroups(caseId)) {
+            await itemStore.deleteGroup(g.id).catch(() => undefined)
+          }
+          for (const it of await itemStore.listItems(caseId)) {
+            await itemStore.deleteItem(it.id).catch(() => undefined)
+          }
+        } catch (error) {
+          console.warn(`[case-store] 删除案件 ${caseId} 的关联事项失败:`, error)
+        }
+      }
       return { deleted }
     },
 
+    /* ------------------------- key dates（items 唯一存储） ------------------------- */
+    // 0.2.12：关键日期 = items.json 里 type='keydate' 的一条事项。registry 只存
+    // 案件元信息，不再有 keyDates 字段；读侧由 readCase/readRegistry 实时装配。
+
     async addKeyDate(caseId: string, label: string, date: string, meta?: Partial<KeyDate>): Promise<CaseRecord> {
-      const now = nowIso()
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        // 派生登记（0.2.11）：同一 ruleId+baseDate 幂等——只更新日期/术语/审计字段，
-        // 不新增重复的关键日程（旧版按 label 去重，措辞一漂移就出两行）。
-        const ruleId = meta?.ruleId
-        const baseDate = meta?.baseDate
-        const existing = ruleId !== undefined && baseDate !== undefined
-          ? (record.keyDates ?? []).find((k) => k.ruleId === ruleId && k.baseDate === baseDate)
-          : undefined
-        if (existing !== undefined) {
-          existing.label = label
-          existing.date = date
-          existing.cite = meta?.cite ?? existing.cite
-          existing.computeTrace = meta?.computeTrace ?? existing.computeTrace
-          existing.derivedAt = now
-          existing.updatedAt = now
-        } else {
-          record.keyDates = [
-            ...(record.keyDates ?? []),
-            {
-              id: keyDateId(), label, date, done: false,
-              ...(meta ?? {}),
-              createdAt: now, updatedAt: now,
-            } satisfies KeyDate,
-          ]
-        }
-        record.updatedAt = now
-        next.lastUpdated = now
-        return next
-      }, 'case', caseId, 'keydate-add')
+      const reg = await store.read()
+      const current = reg.cases[caseId]
+      if (current === undefined) throw new Error(`case not found: ${caseId}`)
+      const is = items()
+      const ruleId = meta?.ruleId
+      const baseDate = meta?.baseDate
+      // 派生登记幂等（保留 0.2.11 语义）：同案同 ruleId+baseDate 只更新，不新增行。
+      const existing = ruleId !== undefined && baseDate !== undefined
+        ? (await is.listItems(caseId)).find((i) => isKeyDateItem(i) && i.ruleId === ruleId && i.baseDate === baseDate)
+        : undefined
+      await is.upsertItem({
+        ...(existing === undefined ? {} : { id: existing.id }),
+        ownerId: caseId,
+        ownerType: 'litigation',
+        ownerName: current.name,
+        type: 'keydate',
+        title: label,
+        date,
+        status: existing?.status ?? 'pending',
+        ruleId,
+        baseDate,
+        cite: meta?.cite,
+        computeTrace: meta?.computeTrace,
+        source: meta?.source ?? existing?.source,
+      })
       return requireCase(caseId)
     },
 
     async toggleKeyDate(caseId: string, keyDateIdToToggle: string): Promise<CaseRecord> {
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        const kd = (record.keyDates ?? []).find((k) => k.id === keyDateIdToToggle)
-        if (kd !== undefined) kd.done = !kd.done
-        record.updatedAt = nowIso()
-        next.lastUpdated = record.updatedAt
-        return next
-      }, 'case', caseId, 'keydate-toggle')
+      const is = items()
+      const item = await is.readItem(keyDateIdToToggle)
+      if (item === undefined) throw new Error(`key date not found: ${keyDateIdToToggle}`)
+      await is.toggleItem(keyDateIdToToggle)
       return requireCase(caseId)
     },
 
+    async deleteKeyDate(caseId: string, keyDateId: string): Promise<CaseRecord> {
+      const is = items()
+      const item = await is.readItem(keyDateId)
+      if (item === undefined || !isKeyDateItem(item)) {
+        throw new Error(`key date not found: ${keyDateId}`)
+      }
+      await is.deleteItem(keyDateId)
+      return requireCase(caseId)
+    },
+
+    /* ------------------------------- task groups ------------------------------- */
+
     async upsertTaskGroup(caseId: string, group: Partial<TaskGroup>): Promise<CaseRecord> {
-      const now = nowIso()
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        const groups = record.taskGroups ?? []
-        // upsert 契约：id 存在则更新，不存在（或未提供）则新建。
-        const gid = group.id === undefined ? taskGroupId() : String(group.id)
-        const existing = groups.find((g) => g.id === gid)
-        if (existing !== undefined) {
-          Object.assign(existing, { ...clone(group), id: gid, updatedAt: now })
-        } else {
-          groups.push({
-            id: gid,
-            name: String(group.name ?? '新阶段'),
-            order: groups.length,
-            tasks: [],
-            createdAt: now,
-            updatedAt: now,
-          })
-        }
-        record.taskGroups = groups
-        record.updatedAt = now
-        next.lastUpdated = now
-        return next
-      }, 'tasks', caseId, 'group-upsert')
+      await items().upsertGroup({
+        ...(group.id === undefined || group.id === '' ? {} : { id: String(group.id) }),
+        ownerId: caseId,
+        ownerType: 'litigation',
+        name: String(group.name ?? '新阶段'),
+        ...(typeof group.order === 'number' ? { order: group.order } : {}),
+      })
       return requireCase(caseId)
     },
 
     async deleteTaskGroup(caseId: string, groupId: string): Promise<CaseRecord> {
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        const group = (record.taskGroups ?? []).find((g) => g.id === groupId)
-        // Remove key dates that were derived from tasks of the deleted group
-        // (task ↔ keydate 解除不彻底 — deleting the carrier must not orphan its reminder).
-        const linkedIds = group === undefined ? [] : linkedKeyDateIds(group)
-        record.taskGroups = (record.taskGroups ?? []).filter((g) => g.id !== groupId)
-        if (linkedIds.length > 0) {
-          record.keyDates = (record.keyDates ?? []).filter((k) => !linkedIds.includes(k.id))
-        }
-        record.updatedAt = nowIso()
-        next.lastUpdated = record.updatedAt
-        return next
-      }, 'tasks', caseId, 'group-delete')
+      const is = items()
+      // 组内任务随组删除（item-store deleteGroup 已清 groupId 引用）；任务派生的
+      // 关键日期一并清掉——删载体不得留孤儿提醒（旧语义保留）。
+      const groupTasks = (await is.listItems(caseId)).filter((i) => i.groupId === groupId)
+      const linkedIds = linkedKeyDateIds(groupTasks)
+      await is.deleteGroup(groupId)
+      for (const id of linkedIds) await is.deleteItem(id).catch(() => undefined)
       return requireCase(caseId)
     },
 
     async stripTaskGroups(caseId: string): Promise<CaseRecord> {
+      // 只剥任务镜像；keyDates 留给 0.2.12 统一迁移并入 items（此处删会丢数据）。
       await store.mutate((reg) => {
         const current = reg.cases[caseId]
         if (current === undefined) throw new Error(`case not found: ${caseId}`)
+        if (!Array.isArray(current.taskGroups) || current.taskGroups.length === 0) return reg
         const next = clone(reg)
         const record = next.cases[caseId]
-        if (record.taskGroups === undefined || record.taskGroups.length === 0) return reg
-        record.taskGroups = []
+        delete (record as { taskGroups?: unknown }).taskGroups
         record.updatedAt = nowIso()
         next.lastUpdated = record.updatedAt
         return next
@@ -518,262 +602,151 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
       return requireCase(caseId)
     },
 
-    async reorderTaskGroups(caseId: string, orderedIds: string[]): Promise<CaseRecord> {
+    async stripLegacyFields(caseId: string): Promise<CaseRecord> {
+      // 0.2.12：taskGroups + keyDates 都已在 items → 两个字段一起剥离。
+      // 判据是**键是否存在**而不是「内容是否非空」：空数组空壳同样要删，否则
+      // 「registry 只有元信息」这句话在字段层面不成立（实测 live 残留 20 个空壳）。
       await store.mutate((reg) => {
         const current = reg.cases[caseId]
         if (current === undefined) throw new Error(`case not found: ${caseId}`)
+        const hasField = (key: string): boolean => Object.prototype.hasOwnProperty.call(current, key)
+        if (!hasField('taskGroups') && !hasField('keyDates')) return reg
         const next = clone(reg)
         const record = next.cases[caseId]
-        const byId = new Map((record.taskGroups ?? []).map((g) => [g.id, g]))
-        record.taskGroups = orderedIds
-          .map((id, index) => { const g = byId.get(id); if (g !== undefined) g.order = index; return g })
-          .filter((g): g is TaskGroup => g !== undefined)
+        delete (record as { taskGroups?: unknown }).taskGroups
+        delete (record as { keyDates?: unknown }).keyDates
         record.updatedAt = nowIso()
         next.lastUpdated = record.updatedAt
         return next
-      }, 'tasks', caseId, 'groups-reorder')
+      }, 'cases', caseId, 'strip-registry-legacy-fields')
       return requireCase(caseId)
     },
 
+    async reorderTaskGroups(caseId: string, orderedIds: string[]): Promise<CaseRecord> {
+      const is = items()
+      const byId = new Map((await is.listGroups(caseId)).map((g) => [g.id, g]))
+      for (let i = 0; i < orderedIds.length; i++) {
+        const g = byId.get(orderedIds[i]!)
+        if (g !== undefined && g.order !== i) await is.upsertGroup({ id: g.id, order: i })
+      }
+      return requireCase(caseId)
+    },
+
+    /* ---------------------------------- tasks ---------------------------------- */
+
     async upsertTask(caseId: string, groupId: string, task: Partial<CaseTask>): Promise<CaseRecord> {
-      const now = nowIso()
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        const group = findGroup(record, groupId)
-        // upsert 契约：id 存在则更新，不存在（或未提供）则新建。
-        const tid = task.id === undefined ? taskId() : String(task.id)
-        const existing = group.tasks.find((t) => t.id === tid)
-        if (existing !== undefined) {
-          Object.assign(existing, { ...clone(task), id: tid, updatedAt: now })
-          syncLinkedKeyDate(record, existing)
-        } else {
-          group.tasks.push({
-            id: tid,
-            title: String(task.title ?? '新任务'),
-            // BUG-2: persist an explicit deadline and a caller-supplied status
-            // instead of silently dropping them / forcing 'todo'.
-            deadline: task.deadline === undefined ? undefined : String(task.deadline),
-            time: task.time === undefined ? undefined : String(task.time),
-            status: (task.status as CaseTask['status']) ?? 'todo',
-            priority: (task.priority as CaseTask['priority']) ?? 'medium',
-            // 新建分支此前未透传 detail —— 建案时写的任务说明被静默丢弃
-            // （内置参考案例的任务详情因此全为空）。一并透传 templateTitle，
-            // 让阶段模板展开的任务可被追溯（管家改名后不会被重复创建）。
-            detail: task.detail === undefined ? undefined : String(task.detail),
-            templateTitle: task.templateTitle === undefined ? undefined : String(task.templateTitle),
-            remindKeyDate: task.remindKeyDate === undefined ? undefined : Boolean(task.remindKeyDate),
-            keyDateId: task.keyDateId === undefined ? undefined : String(task.keyDateId),
-            subtasks: [],
-            checklist: [],
-            createdAt: now,
-            updatedAt: now,
-          })
-          syncLinkedKeyDate(record, group.tasks[group.tasks.length - 1]!)
-        }
-        record.updatedAt = now
-        next.lastUpdated = now
-        return next
-      }, 'tasks', caseId, 'task-upsert')
+      const is = items()
+      const groupName = groupId === '' ? undefined : (await is.listGroups(caseId)).find((g) => g.id === groupId)?.name
+      const created = await is.upsertItem(taskToItem(caseId, groupId, task, groupName))
+      await syncLinkedKeyDate(created)
       return requireCase(caseId)
     },
 
     async deleteTask(caseId: string, groupId: string, taskIdToDelete: string): Promise<CaseRecord> {
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        const group = findGroup(record, groupId)
-        const task = group.tasks.find((t) => t.id === taskIdToDelete)
-        // Remove the key date derived from the deleted task (task ↔ keydate
-        // 解除不彻底 — deleting the carrier must not orphan its reminder).
-        if (task?.keyDateId !== undefined) {
-          record.keyDates = (record.keyDates ?? []).filter((k) => k.id !== task.keyDateId)
-        }
-        group.tasks = group.tasks.filter((t) => t.id !== taskIdToDelete)
-        record.updatedAt = nowIso()
-        next.lastUpdated = record.updatedAt
-        return next
-      }, 'tasks', caseId, 'task-delete')
+      const is = items()
+      const task = await is.readItem(taskIdToDelete)
+      await is.deleteItem(taskIdToDelete)
+      // 删载体 → 一并删它派生的关键日期（不留孤儿提醒）。
+      if (task?.keyDateId !== undefined && task.keyDateId !== '') {
+        await is.deleteItem(task.keyDateId).catch(() => undefined)
+      }
       return requireCase(caseId)
     },
 
     async moveTask(caseId: string, taskIdToMove: string, toGroupId: string, index?: number): Promise<CaseRecord> {
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        const fromGroup = (record.taskGroups ?? []).find((g) => g.tasks.some((t) => t.id === taskIdToMove))
-        if (fromGroup === undefined) throw new Error(`task not found: ${taskIdToMove}`)
-        const task = findTask(fromGroup, taskIdToMove)
-        fromGroup.tasks = fromGroup.tasks.filter((t) => t.id !== taskIdToMove)
-        const toGroup = findGroup(record, toGroupId)
-        const at = index === undefined ? toGroup.tasks.length : Math.max(0, Math.min(index, toGroup.tasks.length))
-        toGroup.tasks.splice(at, 0, task)
-        record.updatedAt = nowIso()
-        next.lastUpdated = record.updatedAt
-        return next
-      }, 'tasks', caseId, 'task-move')
+      const is = items()
+      const task = await is.readItem(taskIdToMove)
+      if (task === undefined) throw new Error(`task not found: ${taskIdToMove}`)
+      const groupName = (await is.listGroups(caseId)).find((g) => g.id === toGroupId)?.name
+      // 统一事项按 groupId 归组、组内按数组顺序渲染（items 无显式序字段）。
+      // index 参数保留兼容旧调用签名，不再影响落库顺序。
+      void index
+      await is.upsertItem({ id: taskIdToMove, groupId: toGroupId, groupName })
       return requireCase(caseId)
     },
 
     async setTaskKeyDate(caseId: string, groupId: string, taskIdToEdit: string, enabled: boolean): Promise<CaseRecord> {
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        const group = findGroup(record, groupId)
-        const task = findTask(group, taskIdToEdit)
-        if (enabled) {
-          if (task.deadline === undefined || task.deadline === '') {
-            throw new Error('task has no deadline: set a deadline before enabling a key-date reminder')
-          }
-          const existing = (record.keyDates ?? []).find((k) => k.id === task.keyDateId)
-          if (existing !== undefined) {
-            // Already linked — keep the same id, sync label/date from the task.
-            existing.label = task.title
-            existing.date = task.deadline
-            existing.updatedAt = nowIso()
-          } else {
-            const kd: KeyDate = {
-              id: keyDateId(), label: task.title, date: task.deadline, done: false, createdAt: nowIso(), updatedAt: nowIso(),
-            }
-            record.keyDates = [...(record.keyDates ?? []), kd]
-            task.keyDateId = kd.id
-          }
-          task.remindKeyDate = true
-        } else {
-          if (task.keyDateId !== undefined) {
-            record.keyDates = (record.keyDates ?? []).filter((k) => k.id !== task.keyDateId)
-          } else if (task.remindKeyDate === true && task.deadline !== undefined && task.deadline !== '') {
-            // Orphan sweep (Issue 4 hardening): a derived keydate whose link was
-            // lost (created by an older build / imported data). Remove a same
-            // label+date keydate that no other task still references.
-            const referenced = new Set<string>()
-            for (const g of record.taskGroups ?? []) {
-              for (const t of g.tasks) {
-                if (t.id !== task.id && t.keyDateId !== undefined) referenced.add(t.keyDateId)
-              }
-            }
-            record.keyDates = (record.keyDates ?? []).filter((k) => {
-              if (referenced.has(k.id)) return true
-              return !(k.label === task.title && k.date === task.deadline)
-            })
-          }
-          task.keyDateId = undefined
-          task.remindKeyDate = false
+      const is = items()
+      const task = await is.readItem(taskIdToEdit)
+      if (task === undefined) throw new Error(`task not found: ${taskIdToEdit}`)
+      if (enabled) {
+        if (task.date === undefined || task.date === '') {
+          throw new Error('task has no deadline: set a deadline before enabling a key-date reminder')
         }
-        task.updatedAt = nowIso()
-        record.updatedAt = nowIso()
-        next.lastUpdated = record.updatedAt
-        return next
-      }, 'tasks', caseId, 'task-keydate')
+        const existing = task.keyDateId === undefined || task.keyDateId === ''
+          ? undefined
+          : await is.readItem(task.keyDateId)
+        let linkedId: string
+        if (existing !== undefined) {
+          // 已链接 → 保持同一 id，把标题/日期同步自任务。
+          await is.upsertItem({ id: existing.id, title: task.title, date: task.date })
+          linkedId = existing.id
+        } else {
+          const created = await is.upsertItem({
+            ownerId: caseId,
+            ownerType: 'litigation',
+            ownerName: task.ownerName,
+            type: 'keydate',
+            title: task.title,
+            date: task.date,
+            status: 'pending',
+            source: 'task-linked',
+          })
+          linkedId = created.id
+        }
+        await is.upsertItem({ id: taskIdToEdit, remindKeyDate: true, keyDateId: linkedId })
+      } else {
+        if (task.keyDateId !== undefined && task.keyDateId !== '') {
+          await is.deleteItem(task.keyDateId).catch(() => undefined)
+        } else if (task.remindKeyDate === true && task.date !== undefined && task.date !== '') {
+          // 孤儿清理（Issue 4 加固）：链接丢失的派生 keydate（旧版本/导入数据），
+          // 且没有别的任务仍引用它 → 按同标题+同日期移除。
+          const all = await is.listItems(caseId)
+          const referenced = new Set(
+            all.map((i) => i.keyDateId).filter((v): v is string => v !== undefined && v !== ''),
+          )
+          for (const kd of all.filter(isKeyDateItem)) {
+            if (referenced.has(kd.id)) continue
+            if (kd.title === task.title && kd.date === task.date) await is.deleteItem(kd.id).catch(() => undefined)
+          }
+        }
+        await is.upsertItem({ id: taskIdToEdit, remindKeyDate: false, keyDateId: '' })
+      }
       return requireCase(caseId)
     },
 
+    /* --------------------------------- subtasks -------------------------------- */
+
     async upsertSubtask(caseId: string, groupId: string, taskIdToEdit: string, subtask: Partial<Subtask>): Promise<CaseRecord> {
-      const now = nowIso()
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        const group = findGroup(record, groupId)
-        const task = findTask(group, taskIdToEdit)
-        const subtasks = task.subtasks ?? []
-        // upsert 契约：id 存在则更新，不存在（或未提供）则新建。
-        const sid = subtask.id === undefined ? childId('sub') : String(subtask.id)
-        const existing = subtasks.find((s) => s.id === sid)
-        if (existing !== undefined) {
-          Object.assign(existing, { ...clone(subtask), id: sid, updatedAt: now })
-        } else {
-          subtasks.push({
-            id: sid,
-            title: String(subtask.title ?? '子任务'),
-            detail: subtask.detail === undefined ? undefined : String(subtask.detail),
-            deadline: subtask.deadline === undefined ? undefined : String(subtask.deadline),
-            done: subtask.done === undefined ? false : Boolean(subtask.done),
-            createdAt: now,
-            updatedAt: now,
-          })
-        }
-        task.subtasks = subtasks
-        syncTaskStatus(task, false)
-        record.updatedAt = now
-        next.lastUpdated = now
-        return next
-      }, 'tasks', caseId, 'subtask-upsert')
+      await items().addSubtask(taskIdToEdit, {
+        ...(subtask.id === undefined || subtask.id === '' ? {} : { id: String(subtask.id) }),
+        title: String(subtask.title ?? '子任务'),
+        deadline: subtask.deadline === undefined ? undefined : String(subtask.deadline),
+        done: subtask.done === undefined ? false : Boolean(subtask.done),
+      })
+      await resyncTaskStatus(taskIdToEdit)
       return requireCase(caseId)
     },
 
     async deleteSubtask(caseId: string, groupId: string, taskIdToEdit: string, subtaskId: string): Promise<CaseRecord> {
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        const group = findGroup(record, groupId)
-        const task = findTask(group, taskIdToEdit)
-        task.subtasks = (task.subtasks ?? []).filter((s) => s.id !== subtaskId)
-        syncTaskStatus(task, false)
-        record.updatedAt = nowIso()
-        next.lastUpdated = record.updatedAt
-        return next
-      }, 'tasks', caseId, 'subtask-delete')
+      await items().deleteSubtask(taskIdToEdit, subtaskId)
+      await resyncTaskStatus(taskIdToEdit)
       return requireCase(caseId)
     },
 
+    /* --------------------------------- checklist ------------------------------- */
+
     async upsertChecklist(caseId: string, groupId: string, taskIdToEdit: string, item: Partial<ChecklistItem>): Promise<CaseRecord> {
-      const now = nowIso()
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        const group = findGroup(record, groupId)
-        const task = findTask(group, taskIdToEdit)
-        const checklist = task.checklist ?? []
-        // upsert 契约：id 存在则更新，不存在（或未提供）则新建。
-        const cid = item.id === undefined ? childId('chk') : String(item.id)
-        const existing = checklist.find((c: ChecklistItem) => c.id === cid)
-        if (existing !== undefined) {
-          Object.assign(existing, { ...clone(item), id: cid, updatedAt: now })
-        } else {
-          checklist.push({
-            id: cid,
-            text: String(item.text ?? '检查项'),
-            done: item.done === undefined ? false : Boolean(item.done),
-            createdAt: now,
-            updatedAt: now,
-          })
-        }
-        task.checklist = checklist
-        record.updatedAt = now
-        next.lastUpdated = now
-        return next
-      }, 'tasks', caseId, 'checklist-upsert')
+      await items().addChecklist(taskIdToEdit, {
+        ...(item.id === undefined || item.id === '' ? {} : { id: String(item.id) }),
+        text: String(item.text ?? '检查项'),
+        done: item.done === undefined ? false : Boolean(item.done),
+      })
       return requireCase(caseId)
     },
 
     async toggleChecklist(caseId: string, groupId: string, taskIdToEdit: string, checklistIdToToggle: string): Promise<CaseRecord> {
-      await store.mutate((reg) => {
-        const current = reg.cases[caseId]
-        if (current === undefined) throw new Error(`case not found: ${caseId}`)
-        const next = clone(reg)
-        const record = next.cases[caseId]
-        const group = findGroup(record, groupId)
-        const task = findTask(group, taskIdToEdit)
-        const item = (task.checklist ?? []).find((c: ChecklistItem) => c.id === checklistIdToToggle)
-        if (item !== undefined) item.done = !item.done
-        record.updatedAt = nowIso()
-        next.lastUpdated = record.updatedAt
-        return next
-      }, 'tasks', caseId, 'checklist-toggle')
+      await items().toggleChecklist(taskIdToEdit, checklistIdToToggle)
       return requireCase(caseId)
     },
   }

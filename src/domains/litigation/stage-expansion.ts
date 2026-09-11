@@ -282,7 +282,7 @@ export async function planStageOnRecord(
   const events: PlannedEvent[] = []
   if (caseItems !== undefined && (stage.events ?? []).length > 0) {
     const existingEventTitles = new Set(
-      caseItems.filter((i) => i.type !== 'task').map((i) => String(i.title ?? '')),
+      caseItems.filter((i) => i.type !== 'task' && i.type !== 'keydate').map((i) => String(i.title ?? '')),
     )
     for (const ev of stage.events ?? []) {
       if (ev.auto === false) continue

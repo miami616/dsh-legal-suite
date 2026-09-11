@@ -43,7 +43,7 @@ export async function mergeLegacyIntoItems(
 
   try {
     const [registry, timelineEvents, itemItems, itemGroups] = await Promise.all([
-      caseStore.readRegistry(),
+      caseStore.readRegistryRaw(),
       timelineStore.listEvents(),
       itemStore.listItems(),
       itemStore.listGroups(),

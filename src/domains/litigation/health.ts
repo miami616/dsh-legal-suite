@@ -10,7 +10,8 @@
  */
 
 import { getLitigationStatus } from '../../shared/playbook/litigation.ts'
-import { PERIOD_RULES, derivePeriod } from '../../shared/playbook/period-rules.ts'
+import { PERIOD_RULES, derivePeriod, type PeriodRule } from '../../shared/playbook/period-rules.ts'
+import { expectedJudgmentTerms as gateExpectedTerms } from './period-gate.ts'
 import type { CaseRecord, CaseRegistry, PendingExpand } from './store/types.ts'
 import { detectStageSuggestions, resolveStageForCase, stageTasksOf } from './stage-expansion.ts'
 import type { StageSuggestion } from './stage-expansion.ts'
@@ -56,6 +57,8 @@ export interface HealthEventRef {
 /** 体检读取上下文（0.2.11）：时间轴日程也参与完整性判定。 */
 export interface HealthReadCtx {
   events: HealthEventRef[]
+  /** 生效规则集合（内置 + 本地补丁表）；缺省只用内置表（0.2.12）。 */
+  rules?: PeriodRule[]
 }
 
 const EMPTY_CTX: HealthReadCtx = { events: [] }
@@ -94,13 +97,9 @@ const JUDGMENT_DOC = /判决书|裁定书|裁决书/
  * 旧版硬编码 `['裁判文书送达','上诉期届满']`——诉讼程序中心词表：劳动仲裁案按
  * 正确术语登记「起诉期届满」反而被判缺失，等于**把管家推向错误的「上诉期」**。
  */
-export function expectedJudgmentTerms(record: CaseRecord): string[] {
-  const procedure = s(record.level)
-  const terms = PERIOD_RULES
-    .filter((r) => (procedure === '' || r.scope.procedure === procedure) && JUDGMENT_DOC.test(r.trigger.doc))
-    .map((r) => r.term)
-  const unique = [...new Set(terms)]
-  return unique.length > 0 ? unique : ['上诉期届满']
+export function expectedJudgmentTerms(record: CaseRecord, rules: PeriodRule[] = PERIOD_RULES): string[] {
+  // 口径唯一：与闸门/巡检共用 period-gate 的实现，避免两处词表分叉。
+  return gateExpectedTerms(record, rules)
 }
 
 /**
@@ -109,8 +108,9 @@ export function expectedJudgmentTerms(record: CaseRecord): string[] {
  * @returns 'ok' 表示登记齐全且（可校验时）届满日推算一致；空串表示存在缺口。
  */
 function readJudgmentDeadline(record: CaseRecord, ctx: HealthReadCtx): string {
+  const rules = ctx.rules ?? PERIOD_RULES
   const served = hasNode(record, ['裁判文书送达'], ctx)
-  const terms = expectedJudgmentTerms(record)
+  const terms = expectedJudgmentTerms(record, rules)
   const hasTerm = hasNode(record, terms, ctx)
   if (!served || !hasTerm) return ''
 
@@ -119,7 +119,7 @@ function readJudgmentDeadline(record: CaseRecord, ctx: HealthReadCtx): string {
   const servedDate = nodeDate(record, ['裁判文书送达'], ctx)
   const derivedKeyDates = (record.keyDates ?? []).filter((k) => k.ruleId !== undefined && terms.includes(s(k.label)))
   if (derivedKeyDates.length === 1 && servedDate !== '') {
-    const rule = PERIOD_RULES.find((r) => r.id === s(derivedKeyDates[0]!.ruleId))
+    const rule = rules.find((r) => r.id === s(derivedKeyDates[0]!.ruleId))
     if (rule !== undefined) {
       const derived = derivePeriod(rule, servedDate)
       if (s(derivedKeyDates[0]!.date) !== derived.dueDate) return ''
@@ -208,6 +208,8 @@ export interface HealthOptions {
    * 不传时退化为只查关键日期（旧行为）。
    */
   events?: Array<{ ownerId?: string; type?: string; title: string; date?: string }>
+  /** 生效规则集合（内置 + 本地补丁表）；缺省只用内置表（0.2.12）。 */
+  rules?: PeriodRule[]
 }
 
 /** 计算单个案件的体检结果。 */
@@ -232,9 +234,10 @@ export async function computeCaseHealth(
   let filled = 0
   // 该案的时间轴日程（体检与关键日期同等对待；0.2.11 修缺陷 A）。
   const ctx: HealthReadCtx = {
+    rules: opts.rules,
     events: (opts.events ?? [])
       .filter((e) => e.ownerId === undefined || e.ownerId === record.caseId)
-      .filter((e) => e.type !== 'task')
+      .filter((e) => e.type !== 'task' && e.type !== 'keydate')
       .map((e) => ({ title: e.title, date: e.date })),
   }
   for (const rule of applicable) {

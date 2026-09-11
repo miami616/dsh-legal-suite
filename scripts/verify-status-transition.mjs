@@ -14,8 +14,10 @@
  *  B4 off：改状态不挂起
  *  B5 已展开判定：目标阶段已有任务 → 不重复挂起
  *  B6 已结案：清除任何挂起
+ *  B7 管家推进 ≠ 手动改状态：管家改状态走 agent 态（不弹前端确认框），
+ *     前端弹窗只针对 confirm；agent 只在角落留非阻塞窄条
  */
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createCaseStore } from '../lib/domains/litigation/store/index.js'
@@ -158,6 +160,20 @@ try {
   await handleStatusTransition({ caseStore, itemStore, caseId: c4.caseId, prevStatus: 'pretrial', nextStatus: 'closed', level: '一审', mode: 'confirm' })
   const c4c = await caseStore.readCase(c4.caseId)
   check('B6 结案清除挂起', c4c.pendingExpand === undefined)
+
+  /* ══════════ B7. 管家推进不弹窗（0.2.12） ══════════ */
+  const barSrc = await readFile(new URL('../src/domains/litigation/client/PendingExpandBar.tsx', import.meta.url), 'utf8')
+  check('B7 弹窗只针对 confirm（agent 被过滤掉）', barSrc.includes("rows.filter((r) => r.pending.mode !== 'agent')"))
+  check('B7 agent 走非阻塞窄条', barSrc.includes('agentStripStyle') && barSrc.includes('由管家处理中'))
+  check('B7 弹窗文案不再出现 agent 分支', !barSrc.includes("row.pending.mode === 'agent'"))
+  const toolSrc = await readFile(new URL('../src/domains/litigation/tools.ts', import.meta.url), 'utf8')
+  check('B7 管家改状态一律 agent 态（off 除外）', toolSrc.includes("setting === 'off' ? 'off' : 'agent'"))
+  // 关键：管家工具是**走 HTTP 路由**的（registerLitigationHttpTool），所以判定必须在路由里，
+  // 靠 body.actor 区分调用方，而不是靠工具侧分支。
+  check('B7 管家 HTTP body 带 actor=agent', toolSrc.includes("if (action === 'update_case') body.actor = 'agent'"))
+  const routeSrc = await readFile(new URL('../src/domains/litigation/routes.ts', import.meta.url), 'utf8')
+  check('B7 路由按 actor 区分（agent→agent 态）', routeSrc.includes("const actor = actorRaw === 'agent' ? 'agent' : undefined") && routeSrc.includes("const isAgent = actor === 'agent'"))
+  check('B7 actor 从 patch 剔除（不写进案件档案）', routeSrc.includes('actor: actorRaw, ...patch } = b'))
 
   console.log('\n' + (failures === 0 ? 'ALL PASS' : `${failures} FAILURES`))
   process.exitCode = failures === 0 ? 0 : 1

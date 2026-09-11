@@ -12,6 +12,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { createTaskStore } from './store/task-store.ts'
 import { makeRoutes } from './routes.ts'
 import { createCaseStore } from '../litigation/store/case-store.ts'
+import { createItemStore } from '../item/store/item-store.ts'
 import { createProjectStore } from '../nonlitigation/store/project-store.ts'
 import { installSettingsSection } from '../../shared/settings-adapter.ts'
 
@@ -96,9 +97,20 @@ export function apply(ctx: Context, config: Config = {}): void {
     const value = resolve()
     if (!value.enabled) return
     const dataDir = resolveDataDir(value.dataDir)
-    const taskStore = createTaskStore(dataDir, ctx)
     const litigationDir = siblingDir('litigation', value.litigationDir)
     const nonlitigationDir = siblingDir('nonlitigation', value.nonlitigationDir)
+    // 统一事项 store（唯一真相源）：独立任务、案件/项目任务、跨域视图都读这里。
+    const itemStore = createItemStore(siblingDir('items'), ctx)
+    // 0.2.12：独立任务也存 items（ownerType='standalone'），旧 standalone-tasks.json 退役。
+    const taskStore = createTaskStore(dataDir, ctx, itemStore)
+    void import('./unify-store.ts')
+      .then(async ({ unifyTaskStore }) => {
+        const result = await unifyTaskStore(itemStore, dataDir)
+        if (result.mergedTasks > 0 || result.retiredStandalone) {
+          console.warn(`[agentlex-task] 0.2.12 统一完成：独立任务 ${result.mergedTasks}、退役 standalone-tasks.json ${result.retiredStandalone}`)
+        }
+      })
+      .catch((error) => console.warn('[agentlex-task] 0.2.12 统一迁移失败:', error))
     activeSurface = {
       token,
       dispose: makeRoutes(ctx, {
@@ -107,8 +119,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         nonlitigationDir,
         // 备忘 #21：任务面板勾选诉讼/非诉任务后 bump 来源案件/项目 updatedAt，
         // 让案件卡片按「最近更新」置顶（与 litigation 域路由同一 store）。
-        caseStore: createCaseStore(litigationDir, ctx),
-        projectStore: createProjectStore(nonlitigationDir, ctx),
+        // 0.2.12：case-store 只存案件元信息，任务/关键日期在 items → 必须传 itemStore。
+        caseStore: createCaseStore(litigationDir, ctx, itemStore),
+        projectStore: createProjectStore(nonlitigationDir, ctx, itemStore),
       }),
     }
   }

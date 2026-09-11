@@ -14,6 +14,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createCaseStore } from '../lib/domains/litigation/store/index.js'
+import { createItemStore } from '../lib/domains/item/store/item-store.js'
 import {
   applyStageExpansion,
   detectStageSuggestions,
@@ -30,7 +31,9 @@ function check(name, cond, extra = '') {
 
 const dataDir = await mkdtemp(join(tmpdir(), 'ls-optional-'))
 try {
-  const caseStore = createCaseStore(dataDir)
+  // 0.2.12：任务/关键日期只存 items.json（唯一真相源）。
+  const itemStore = createItemStore(join(dataDir, 'items'))
+  const caseStore = createCaseStore(dataDir, undefined, itemStore)
 
   /* ── filing 阶段模板本身（v0.3.0：登记类管家动作已移除） ── */
   const filing = LITIGATION_STAGES.find((s) => s.id === 'filing')
@@ -53,12 +56,12 @@ try {
   const c1 = await caseStore.registerCase({
     name: '甲诉乙纠纷', type: '民商', cause: '合同纠纷', status: 'post_trial', ourSide: 'plaintiff',
   })
-  const preview = await planStageExpansion(caseStore, c1.caseId, 'post_trial', { dryRun: true })
+  const preview = await planStageExpansion(caseStore, c1.caseId, 'post_trial', { dryRun: true }, itemStore)
   check('post_trial 默认不含 optional 督促履行', preview.tasks.some((t) => t.title === '督促对方履行生效裁判') === false, '')
   check('post_trial 默认含基础任务(确认裁判文书)', preview.tasks.some((t) => t.title === '确认裁判文书') === true,
     preview.tasks.map((t) => t.title).join(','))
 
-  const applied = await applyStageExpansion(caseStore, c1.caseId, 'post_trial')
+  const applied = await applyStageExpansion(caseStore, c1.caseId, 'post_trial', {}, itemStore)
   const afterApply = await caseStore.readCase(c1.caseId)
   const group = afterApply.taskGroups.find((g) => g.name === '一审 · 庭后管理')
   check('实际落库不含上诉任务', group?.tasks.some((t) => t.title === '提交上诉状') === false,

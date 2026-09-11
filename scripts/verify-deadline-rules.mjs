@@ -35,8 +35,8 @@ function check(name, cond, extra = '') {
 
 const dataDir = await mkdtemp(join(tmpdir(), 'ls-periods-'))
 try {
-  const caseStore = createCaseStore(dataDir)
   const itemStore = createItemStore(dataDir, undefined)
+  const caseStore = createCaseStore(dataDir, undefined, itemStore)
 
   /* ══════════════ 1. 规则匹配 ══════════════ */
   console.log('\n-- 规则匹配 --')

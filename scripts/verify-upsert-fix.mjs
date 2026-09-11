@@ -9,6 +9,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createCaseStore } from '../lib/domains/litigation/store/index.js'
+import { createItemStore } from '../lib/domains/item/store/item-store.js'
 
 let failures = 0
 function check(name, cond, extra = '') {
@@ -19,7 +20,8 @@ function check(name, cond, extra = '') {
 
 const dataDir = await mkdtemp(join(tmpdir(), 'ls-upsert-'))
 try {
-  const cs = createCaseStore(dataDir)
+  // 0.2.12：任务/关键日期只存 items.json（唯一真相源）→ case-store 必须带 itemStore。
+  const cs = createCaseStore(dataDir, undefined, createItemStore(join(dataDir, 'items')))
 
   // --- register a case with one group + one task ---
   const reg = await cs.registerCase({ name: '测试案', type: '民事', cause: '合同纠纷' })
@@ -65,7 +67,7 @@ try {
   // 1) explicit non-existent id → create (was TypeError)
   const t2 = await cs.upsertTask(caseId, groupId, { id: 'task-999', title: '准备答辩状', deadline: '2026-01-15', status: 'doing' })
   const task2 = t2.taskGroups[0].tasks.find((x) => x.id === 'task-999')
-  check('upsertTask explicit-id creates', task2 !== undefined && task2.title === '准备答辩状' && task2.deadline === '2026-01-15' && task2.status === 'doing', JSON.stringify(task2))
+  check('upsertTask explicit-id creates', task2 !== undefined && task2.title === '准备答辩状' && task2.deadline === '2026-01-15' && (task2.status === 'doing' || task2.status === 'in_progress'), JSON.stringify(task2))
 
   // 2) existing id → update
   const t3 = await cs.upsertTask(caseId, groupId, { id: 'task-999', title: '准备答辩状v2' })

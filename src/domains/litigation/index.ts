@@ -26,8 +26,11 @@ import { syncShippedPreset } from '../../shared/preset-sync.ts'
 import { seedLitigationSample } from '../../shared/seed/index.ts'
 import { createCaseStore } from './store/case-store.ts'
 import { createScheduleStore } from './store/schedule-store.ts'
+import { createPeriodRuleStore } from './store/period-rule-store.ts'
+import { createPatrolLedgerStore } from './store/patrol-ledger-store.ts'
 import { createTimelineStore } from './store/timeline-store.ts'
 import { createItemStore } from '../item/store/item-store.ts'
+import { isEventItem, isTaskItem } from '../item/store/types.ts'
 import { computeDeadlines, computeDeadlinesV2 } from './deadlines.ts'
 import { nowIso } from './store/id.ts'
 import type { TimelineEvent } from './store/types.ts'
@@ -397,25 +400,38 @@ export function apply(ctx: Context, config: Config = {}): void {
         void migrateDataDirIfChanged(dataDir)
         void snapshotDataDir('litigation', dataDir, home)
       })
-    const caseStore = createCaseStore(dataDir, ctx)
-    const timelineStore = createTimelineStore(dataDir, ctx)
-    const scheduleStore = createScheduleStore(dataDir, ctx)
     // 统一事项 store：items.json 在 $DSH_HOME/agentlex/items（litigation 的父目录 + /items）。
     const itemsDir = `${dataDir.replace(/[\\/]+litigation$/, '')}/items`
     const itemStore = createItemStore(itemsDir, ctx)
-    // 0.2.2：启动时先做一次性并库迁移（registry 任务镜像 + case-timeline 旧事件
-    // → items，成功后 registry taskGroups 剥离、case-timeline 退役），再播种。
+    // 0.2.12：case-store 只存案件元信息；任务/事件/关键日期一律走 items（唯一真相源）。
+    const caseStore = createCaseStore(dataDir, ctx, itemStore)
+    const timelineStore = createTimelineStore(dataDir, ctx)
+    const scheduleStore = createScheduleStore(dataDir, ctx)
+    // 期限规则本地补丁表 + 提案回流（0.2.12）：规则资产，与案件档案分开存。
+    const periodRuleStore = createPeriodRuleStore(dataDir, ctx)
+    // 账实核对台账（0.2.12）：去重推送 + 已确认留档。
+    const patrolLedgerStore = createPatrolLedgerStore(dataDir, ctx)
+    // 0.2.2 + 0.2.12：启动时先做一次性并库迁移（registry 任务镜像 / case-timeline
+    // 旧事件 / registry.keyDates / schedules.json → items，成功后旧字段与旧文件退役），
+    // 再播种。迁移串行在 snapshot 之后、seed 之前。
     void snapshotDataDir('litigation', dataDir, home)
       .then(async () => {
         const { mergeLegacyIntoItems } = await import('./merge-legacy.ts')
-        const result = await mergeLegacyIntoItems(caseStore, timelineStore, itemStore, dataDir)
-        if (result.mergedTasks > 0 || result.mergedEvents > 0 || result.strippedCases > 0 || result.renamedTimeline) {
+        const legacy = await mergeLegacyIntoItems(caseStore, timelineStore, itemStore, dataDir)
+        if (legacy.mergedTasks > 0 || legacy.mergedEvents > 0 || legacy.strippedCases > 0 || legacy.renamedTimeline) {
           console.warn(
-            `[agentlex-litigation] 0.2.2 并库完成：任务 ${result.mergedTasks}、事件 ${result.mergedEvents}、剥离 registry 镜像 ${result.strippedCases} 案、退役 case-timeline ${result.renamedTimeline}`,
+            `[agentlex-litigation] 0.2.2 并库完成：任务 ${legacy.mergedTasks}、事件 ${legacy.mergedEvents}、剥离 registry 镜像 ${legacy.strippedCases} 案、退役 case-timeline ${legacy.renamedTimeline}`,
+          )
+        }
+        const { unifyLitigationStore } = await import('./unify-store.ts')
+        const unified = await unifyLitigationStore(caseStore, scheduleStore, itemStore, dataDir)
+        if (unified.mergedTasks > 0 || unified.mergedKeyDates > 0 || unified.mergedSchedules > 0 || unified.strippedCases > 0) {
+          console.warn(
+            `[agentlex-litigation] 0.2.12 统一完成：补并任务 ${unified.mergedTasks}、关键日期 ${unified.mergedKeyDates}、旧日程 ${unified.mergedSchedules}、剥离残留字段 ${unified.strippedCases} 案、退役 schedules.json ${unified.retiredSchedules}`,
           )
         }
       })
-      .catch((error) => console.warn('[agentlex-litigation] 0.2.2 并库前快照失败:', error))
+      .catch((error) => console.warn('[agentlex-litigation] 并库前快照失败:', error))
     // 全新安装（空数据目录）时内置一份参考用例，让新用户开箱即见完整演示。
     // 仅当 registry 为空时播种，绝不覆盖已有数据；失败仅告警不致命。
     void seedLitigationSample(caseStore, timelineStore, scheduleStore, itemStore, dataDir)
@@ -428,11 +444,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       // （type=event/both 进日程、type=task/both 进任务期限）。case-timeline.json
       // 已在 0.2.2 并库退役，不再读取（只读 registry 案件元信息 + items 事项）。
       const [registry, itemEvents] = await Promise.all([caseStore.readRegistry(), itemStore.listItems()])
-      // 事件侧：items 的 event/both → TimelineEvent 形状。
+      // 事件侧：items 的 event/both → TimelineEvent 形状。keydate（关键日期）不
+      // 进事件侧——它由 registry 装配的 keyDates 走 keydate 通道（否则会重复）。
       const byId = new Map<string, TimelineEvent>()
       const todayStr = new Date().toISOString().slice(0, 10)
       for (const it of itemEvents) {
-        if (it.type === 'task' || !it.date) continue
+        if (!isEventItem(it) || !it.date) continue
         const mapped: TimelineEvent = {
           id: it.id,
           caseId: it.ownerId ?? '',
@@ -456,7 +473,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       // 案件的 keyDates/任务期限前，先并入任务 deadline 计算）。
       const taskDeadlineById = new Map<string, { caseId: string; title: string; date: string; time?: string; status: string }>()
       for (const it of itemEvents) {
-        if ((it.type !== 'task' && it.type !== 'both') || !it.date) continue
+        if (!isTaskItem(it) || !it.date) continue
         taskDeadlineById.set(it.id, {
           caseId: it.ownerId ?? '',
           title: it.title,
@@ -478,9 +495,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     disposers.push(ctx.on('agentlex:calendar-sync' as keyof Events, (item: { id: string; title?: string; ownerId?: string; ownerName?: string; date?: string; time?: string; detail?: string; type?: string }) => {
       if (current().calendarSyncEnabled !== true) return
       if (item.date === undefined) return
-      // 同步范围：事件 / 带日期任务，按 type 检查对应开关。
-      if (item.type === 'event' && current().calendarSyncEvents !== true) return
-      if (item.type === 'task' && current().calendarSyncTasks !== true) return
+      // 同步范围：事件（含关键日期，按日程口径）/ 带日期任务，按 type 检查对应开关。
+      if ((item.type === 'event' || item.type === 'both' || item.type === 'keydate') && current().calendarSyncEvents !== true) return
+      if ((item.type === 'task' || item.type === 'both') && current().calendarSyncTasks !== true) return
       // 标题用案件/项目名（优先 item.ownerName，缺失时回退编号兜底）。
       const ownerLabel = item.ownerName ?? (item.ownerId !== undefined && item.ownerId !== '' ? item.ownerId : '')
       // 时间：优先 item.time；缺失时从 detail 提取（开庭/会议等日程的明确时间点
@@ -561,8 +578,8 @@ export function apply(ctx: Context, config: Config = {}): void {
             if (it.date === undefined || it.date === null || it.date === '') { skipped++; continue }
             // 只同步今天及以后的日程（过去的日程不同步进日历）。
             if (it.date < todayStr) { skipped++; continue }
-            // 同步范围：events 开关覆盖 event/both；tasks 开关覆盖 task/both。
-            const isEvent = it.type === 'event' || it.type === 'both'
+            // 同步范围：events 开关覆盖 event/both/keydate；tasks 开关覆盖 task/both。
+            const isEvent = it.type === 'event' || it.type === 'both' || it.type === 'keydate'
             const isTask = it.type === 'task' || it.type === 'both'
             if (!(isEvent && syncEvents) && !(isTask && syncTasks)) { skipped++; continue }
             // 标题：事项名 + 案件/项目名（优先 item.ownerName，其次查找表，最后编号兜底）。
@@ -601,6 +618,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       timelineStore,
       scheduleStore,
       itemStore,
+      periodRuleStore,
+      patrolLedgerStore,
       dataDir,
       // Apple 日历同步：日程建立时自动写入 Apple Calendar（macOS）。
       calendarSync: {

@@ -28,7 +28,7 @@ export async function mergeProjectLegacyIntoItems(
   if (existsSync(markPath(dataDir))) return summary
   try {
     const [registry, itemItems, itemGroups] = await Promise.all([
-      projectStore.readRegistry(),
+      projectStore.readRegistryRaw(),
       itemStore.listItems(),
       itemStore.listGroups(),
     ])

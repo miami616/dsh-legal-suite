@@ -80,12 +80,50 @@ function railLevels(c: CaseEntry): string[] {
 }
 
 /** Next future pending event for a case (soonest first) — '' when none. */
-function nextUpcomingDate(events: TimelineEvent[] | undefined): string {
-  if (!events) return '';
+/** 统一期限行：关键日期（items type=keydate）与时间轴日程（items event）合并后的一条。 */
+interface UnifiedDeadline {
+  label: string;
+  date: string;
+  /** 关键日期优先（与期限汇总 kind 优先级一致）。 */
+  isKeyDate: boolean;
+}
+
+/**
+ * 把一条案件的「关键日期 + 时间轴日程」合成统一期限清单。
+ *
+ * 0.2.12 起两者都来自 items.json（唯一真相源）：关键日期 = type='keydate'，
+ * 日程 = type='event/both'。这里按 日期+标签 去重（关键日期优先），与
+ * host 侧 computeDeadlines 同口径——所以卡片不再漏掉法定期限（2026-058 的
+ * 「上诉期届满」此前只在 keyDates 里，卡片只读 events → 空白）。
+ */
+function unifiedDeadlines(c: CaseEntry, events: TimelineEvent[] | undefined): UnifiedDeadline[] {
   const today = todayStr();
-  return events
-    .filter(e => (e.status === 'pending' || e.status === 'upcoming') && e.date >= today)
-    .map(e => e.date)
+  const byKey = new Map<string, UnifiedDeadline>();
+  const put = (label: string, date: string, isKeyDate: boolean) => {
+    if (!label || !date || date < today) return;
+    const key = `${date}|${label.trim()}`;
+    const existing = byKey.get(key);
+    if (existing === undefined || (isKeyDate && !existing.isKeyDate)) byKey.set(key, { label, date, isKeyDate });
+  };
+  // 关键日期：未完成（done/completed 都视为已完成）。
+  for (const kd of (c.keyDates ?? [])) {
+    if (kd.completed === true) continue;
+    put(kd.label, kd.date, true);
+  }
+  // 时间轴日程：未完成且未取消。
+  for (const e of (events ?? [])) {
+    if (e.status !== 'pending' && e.status !== 'upcoming') continue;
+    put(e.label, e.date, false);
+  }
+  return [...byKey.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function nextUpcomingDate(deadlines: UnifiedDeadline[] | undefined): string {
+  if (!deadlines || deadlines.length === 0) return '';
+  const today = todayStr();
+  return deadlines
+    .filter(d => d.date >= today)
+    .map(d => d.date)
     .sort((a, b) => a.localeCompare(b))[0] ?? '';
 }
 
@@ -187,6 +225,16 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
     return m;
   }, [timelineEvents]);
 
+  // 统一期限清单（关键日期 + 日程，同源 items.json）——卡片/紧急日程/排序都用它。
+  const caseDeadlineMap = useMemo(() => {
+    const m = new Map<string, UnifiedDeadline[]>();
+    for (const c of cases) {
+      const list = unifiedDeadlines(c, caseTimelineMap.get(c.caseId));
+      if (list.length > 0) m.set(c.caseId, list);
+    }
+    return m;
+  }, [cases, caseTimelineMap]);
+
   // 紧急日程 = 重要时间节点(倒计时)，范围可切换：未来 7 天 / 未来一个月 / 全部。
   const urgentDates = useMemo(() => {
     const today = todayStr();
@@ -194,35 +242,29 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
     const maxDays = urgentRange === 'week' ? 7 : urgentRange === 'month' ? 30 : Infinity;
     const limit = urgentRange === 'week' ? 5 : urgentRange === 'month' ? 10 : Infinity;
     for (const c of visibleCases) {
-      const events = caseTimelineMap.get(c.caseId);
-      if (!events) continue;
-      for (const e of events) {
-        if (e.status !== 'pending' && e.status !== 'upcoming') continue;
-        if (e.date < today) continue;
-        const days = (new Date(e.date).getTime() - new Date(today).getTime()) / 86400000;
-        if (days <= maxDays) items.push({ label: e.label, date: e.date, caseId: c.caseId, caseName: c.name });
+      for (const d of (caseDeadlineMap.get(c.caseId) ?? [])) {
+        if (d.date < today) continue;
+        const days = (new Date(d.date).getTime() - new Date(today).getTime()) / 86400000;
+        if (days <= maxDays) items.push({ label: d.label, date: d.date, caseId: c.caseId, caseName: c.name });
       }
     }
     items.sort((a, b) => a.date.localeCompare(b.date));
     return items.slice(0, limit);
-  }, [visibleCases, caseTimelineMap, urgentRange]);
+  }, [visibleCases, caseDeadlineMap, urgentRange]);
 
   // 按钮角标计数：固定未来 7 天（不随弹窗内范围切换变化）。
   const urgentWeekCount = useMemo(() => {
     const today = todayStr();
     let n = 0;
     for (const c of visibleCases) {
-      const events = caseTimelineMap.get(c.caseId);
-      if (!events) continue;
-      for (const e of events) {
-        if (e.status !== 'pending' && e.status !== 'upcoming') continue;
-        if (e.date < today) continue;
-        const days = (new Date(e.date).getTime() - new Date(today).getTime()) / 86400000;
+      for (const d of (caseDeadlineMap.get(c.caseId) ?? [])) {
+        if (d.date < today) continue;
+        const days = (new Date(d.date).getTime() - new Date(today).getTime()) / 86400000;
         if (days <= 7) n++;
       }
     }
     return n;
-  }, [visibleCases, caseTimelineMap]);
+  }, [visibleCases, caseDeadlineMap]);
 
   const displayCases = useMemo(() => {
     const arr = [...filteredCases];
@@ -231,8 +273,8 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
         return arr.sort((a, b) => parseAmountValue(b.claimAmount) - parseAmountValue(a.claimAmount));
       case 'nextKeyDate':
         return arr.sort((a, b) => {
-          const da = nextUpcomingDate(caseTimelineMap.get(a.caseId));
-          const db = nextUpcomingDate(caseTimelineMap.get(b.caseId));
+          const da = nextUpcomingDate(caseDeadlineMap.get(a.caseId));
+          const db = nextUpcomingDate(caseDeadlineMap.get(b.caseId));
           if (!da) return db ? 1 : 0;
           if (!db) return -1;
           return da.localeCompare(db);
@@ -244,7 +286,7 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
       default:
         return arr.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
     }
-  }, [filteredCases, sortKey, caseTimelineMap]);
+  }, [filteredCases, sortKey, caseDeadlineMap]);
 
   // 顶部统计基于全部案件（含归档），与当前归档开关/筛选无关：全部=在办+已结，归档单独一类。
   const activeCount = useMemo(() => cases.filter(c => normalizeStatus(c.status) !== 'closed').length, [cases]);
@@ -275,32 +317,36 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
     return n;
   }, [visibleCases]);
 
-  /** 关键节点 chips：最近 2 条未发生节点，紧迫(≤3天)/紧要(≤7天) 用语义色，其余中性。 */
+  /**
+   * 关键节点提示：**只出一枚**——最近的那条；后面还有的折成一枚 `+N`（悬停列全）。
+   *
+   * 为什么要折叠：底部提示行固定单行高度、不换行（见 footer），并列多枚 chips 会
+   * 撑行/换行；而且卡上真正要看的是「最近要盯的那件事」，其余给个计数即可。
+   * 紧迫(≤3天)/紧要(≤7天) 用语义色，其余中性。
+   */
   const keyDateChips = (c: CaseEntry) => {
-    const events = caseTimelineMap.get(c.caseId);
-    if (!events) return null;
     const today = todayStr();
-    const upcoming = events
-      .filter(e => (e.status === 'pending' || e.status === 'upcoming') && e.date >= today)
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(0, 2);
+    // 统一期限清单（关键日期 + 日程同源）：法定期限不再漏（2026-058 修复）。
+    const upcoming = (caseDeadlineMap.get(c.caseId) ?? []).filter(d => d.date >= today);
     if (upcoming.length === 0) return null;
+    const next = upcoming[0];
+    const rest = upcoming.slice(1);
+    const days = daysUntil(next.date);
+    const cls = days <= 3 ? 'bg-[var(--error-bg)] text-[var(--error)]' : days <= 7 ? 'bg-[var(--warning-bg)] text-[var(--warning)]' : 'bg-[var(--paper-inset)] text-[var(--ink-muted)]';
+    const restTitle = rest.map(d => `${d.date.slice(5)} ${d.label}`).join('\n');
     return (
       <>
-        {upcoming.map(e => {
-          const days = daysUntil(e.date);
-          const urgent = days <= 3;
-          const soon = days <= 7;
-          const cls = urgent ? 'bg-[var(--error-bg)] text-[var(--error)]' : soon ? 'bg-[var(--warning-bg)] text-[var(--warning)]' : 'bg-[var(--paper-inset)] text-[var(--ink-muted)]';
-          return (
-            <span key={`${e.label}-${e.date}`} className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-semibold ${cls}`} title={`${e.label} ${e.date}`}>
-              <CalendarClock size={10} className="shrink-0" strokeWidth={2} />
-              <span className="font-mono">{e.date.slice(5)}</span>
-              <span className="truncate max-w-[4.5rem]">{e.label}</span>
-              {days === 0 ? '今天' : days === 1 ? '明天' : `${days}天后`}
-            </span>
-          );
-        })}
+        <span className={`shrink-0 inline-flex items-center gap-0.5 px-1.5 py-[1px] rounded-sm text-[10px] leading-tight font-medium ${cls}`}
+          title={`${next.label} ${next.date}${rest.length > 0 ? `\n（另有 ${rest.length} 项：\n${restTitle}）` : ''}`}>
+          <CalendarClock size={9} className="shrink-0" strokeWidth={2} />
+          <span className="font-mono">{next.date.slice(5)}</span>
+          <span className="truncate max-w-[3.8rem]">{next.label}</span>
+          <span className="opacity-80">{days === 0 ? '今天' : days === 1 ? '明天' : `${days}天后`}</span>
+        </span>
+        {rest.length > 0 && (
+          <span className="shrink-0 inline-flex items-center px-1 py-[1px] rounded-sm text-[10px] leading-tight font-medium bg-[var(--paper-inset)] text-[var(--ink-subtle)] tabular-nums"
+            title={`另有 ${rest.length} 项待办节点：\n${restTitle}`}>+{rest.length}</span>
+        )}
       </>
     );
   };
@@ -312,14 +358,30 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
     return (
       <>
         {shown.map(t => (
-          <span key={t} className="shrink-0 px-2 py-0.5 rounded-sm text-xs font-medium bg-[var(--paper-inset)] text-[var(--ink-muted)]">{t}</span>
+          <span key={t} className="shrink-0 max-w-[5rem] truncate px-1.5 py-[1px] rounded-sm text-[10px] leading-tight font-medium bg-[var(--paper-inset)] text-[var(--ink-muted)]">{t}</span>
         ))}
-        {tags.length > 2 && <span className="shrink-0 text-xs text-[var(--ink-subtle)]">+{tags.length - 2}</span>}
+        {tags.length > 2 && <span className="shrink-0 text-[10px] text-[var(--ink-subtle)]">+{tags.length - 2}</span>}
       </>
     );
   };
 
   const toggleTag = (t: string) => setTagFilter(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+
+  /**
+   * 该案任务统计：未完成 / 总数（只数任务本体，不含子任务与检查项）。
+   * 取代原先卡片底部的「N 会话」——会话数对办案进度没有信息量。
+   */
+  const taskStat = (c: CaseEntry): { pending: number; total: number } => {
+    let pending = 0;
+    let total = 0;
+    for (const g of (Array.isArray(c.taskGroups) ? c.taskGroups : [])) {
+      for (const t of g.tasks) {
+        total++;
+        if (t.status !== 'done') pending++;
+      }
+    }
+    return { pending, total };
+  };
 
   const caseCount = (pred: (c: CaseEntry) => boolean) => visibleCases.filter(pred).length;
 
@@ -618,15 +680,30 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
                       </>}
                     </div>
                   )}
-                  {/* 底部：关键节点 chips + 标签 + 会话/时间 + 删除 */}
-                  <div className="mt-auto pt-2.5 border-t border-[var(--line-subtle)] flex items-center gap-1.5 text-xs text-[var(--ink-subtle)] flex-wrap">
-                    {keyDateChips(c)}
-                    {tagChips(c)}
+                  {/* 底部提示行：固定单行高度、绝不换行（h-6 + nowrap + overflow-hidden）。
+                      提示只出「最近 1 条 + N」两枚，其余信息靠 hover title 展开。 */}
+                  <div className="mt-auto pt-2 border-t border-[var(--line-subtle)]">
+                    <div className="flex items-center gap-1.5 h-6 text-xs text-[var(--ink-subtle)] whitespace-nowrap overflow-hidden">
+                    <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+                      {keyDateChips(c)}
+                      {tagChips(c)}
+                    </div>
                     <span className="flex-1" />
-                    {c.boundSessions.length > 0 && <span className="shrink-0">{c.boundSessions.length} 会话</span>}
+                    {(() => {
+                      const ts = taskStat(c);
+                      if (ts.total === 0) return null;
+                      const allDone = ts.pending === 0;
+                      return (
+                        <span className={`shrink-0 tabular-nums ${allDone ? 'opacity-60' : 'text-[var(--ink-muted)] font-medium'}`}
+                          title={`任务：未完成 ${ts.pending} 项 / 共 ${ts.total} 项`}>
+                          {allDone ? `${ts.total} 项已完成` : `${ts.pending}/${ts.total} 项任务`}
+                        </span>
+                      );
+                    })()}
                     {c.updatedAt && <span className="shrink-0 opacity-50">{timeAgo(c.updatedAt)}</span>}
                     <button onClick={e => { e.stopPropagation(); setDeleteTarget(c); }}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-[var(--ink-subtle)] hover:text-red-500 transition-all" title="删除"><Trash2 size={12} /></button>
+                      className="shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-[var(--ink-subtle)] hover:text-red-500 transition-all" title="删除"><Trash2 size={12} /></button>
+                    </div>
                   </div>
                 </div>
               </div>

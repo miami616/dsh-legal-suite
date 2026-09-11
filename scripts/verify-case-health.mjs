@@ -21,6 +21,7 @@ import { createTimelineStore } from '../lib/domains/litigation/store/index.js'
 import { createScheduleStore } from '../lib/domains/litigation/store/index.js'
 import { computeCaseHealth, computeRegistryHealth } from '../lib/domains/litigation/health.js'
 import { createProjectStore } from '../lib/domains/nonlitigation/store/project-store.js'
+import { createItemStore } from '../lib/domains/item/store/item-store.js'
 import { createServiceStore } from '../lib/domains/nonlitigation/store/service-store.js'
 import { computeProjectHealth, computeRegistryHealth as scanProjects } from '../lib/domains/nonlitigation/health.js'
 import { seedLitigationSample, seedNonLitigationSample } from '../lib/shared/seed/index.js'
@@ -40,16 +41,18 @@ const gapFields = (h) => h.completeness.gaps.map((g) => g.field)
 
 const dataDir = await mkdtemp(join(tmpdir(), 'ls-health-'))
 try {
-  const caseStore = createCaseStore(dataDir)
+  // 0.2.12：任务/关键日期只存 items.json（唯一真相源）。
+  const itemStore = createItemStore(join(dataDir, 'items'))
+  const caseStore = createCaseStore(dataDir, undefined, itemStore)
   const timelineStore = createTimelineStore(dataDir)
   const scheduleStore = createScheduleStore(dataDir)
-  const projectStore = createProjectStore(dataDir)
+  const projectStore = createProjectStore(dataDir, undefined, itemStore)
   const serviceStore = createServiceStore(dataDir)
 
   // 播种必须在任何手工建案之前：种子只在 registry 为空时写入，
   // 手工登记过就不再播种（这是设计行为，不是 bug）。
-  await seedLitigationSample(caseStore, timelineStore, scheduleStore)
-  await seedNonLitigationSample(projectStore, serviceStore)
+  await seedLitigationSample(caseStore, timelineStore, scheduleStore, itemStore, dataDir)
+  await seedNonLitigationSample(projectStore, serviceStore, itemStore, dataDir)
 
   /* ══════════════ 1. 完整度按阶段动态计算 ══════════════ */
   // 同一个「什么都不填」的案件，诉前 vs 庭前（docx 一审档），应填字段数不同

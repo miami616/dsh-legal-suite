@@ -17,8 +17,8 @@ import type { CaseRecord } from './store/types.ts'
 import type { ItemStore, TaskGroup } from '../item/store/item-store.ts'
 import { LEAD_TIME_RULES, daysBefore } from '../../shared/playbook/litigation.ts'
 import {
-  PERIOD_RULES, derivePeriod, matchPeriodRules, previousWorkday,
-  type DerivedPeriod, type PeriodCandidate, type PeriodTrigger,
+  PERIOD_RULES, addDaysStr, derivePeriod, matchPeriodRules, previousWorkday,
+  type DerivedPeriod, type PeriodCandidate, type PeriodRule, type PeriodTrigger,
 } from '../../shared/playbook/period-rules.ts'
 
 /** 登记请求：管家/模型能确定的事实，不含任何推算。 */
@@ -73,6 +73,8 @@ export interface PeriodPlan {
   groupName?: string
   /** 人读提示。 */
   notes: string[]
+  /** true = 规则表未命中，需要依法条提案（propose_period_rule）而不是编日期。 */
+  proposedNeeded?: boolean
 }
 
 export interface PeriodApplyResult extends PeriodPlan {
@@ -109,17 +111,34 @@ function triggerEventKind(doc: string, fact: PeriodTrigger['fact']): string {
   return 'court_notice'
 }
 
-/** 提前量任务链：按锚点从 LEAD_TIME_RULES 取；deadline 落在休息日则往前挪。 */
+/**
+ * 提前量任务链：按锚点从 LEAD_TIME_RULES 取；deadline 落在休息日则往前挪。
+ *
+ * ⚠ 前移会造成**同日碰撞**：如上诉期链 T-3=周五、T-2=周六 → 前移到周五，于是
+ * 「起草复核」和「递交」挤在同一天，链条退化成一句话。所以前移之后还要**从最晚
+ * 一步往前**保证严格递减：前一步若与后一步同日或更晚，就再往前挪一个工作日。
+ * 这样「递交」留在最贴近届满日的位置（它最需要晚），把起草/确认往前挤。
+ */
 function leadTasks(anchor: string | undefined, dueDate: string): Array<{ title: string; deadline: string; anchorDays: number }> {
   if (anchor === undefined || anchor === '') return []
   const rule = LEAD_TIME_RULES.find((r) => r.anchor === anchor)
   if (rule === undefined) return []
-  return rule.steps.map((s) => {
+  const rows = rule.steps.map((s) => {
     const raw = daysBefore(dueDate, s.days)
     // 动作截止日落在周六/周日 → 往前挪到最近工作日（不能把动作留到办不了的一天）。
     const safe = previousWorkday(raw).date
     return { title: s.item, deadline: safe, anchorDays: s.days }
   })
+  // 严格递减（日期递增）：从倒数第二步往前处理，避免同日碰撞。
+  for (let i = rows.length - 2; i >= 0; i--) {
+    const later = rows[i + 1]!
+    let guard = 0
+    while (rows[i]!.deadline >= later.deadline && guard < 30) {
+      rows[i]!.deadline = previousWorkday(addDaysStr(rows[i]!.deadline, -1)).date
+      guard++
+    }
+  }
+  return rows
 }
 
 /**
@@ -132,6 +151,8 @@ export async function planPeriodRegistration(
   caseStore: CaseStore,
   caseId: string,
   input: ServiceRequest,
+  /** 生效规则集合（内置 + 本地补丁表）；缺省只用内置表。 */
+  rules: PeriodRule[] = PERIOD_RULES,
 ): Promise<PeriodPlan> {
   const record: CaseRecord | undefined = await caseStore.readCase(caseId)
   if (record === undefined) throw new Error(`case not found: ${caseId}`)
@@ -147,7 +168,9 @@ export async function planPeriodRegistration(
     clientRole: input.clientRole,
     docKind: input.docKind,
     caseType,
-  })
+    // 受理法院：本地补丁表按法院口径覆盖通用规则（0.2.12）。
+    court: record.court,
+  }, rules)
 
   const notes: string[] = []
   const base: PeriodPlan = {
@@ -164,8 +187,9 @@ export async function planPeriodRegistration(
   if (candidates.length === 0) {
     notes.push(
       `规则表未命中（程序=${procedure}${input.docKind !== undefined ? `，文书种类=${input.docKind}` : ''}）——` +
-      '请勿自行推算日期：应依法条提案（带 cite）交律师确认后再落库。',
+      '请勿自行推算日期：用 propose_period_rule 依法条提案（带 cite），律师确认后再登记。',
     )
+    base.proposedNeeded = true
     return base
   }
 
@@ -220,8 +244,10 @@ export async function applyPeriodRegistration(
   caseId: string,
   input: ServiceRequest,
   itemStore?: ItemStore,
+  /** 生效规则集合（内置 + 本地补丁表）；缺省只用内置表。 */
+  rules: PeriodRule[] = PERIOD_RULES,
 ): Promise<PeriodApplyResult> {
-  const plan = await planPeriodRegistration(caseStore, caseId, input)
+  const plan = await planPeriodRegistration(caseStore, caseId, input, rules)
   const applied: PeriodApplyResult['applied'] = { taskIds: [] }
   const skipped: string[] = [...plan.notes]
 
@@ -230,7 +256,7 @@ export async function applyPeriodRegistration(
     return { ...plan, applied, skipped }
   }
   if (plan.matched === undefined || plan.ruleId === undefined) {
-    skipped.push('未落库：规则表未命中。')
+    skipped.push('未落库：规则表未命中——请用 propose_period_rule 依法条提案，律师确认后再登记（不得自行推算）。')
     return { ...plan, applied, skipped }
   }
 
@@ -258,7 +284,7 @@ export async function applyPeriodRegistration(
 
   // 2) 触发事由日程（已发生 → done，进时间轴纪年，不进关键日程倒计时）
   for (const ev of plan.events) {
-    const dup = items.find((it) => it.type !== 'task' && it.title === ev.title && it.date === ev.date)
+    const dup = items.find((it) => it.type !== 'task' && it.type !== 'keydate' && it.title === ev.title && it.date === ev.date)
     if (dup !== undefined) {
       skipped.push(`时间轴日程已存在：${ev.title} ${ev.date}`)
       continue
@@ -285,7 +311,7 @@ export async function applyPeriodRegistration(
       group = await itemStore.upsertGroup({ ownerId: caseId, ownerType: 'litigation', name: plan.groupName })
     }
     for (const t of plan.tasks) {
-      const dup = items.find((it) => it.type !== 'task' && it.title === t.title)
+      const dup = items.find((it) => it.type !== 'task' && it.type !== 'keydate' && it.title === t.title)
         ?? items.find((it) => it.title === t.title && it.groupId === group!.id)
       if (dup !== undefined) {
         skipped.push(`提前量任务已存在：${t.title}`)
@@ -309,12 +335,23 @@ export async function applyPeriodRegistration(
 
   // 任务链落库后 bump 案件 updatedAt（卡片按最近更新置顶，与 0.2.2 事件/任务一致）。
   await caseStore.updateCase(caseId, {})
+
+  // 登记成功 → 复算法定期限闸门：期限已齐则清掉陈旧告警（0.2.12）。
+  try {
+    const { syncPeriodGate } = await import('./status-transition.ts')
+    const after = await caseStore.readCase(caseId)
+    await syncPeriodGate(caseStore, caseId, after?.status, rules)
+  } catch { /* 闸门清理由后续状态变更/巡检兜底，不阻塞登记结果 */ }
+
   return { ...plan, applied, skipped }
 }
 
 /** 便于路由/工具层复用：列出规则表（可按程序过滤）。 */
-export function listRules(procedure?: string): Array<{ id: string; procedure: string; term: string; cite: string; length: string; effect: string; anchor?: string }> {
-  return PERIOD_RULES
+export function listRules(
+  procedure?: string,
+  rules: PeriodRule[] = PERIOD_RULES,
+): Array<{ id: string; procedure: string; term: string; cite: string; length: string; effect: string; anchor?: string; confidence: string }> {
+  return rules
     .filter((r) => procedure === undefined || procedure === '' || r.scope.procedure === procedure)
     .map((r) => ({
       id: r.id,
@@ -324,5 +361,6 @@ export function listRules(procedure?: string): Array<{ id: string; procedure: st
       length: lengthDesc(r),
       effect: r.effect,
       anchor: r.anchor,
+      confidence: r.confidence,
     }))
 }

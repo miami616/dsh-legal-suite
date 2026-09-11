@@ -18,10 +18,16 @@
  * 8:30 timer or a manual /run trigger).
  */
 
-import { computeDeadlines, eventKind, type DeadlineItem } from '../litigation/deadlines.ts'
+import { computeDeadlinesV2, eventKind, type DeadlineItem, type OwnerMeta } from '../litigation/deadlines.ts'
 import { createCaseStore } from '../litigation/store/case-store.ts'
 import { JsonFileStore } from '../litigation/store/file-store.ts'
 import { createItemStore } from '../item/store/item-store.ts'
+import { isEventItem, isTaskItem } from '../item/store/types.ts'
+import { runPatrol, groupItemsByCase, type PatrolFinding } from '../litigation/patrol.ts'
+import { createPatrolLedgerStore } from '../litigation/store/patrol-ledger-store.ts'
+import { createPeriodRuleStore } from '../litigation/store/period-rule-store.ts'
+import { sendPatrolCard } from './feishu-card.ts'
+import type { CaseRegistry, TimelineEvent } from '../litigation/store/types.ts'
 import { sendDeadlineCard } from './feishu-card.ts'
 import { ledgerKey, type PushConfig, type PushStore } from './store/push-config.ts'
 import { join } from 'node:path'
@@ -124,6 +130,8 @@ export interface PushRunResult {
   attempted: boolean
   /** Error text when the send failed (undefined on success). */
   error?: string
+  /** 案件账实核对（0.2.12）：独立消息、独立台账，与每日到期提醒无关。 */
+  patrol?: { total: number; pushed: number; summary: string }
 }
 
 /** 从日期字符串提取日期部分（YYYY-MM-DD）。 */
@@ -224,34 +232,36 @@ function makeItem(partial: {
 }
 
 /**
- * 聚合所有数据源的期限：诉讼（case-registry + items）、非诉（project-registry）、
- * 独立任务（standalone）。统一成 DeadlineItem[]。
+ * 聚合所有数据源的期限（0.2.12 统一出口版）。
+ *
+ * **不再自建一份聚合**：以前这里按 items 自己拼一份 DeadlineItem[]，与
+ * `deadlines.ts` 的引擎各算各的——同一期限在两处去重/优先级口径不同，就会出现
+ * 「期限汇总一行、飞书推送两行」这类分叉。现在统一调 `computeDeadlinesV2`：
+ *   - 事件（items event/both）+ 任务期限（items task/both）+ 关键日期（registry 装配）
+ *     由引擎按 `caseId|date|label` 去重、按 kind 优先级择一；
+ *   - 非诉项目与独立事项通过 `ownerMeta` 补名称/来源，因此不必再为它们单独开分支。
  *
  * @param litigationDir - 诉讼数据目录。
  * @param nonlitigationDir - 非诉数据目录。
- * @param tasksDir - 任务数据目录。
+ * @param tasksDir - 任务数据目录（独立任务已并入 items，仅作兼容签名）。
  */
 export async function collectAllDeadlines(
   litigationDir: string,
   nonlitigationDir: string,
-  tasksDir: string,
+  _tasksDir: string,
 ): Promise<DeadlineItem[]> {
-  const items: DeadlineItem[] = []
+  const itemsDir = join(litigationDir, '..', 'items')
 
-  // 统一事项：从 items.json 读所有事项（event/task/both），自动分流。
-  // 一个事项一次登记，type 决定它进日程/时间轴还是任务树。
-  // 补充 owner 元信息（案件名/案号/法院）来自 case/project registry——push 文本需要。
-  // 注意：items 的 ownerName 大量缺失（历史数据），必须按 ownerId 从 registry 补全，
-  // 否则卡片上只有案号看不出是哪个案子。
-  const ownerMeta = new Map<string, { name?: string; caseNumber?: string; court?: string }>()
+  // 归属元信息：案件（名称/案号/法院）+ 非诉项目（名称）+ 独立（ownerId=''）。
+  const ownerMeta = new Map<string, OwnerMeta>()
+  let registry: CaseRegistry = { registryVersion: '1.0', cases: {} }
   try {
-    const caseStore = createCaseStore(litigationDir)
-    const reg = await caseStore.readRegistry()
-    for (const c of Object.values(reg.cases)) {
-      ownerMeta.set(c.caseId, { name: c.name, caseNumber: c.caseNumber, court: c.court })
+    const caseStore = createCaseStore(litigationDir, undefined, createItemStore(itemsDir))
+    registry = await caseStore.readRegistry()
+    for (const c of Object.values(registry.cases)) {
+      ownerMeta.set(c.caseId, { name: c.name, caseNumber: c.caseNumber, court: c.court, source: 'litigation' })
     }
-  } catch { /* best-effort */ }
-  // 非诉项目：project-registry.json 补项目名。
+  } catch { /* best-effort：案件元信息缺失不阻塞推送 */ }
   try {
     const projectStore = new JsonFileStore<{ projects?: Record<string, { name?: string }> }>(
       join(nonlitigationDir, 'project-registry.json'),
@@ -260,65 +270,53 @@ export async function collectAllDeadlines(
     const reg = await projectStore.read()
     for (const [pid, p] of Object.entries(reg.projects ?? {})) {
       const existing = ownerMeta.get(pid)
-      ownerMeta.set(pid, { ...existing, name: p.name ?? existing?.name })
+      ownerMeta.set(pid, { ...existing, name: p.name ?? existing?.name, source: 'nonlitigation' })
     }
   } catch { /* best-effort */ }
+  ownerMeta.set('', { name: '独立', source: 'standalone' })
 
   try {
-    const itemStore = createItemStore(join(litigationDir, '..', 'items'))
+    const itemStore = createItemStore(itemsDir)
     const all = await itemStore.listItems()
+
+    // 事件侧：items 的 event/both → TimelineEvent 形状（keydate 不进这里——它由
+    // registry 装配的 keyDates 走 keydate 通道，否则同一期限会进两次）。
+    const events: TimelineEvent[] = []
+    const taskDeadlines = new Map<string, { caseId: string; title: string; date: string; time?: string; status: string }>()
     for (const it of all) {
-      if (it.status === 'done' || it.status === 'cancelled' || !it.date) continue
-      const ownerId = it.ownerId ?? ''
-      // ownerName 缺失时从 registry 补全（历史数据大量缺失）。
-      const meta = ownerId === '' ? undefined : ownerMeta.get(ownerId)
-      const ownerName = (it.ownerName ?? '').trim() !== '' ? it.ownerName! : (meta?.name ?? '')
-      // ownerType 区分同号案件/项目/独立（2026-09-04）；缺省按历史（案件/独立）。
-      const ownerType = it.ownerType ?? (ownerId === '' ? 'standalone' : 'litigation')
-      const isEvent = it.type === 'event' || it.type === 'both'
-      const isTask = it.type === 'task' || it.type === 'both'
-      const source = ownerType === 'standalone' ? 'standalone' : ownerType === 'nonlitigation' ? 'nonlitigation' : 'litigation'
-      // 事件 → 关键日程/时间轴（kind 按事件类型；0.2.11 修：旧代码只看 it.type，
-      // 于是所有事件都被当成 hearing/keydate，上诉期/举证期在卡片上标成「开庭」）。
-      if (isEvent) {
-        const eventType = it.kind ?? (it.type === 'both' ? 'hearing' : 'case_event')
-        items.push(makeItem({
-          caseId: ownerId,
-          caseName: ownerName,
-          date: datePart(it.date),
-          label: it.title,
-          kind: eventKind(eventType),
-          source,
-          time: timePart(it.date) ?? it.time,
+      if (!it.date) continue
+      const date = datePart(it.date)
+      if (isEventItem(it)) {
+        events.push({
+          id: it.id,
+          caseId: it.ownerId ?? '',
+          caseName: it.ownerName ?? '',
+          type: (it.kind ?? (it.type === 'both' ? 'hearing' : 'case_event')) as TimelineEvent['type'],
+          title: it.title,
           detail: it.detail,
-          caseNumber: meta?.caseNumber,
-          court: meta?.court,
-        }))
-      }
-      // 任务 → 任务 deadline。both 事项只作为事件进一次（同一 deadline 不重复）。
-      if (isTask && it.type !== 'both') {
-        items.push(makeItem({
-          caseId: ownerId,
-          caseName: ownerName,
-          date: datePart(it.date),
-          label: it.title,
-          kind: 'task',
-          source,
+          date,
           time: timePart(it.date) ?? it.time ?? extractTimeFromDetail(it.detail),
-          detail: it.detail,
-          caseNumber: meta?.caseNumber,
-          court: meta?.court,
-        }))
+          status: (it.status === 'done' ? 'done' : it.status === 'cancelled' ? 'cancelled' : 'pending') as TimelineEvent['status'],
+          remindRules: (it.remindRules ?? []) as TimelineEvent['remindRules'],
+          createdAt: it.createdAt,
+          updatedAt: it.updatedAt,
+        })
+      } else if (isTaskItem(it)) {
+        taskDeadlines.set(it.id, {
+          caseId: it.ownerId ?? '',
+          title: it.title,
+          date,
+          time: timePart(it.date) ?? it.time ?? extractTimeFromDetail(it.detail),
+          status: it.status,
+        })
       }
     }
+
+    return computeDeadlinesV2(registry, events, taskDeadlines, undefined, { includeOverdue: true, ownerMeta })
   } catch (error) {
     console.warn('[agentlex-push] 统一事项期限读取失败:', error instanceof Error ? error.message : String(error))
+    return []
   }
-
-  // 按日期 + 时间排序（今天在前、明天在后；同日按时间）。
-  items.sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? '') || a.caseId.localeCompare(b.caseId))
-
-  return items
 }
 
 /**
@@ -358,7 +356,15 @@ export async function runDeadlinePush(
     const key = ledgerKey(item.caseId, item.date, item.label)
     if (opts.force === true || !(await store.hasPushed(key))) fresh.push(item)
   }
-  if (fresh.length === 0) return { due: due.length, pushed: 0, attempted: false }
+  // 3.5 案件账实核对（0.2.12）：**独立一条消息**，不与每日到期提醒混——两者性质不同
+  //     （每日提醒回答"今天要干什么"，核对卡回答"你的账可能记错了"）。混在一起会让
+  //     "今天没事"的日子看不出异常，也会让异常被日常事项淹没。
+  //     台账保证只有**新出现或证据变化**才推，同一件事不会天天刷。
+  const patrol = await runPatrolPass(dirs.litigation)
+
+  if (fresh.length === 0) {
+    return { due: due.length, pushed: 0, attempted: false, patrol }
+  }
 
   // 4. Format the FIXED template as a structured Feishu card (the only delivery path).
   // 5. Send the Feishu card (direct Feishu open API — no dsh-im dependency).
@@ -366,10 +372,56 @@ export async function runDeadlinePush(
     await sendDeadlineCard(fresh, cfg.titlePrefix)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return { due: due.length, pushed: 0, attempted: true, error: message }
+    return { due: due.length, pushed: 0, attempted: true, error: message, patrol }
   }
 
   // 6. Record the ledger (only on success — a failure retries next run).
-  await store.recordPushed(fresh.map((item) => ledgerKey(item.caseId, item.date, item.label)))
-  return { due: due.length, pushed: fresh.length, attempted: true }
+  if (fresh.length > 0) {
+    await store.recordPushed(fresh.map((item) => ledgerKey(item.caseId, item.date, item.label)))
+  }
+  return { due: due.length, pushed: fresh.length, attempted: true, patrol }
+}
+
+/**
+ * 案件账实核对（0.2.12）—— 独立一条消息 + 去重台账。
+ *
+ * 与每日到期提醒彻底分开：这里回答「你的账是不是记错了」，不是「今天要干什么」。
+ * 台账（patrol-ledger.json）保证只有**新出现或证据变化**的发现才推；已确认无需处理
+ * 的（mute_patrol_finding）不再提醒。
+ */
+async function runPatrolPass(litigationDir: string): Promise<{ total: number; pushed: number; summary: string }> {
+  try {
+    const itemsDir = join(litigationDir, '..', 'items')
+    const itemStore = createItemStore(itemsDir)
+    const caseStore = createCaseStore(litigationDir, undefined, itemStore)
+    const ledger = createPatrolLedgerStore(litigationDir)
+    const ruleStore = createPeriodRuleStore(litigationDir)
+    const [registry, items, rules] = await Promise.all([
+      caseStore.readRegistry(),
+      itemStore.listItems(),
+      ruleStore.effectiveRules(),
+    ])
+    const result = runPatrol(Object.values(registry.cases), groupItemsByCase(items), rules)
+
+    // 已确认无需处理的先剔掉，再按台账挑「没推过的」。
+    const active: PatrolFinding[] = []
+    for (const f of result.findings) {
+      if (await ledger.isMuted(f.caseId, f.ruleId)) continue
+      active.push(f)
+    }
+    const valid = active.map((f) => f.fingerprint)
+    const fresh = await ledger.filterNew(valid, valid)
+    if (fresh.length === 0) {
+      if (active.length > 0) console.warn(`[agentlex-patrol] ${result.summary}（均为已推送过的，不重复打扰）`)
+      return { total: active.length, pushed: 0, summary: result.summary }
+    }
+    const freshFindings = active.filter((f) => fresh.includes(f.fingerprint))
+    await sendPatrolCard(freshFindings)
+    await ledger.markPushed(fresh)
+    console.warn(`[agentlex-patrol] ${result.summary}；本次推送 ${freshFindings.length} 项新发现`)
+    return { total: active.length, pushed: freshFindings.length, summary: result.summary }
+  } catch (error) {
+    console.warn('[agentlex-patrol] 账实核对失败:', error instanceof Error ? error.message : String(error))
+    return { total: 0, pushed: 0, summary: '案件账实核对：执行失败' }
+  }
 }

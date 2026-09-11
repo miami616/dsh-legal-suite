@@ -26,6 +26,8 @@ import { selfVersion } from './self-version.ts'
 import { applyStageExpansion, detectStageSuggestions, planStageExpansion } from './stage-expansion.ts'
 import { computeCaseHealth, computeRegistryHealth } from './health.ts'
 import { applyPeriodRegistration, listRules, planPeriodRegistration, type ServiceRequest } from './period-service.ts'
+import { runPatrol, groupItemsByCase } from './patrol.ts'
+import { PERIOD_RULES } from '../../shared/playbook/period-rules.ts'
 
 /** HTTP body → 期限登记请求（0.2.11）。 */
 function serviceRequest(b: Record<string, unknown>): ServiceRequest {
@@ -47,6 +49,8 @@ export const API_PREFIX = '/api/agentlex-case'
 
 /** Services the routes need. */
 import type { ItemStore } from '../item/store/item-store.ts'
+import type { PeriodRuleStore } from './store/period-rule-store.ts'
+import type { PatrolLedgerStore } from './store/patrol-ledger-store.ts'
 
 export interface RouteDeps {
   caseStore: CaseStore
@@ -56,6 +60,10 @@ export interface RouteDeps {
   dataDir: string
   /** 统一事项 store —— 任务/事件/任务组写统一事项（v0.1.27 统一事项模型）。 */
   itemStore?: ItemStore
+  /** 期限规则本地补丁表 + 提案（0.2.12）。 */
+  periodRuleStore?: PeriodRuleStore
+  /** 账实核对台账（去重推送 + 已确认留档）。 */
+  patrolLedgerStore?: PatrolLedgerStore
   /** Announce the deadline engine's per-case summary (M4). */
   deadlines?(caseId?: string, opts?: { includeOverdue?: boolean }): unknown | Promise<unknown>
   /** Import from an AgentLex data directory (M5). */
@@ -226,7 +234,9 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   route(`${API_PREFIX}/update-case`, async (d, b, res) => {
     const caseId = String(b.caseId ?? '')
     if (caseId === '') return fail(res, 'caseId required')
-    const { caseId: _omit, ...patch } = b
+    // actor 是调用方标记，不是案件字段——必须从 patch 里剔除，否则会被写进 registry。
+    const { caseId: _omit, actor: actorRaw, ...patch } = b
+    const actor = actorRaw === 'agent' ? 'agent' : undefined
     const prev = await d.caseStore.readCase(caseId)
     const record = await d.caseStore.updateCase(caseId, patch)
     const out: Record<string, unknown> = { ...record }
@@ -242,8 +252,16 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       out.stageSuggestions = found?.suggestions ?? []
       if (d.itemStore !== undefined) {
         const { handleStatusTransition } = await import('./status-transition.ts')
-        const modeCandidate = String(patch.expandOnStatus ?? record.expandOnStatus ?? 'confirm')
-        const mode = (['confirm', 'agent', 'off'].includes(modeCandidate) ? modeCandidate : 'confirm') as never
+        // 调用方判定（0.2.12）：管家工具经 HTTP 走同一条路由，靠 body.actor 区分——
+        //   - actor='agent'（管家）：一律 agent 态（案件设了 off 则 off）。前端**不弹窗**，
+        //     管家在同一回合按纪律自行 expand/ignore；
+        //   - 无 actor（浏览器手动改）：按案件设置 confirm/agent/off，confirm 时弹窗。
+        // 案件级 expandOnStatus 表达的是「用户手动改时要不要问」，管家不该继承。
+        const isAgent = actor === 'agent'
+        const setting = String(patch.expandOnStatus ?? record.expandOnStatus ?? '')
+        const mode = (isAgent
+          ? (setting === 'off' ? 'off' : 'agent')
+          : (['confirm', 'agent', 'off'].includes(setting) ? setting : 'confirm')) as never
         const trans = await handleStatusTransition({
           caseStore: d.caseStore,
           itemStore: d.itemStore,
@@ -296,6 +314,17 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const keyDateId = String(b.keyDateId ?? '')
     if (caseId === '' || keyDateId === '') return fail(res, 'caseId/keyDateId required')
     ok(res, await d.caseStore.toggleKeyDate(caseId, keyDateId))
+  })
+
+  route(`${API_PREFIX}/delete-keydate`, async (d, b, res) => {
+    const caseId = String(b.caseId ?? '')
+    const keyDateId = String(b.keyDateId ?? '')
+    if (caseId === '' || keyDateId === '') return fail(res, 'caseId/keyDateId required')
+    try {
+      ok(res, await d.caseStore.deleteKeyDate(caseId, keyDateId))
+    } catch (error) {
+      fail(res, error, 400)
+    }
   })
 
   /* --------------------------- task groups ---------------------------- */
@@ -530,7 +559,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       const items = await d.itemStore.listItems(caseId)
       const out: unknown[] = []
       for (const it of items) {
-        if (it.type === 'task') continue
+        if (it.type === 'task' || it.type === 'keydate') continue
         out.push(itemToTimelineEvent(it))
       }
       out.sort((a, b) => String((a as { date?: string }).date ?? '').localeCompare(String((b as { date?: string }).date ?? '')))
@@ -572,7 +601,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (eventId === '') return fail(res, 'eventId required')
     if (d.itemStore !== undefined) {
       const existing = await d.itemStore.readItem(eventId)
-      if (existing !== undefined && existing.type !== 'task') {
+      if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
         const r = await d.itemStore.deleteItem(eventId)
         // 备忘 #21：事件删除后 bump 案件 updatedAt。
         if (existing.ownerId !== undefined && existing.ownerId !== '') {
@@ -591,7 +620,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (eventId === '') return fail(res, 'eventId required')
     if (d.itemStore !== undefined) {
       const existing = await d.itemStore.readItem(eventId)
-      if (existing !== undefined && existing.type !== 'task') {
+      if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
         const updated = await d.itemStore.toggleItem(eventId)
         // 备忘 #21：事件状态切换后 bump 案件 updatedAt。
         if (existing.ownerId !== undefined && existing.ownerId !== '') {
@@ -698,19 +727,98 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     ok(res, { count: cases.length, cases })
   })
 
-  /* ------------------- 法定期限规则表（0.2.11） ---------------------- */
+  /* ---------------- 法定期限规则表（0.2.11 / 0.2.12） ----------------- */
   // 只登记触发事由，届满日由规则表派生：derive-deadline 只读预览，
   // register-service 落「关键日程 + 时间轴日程 + 提前量任务链」三件套。
-  route(`${API_PREFIX}/period-rules`, async (_d, b, res) => {
-    const rules = listRules(b.procedure === undefined ? undefined : String(b.procedure))
+  // 0.2.12：生效规则 = 内置表 + 本地补丁表（proposed 不参与匹配）。
+  const effectiveRules = async (d: RouteDeps) =>
+    d.periodRuleStore === undefined ? PERIOD_RULES : d.periodRuleStore.effectiveRules()
+
+  route(`${API_PREFIX}/period-rules`, async (d, b, res) => {
+    const rules = listRules(b.procedure === undefined ? undefined : String(b.procedure), await effectiveRules(d))
     ok(res, { count: rules.length, rules })
+  })
+
+  // 案件账实核对（只读）：实际状态与登记不一致的清单（漏登/登错/该推进没推进）。
+  route(`${API_PREFIX}/patrol-scan`, async (d, _b, res) => {
+    const registry = await d.caseStore.readRegistry()
+    const items = d.itemStore === undefined ? [] : await d.itemStore.listItems()
+    const result = runPatrol(Object.values(registry.cases), groupItemsByCase(items), await effectiveRules(d))
+    const findings = []
+    for (const f of result.findings) {
+      const muted = d.patrolLedgerStore === undefined ? false : await d.patrolLedgerStore.isMuted(f.caseId, f.ruleId)
+      findings.push({ ...f, muted })
+    }
+    ok(res, { ...result, findings })
+  })
+
+  route(`${API_PREFIX}/mute-patrol-finding`, async (d, b, res) => {
+    if (d.patrolLedgerStore === undefined) return fail(res, 'patrolLedgerStore not mounted', 501)
+    const caseId = String(b.caseId ?? '')
+    const ruleId = String(b.ruleId ?? '')
+    if (caseId === '' || ruleId === '') return fail(res, 'caseId/ruleId required')
+    try {
+      if (b.muted === false) {
+        const r = await d.patrolLedgerStore.unmute(caseId, ruleId)
+        return ok(res, { ok: r.removed, muted: false, notice: '已取消确认，下次核对会重新纳入' })
+      }
+      const row = await d.patrolLedgerStore.mute(caseId, ruleId, b.reason === undefined ? undefined : String(b.reason))
+      ok(res, { ok: true, muted: true, ruleId: row.ruleId, reason: row.reason, notice: '已确认无需处理，不再提醒（留档备查）' })
+    } catch (error) {
+      fail(res, error, 400)
+    }
+  })
+
+  // 确认闸门：确实无需在本案登记期限时撤下提醒（二审独立建档的一审案等）。
+  route(`${API_PREFIX}/mute-period-gate`, async (d, b, res) => {
+    const caseId = String(b.caseId ?? '')
+    if (caseId === '') return fail(res, 'caseId required')
+    try {
+      const muted = b.muted === false ? undefined : { at: new Date().toISOString(), reason: b.reason === undefined ? undefined : String(b.reason) }
+      const record = await d.caseStore.setPeriodGateMuted(caseId, muted)
+      ok(res, { caseId: record.caseId, muted: record.periodGateMuted !== undefined, reason: record.periodGateMuted?.reason })
+    } catch (error) {
+      fail(res, error, 400)
+    }
+  })
+
+  // 提案回流：表未命中时只能提案（带 cite），律师确认后才进本地补丁表生效。
+  route(`${API_PREFIX}/propose-period-rule`, async (d, b, res) => {
+    if (d.periodRuleStore === undefined) return fail(res, 'periodRuleStore not mounted', 501)
+    try {
+      const rule = { ...(b.rule as Record<string, unknown> ?? {}), id: String(b.ruleId ?? (b.rule as Record<string, unknown> | undefined)?.id ?? '') }
+      const proposal = await d.periodRuleStore.propose({
+        rule: rule as never,
+        cite: String(b.cite ?? ''),
+        reasoning: String(b.reasoning ?? ''),
+        caseId: b.caseId === undefined ? undefined : String(b.caseId),
+      })
+      ok(res, proposal)
+    } catch (error) {
+      fail(res, error, 400)
+    }
+  })
+
+  route(`${API_PREFIX}/resolve-period-rule`, async (d, b, res) => {
+    if (d.periodRuleStore === undefined) return fail(res, 'periodRuleStore not mounted', 501)
+    const proposalId = String(b.proposalId ?? '')
+    if (proposalId === '') return fail(res, 'proposalId required')
+    try {
+      ok(res, await d.periodRuleStore.resolve(
+        proposalId,
+        String(b.decision ?? 'accept') === 'reject' ? 'reject' : 'accept',
+        { correction: b.correction as never, note: b.note === undefined ? undefined : String(b.note) },
+      ))
+    } catch (error) {
+      fail(res, error, 400)
+    }
   })
 
   route(`${API_PREFIX}/derive-deadline`, async (d, b, res) => {
     const caseId = String(b.caseId ?? '')
     if (caseId === '') return fail(res, 'caseId required')
     try {
-      ok(res, await planPeriodRegistration(d.caseStore, caseId, serviceRequest(b)))
+      ok(res, await planPeriodRegistration(d.caseStore, caseId, serviceRequest(b), await effectiveRules(d)))
     } catch (error) {
       fail(res, error, 400)
     }
@@ -720,7 +828,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     const caseId = String(b.caseId ?? '')
     if (caseId === '') return fail(res, 'caseId required')
     try {
-      ok(res, await applyPeriodRegistration(d.caseStore, caseId, serviceRequest(b), d.itemStore))
+      ok(res, await applyPeriodRegistration(d.caseStore, caseId, serviceRequest(b), d.itemStore, await effectiveRules(d)))
     } catch (error) {
       fail(res, error, 400)
     }

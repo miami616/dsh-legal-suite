@@ -22,6 +22,8 @@ import type { CaseStore } from './store/case-store.ts'
 import type { ExpandOnStatusMode, PendingExpand } from './store/types.ts'
 import type { ItemStore } from '../item/store/item-store.ts'
 import { stageForStatus } from '../../shared/playbook/litigation.ts'
+import { checkPeriodGate } from './period-gate.ts'
+import type { PeriodRule } from '../../shared/playbook/period-rules.ts'
 import {
   applyStageExpansion,
   findAnchorDate,
@@ -34,6 +36,8 @@ export interface StatusTransitionResult {
   /** confirm/agent 模式且目标阶段未展开时挂起的标记。 */
   pendingExpand?: PendingExpand
   notice?: string
+  /** 法定期限闸门结果（blocking=true 时案件上已落 periodGate）。 */
+  periodGate?: { blocking: boolean; missing: string[]; notice: string }
 }
 
 /** 解析某案件的三态模式（case 级字段，缺省 'confirm'）。 */
@@ -58,6 +62,8 @@ export async function handleStatusTransition(opts: {
   level?: string
   /** 三态模式；缺省解析 case.expandOnStatus，再缺省 'confirm'。 */
   mode?: ExpandOnStatusMode
+  /** 生效规则集合（内置 + 本地补丁表）；缺省只用内置表。 */
+  rules?: PeriodRule[]
 }): Promise<StatusTransitionResult> {
   const { caseStore, itemStore, caseId } = opts
   if (opts.nextStatus === undefined || opts.nextStatus === opts.prevStatus) {
@@ -67,6 +73,12 @@ export async function handleStatusTransition(opts: {
   if (record === undefined) return { notice: 'case not found' }
   const mode = opts.mode ?? resolveExpandMode(record)
   const level = opts.level ?? record.level
+
+  // 法定期限闸门（0.2.12）：**独立于阶段展开**——阶段早就展开过的案件一样可能
+  // 漏登期限，所以先算闸门并落到案件字段（登记成功后由 period-service 自动清除）。
+  // 闸门只提示不阻断落库：状态该改还是改，但「期限没登」必须浮出来。
+  const gateResult = await syncPeriodGate(caseStore, caseId, opts.nextStatus, opts.rules)
+
   const clearPending = async (): Promise<void> => {
     if (record.pendingExpand !== undefined) {
       await caseStore.clearPendingExpand(caseId)
@@ -76,14 +88,17 @@ export async function handleStatusTransition(opts: {
   // off / 已结案：不展开，清除任何挂起点。
   if (mode === 'off' || opts.nextStatus === 'closed') {
     await clearPending()
-    return { notice: mode === 'off' ? 'expandOnStatus=off，不展开' : '已结案，无需展开' }
+    return {
+      notice: mode === 'off' ? 'expandOnStatus=off，不展开' : '已结案，无需展开',
+      periodGate: gateResult,
+    }
   }
 
   // 解析新状态对应的阶段模板（该轨内）；无模板（未知档位）→ 清除挂起。
   const stage = stageForStatus(level, opts.nextStatus)
   if (stage === undefined) {
     await clearPending()
-    return { notice: `状态 ${opts.nextStatus}（level=${level ?? ''}）无对应阶段模板，不展开` }
+    return { notice: `状态 ${opts.nextStatus}（level=${level ?? ''}）无对应阶段模板，不展开`, periodGate: gateResult }
   }
 
   // 已展开判定：目标阶段在该案已有任务 → 视为已展开，清除挂起。
@@ -92,11 +107,11 @@ export async function handleStatusTransition(opts: {
     const hydrated = await hydrateCaseTaskGroups(record, caseStore, itemStore)
     if (stageTasksOf(hydrated, stage.id, level).length > 0) {
       await clearPending()
-      return { notice: `「${stage.name}」已展开，无需重复` }
+      return { notice: `「${stage.name}」已展开，无需重复`, periodGate: gateResult }
     }
   } else if ((record.taskGroups ?? []).some((g) => g.name === stage.name && g.tasks.length > 0)) {
     await clearPending()
-    return { notice: `「${stage.name}」已展开，无需重复` }
+    return { notice: `「${stage.name}」已展开，无需重复`, periodGate: gateResult }
   }
 
   // 状态联动：进入庭前准备（=已立案）→ 落盘/校正「立案」时间轴事件。
@@ -116,7 +131,41 @@ export async function handleStatusTransition(opts: {
     createdAt: new Date().toISOString(),
   }
   await caseStore.updateCase(caseId, { pendingExpand })
-  return { pendingExpand, notice: `状态推进到「${opts.nextStatus}」，「${stage.name}」待展开（mode=${mode}）` }
+  const gateNote = gateResult.blocking ? `｜${gateResult.notice}` : ''
+  return {
+    pendingExpand,
+    periodGate: gateResult,
+    notice: `状态推进到「${opts.nextStatus}」，「${stage.name}」待展开（mode=${mode}）${gateNote}`,
+  }
+}
+
+/**
+ * 计算并落「法定期限闸门」到案件字段（0.2.12）。
+ *
+ * 阻断 → 写 periodGate；不再阻断（期限已登记）→ 清掉陈旧标记，避免界面一直挂着
+ * 已经解决的告警。返回精简结果供调用方（工具返回值）内联展示。
+ */
+export async function syncPeriodGate(
+  caseStore: CaseStore,
+  caseId: string,
+  status: string | undefined,
+  rules?: PeriodRule[],
+): Promise<{ blocking: boolean; missing: string[]; notice: string }> {
+  const fresh = await caseStore.readCase(caseId)
+  if (fresh === undefined) return { blocking: false, missing: [], notice: '' }
+  const gate = checkPeriodGate({ ...fresh, status: status ?? fresh.status }, rules)
+  if (gate.blocking) {
+    await caseStore.setPeriodGate(caseId, {
+      blocking: true,
+      missing: gate.missing,
+      notice: gate.notice,
+      suggestions: gate.suggestions,
+      createdAt: new Date().toISOString(),
+    })
+  } else if (fresh.periodGate !== undefined) {
+    await caseStore.clearPeriodGate(caseId)
+  }
+  return { blocking: gate.blocking, missing: gate.missing, notice: gate.notice }
 }
 
 /**
@@ -140,8 +189,8 @@ export async function syncFilingEventOnPretrial(opts: {
   const today = opts.enteredAt ?? new Date().toISOString().slice(0, 10)
   const items = await itemStore.listItems(caseId)
   // 受理通知送达事件（管家登记后以此为准）
-  const serviceEvent = items.find((i) => i.type !== 'task' && i.title === '受理通知送达' && i.date)
-  let filingEvent = items.find((i) => i.type !== 'task' && i.title === '立案')
+  const serviceEvent = items.find((i) => i.type !== 'task' && i.type !== 'keydate' && i.title === '受理通知送达' && i.date)
+  let filingEvent = items.find((i) => i.type !== 'task' && i.type !== 'keydate' && i.title === '立案')
   if (filingEvent === undefined) {
     await itemStore.upsertItem({
       ownerId: caseId,

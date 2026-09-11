@@ -1,20 +1,44 @@
 /**
  * 统一事项模型 — 数据模型。
  *
- * 把「事件（timelineEvents）」和「任务（taskGroups[].tasks）」统一为一个
- * 「事项 Item」，用 type 区分。一个事项一次登记，多视图自动分流：
- *   - event → 关键日程/时间轴
- *   - task  → 任务树
- *   - both  → 两者都进
+ * 把「事件（timelineEvents）」「任务（taskGroups[].tasks）」「关键日期
+ * （case.keyDates）」统一为一个「事项 Item」，用 type 区分。一个事项一次登记，
+ * 多视图自动分流：
+ *   - event   → 关键日程/时间轴
+ *   - task    → 任务树
+ *   - both    → 两者都进
+ *   - keydate → 关键日期区（法定期限届满等不可逆时点）
  *
- * 存储：<dataDir>/items.json（扁平列表），替代 case-timeline.json + taskGroups。
+ * 存储：<dataDir>/items.json（扁平列表），唯一真相源——替代 case-timeline.json
+ * + taskGroups + schedules.json + standalone-tasks.json + registry.keyDates。
  */
 
 /** 事项归属类型：诉讼案件 / 非诉项目 / 独立（不归案）。 */
 export type ItemOwnerType = 'litigation' | 'nonlitigation' | 'standalone'
 
-/** 事项类型：纯事件 / 纯任务 / 事件+任务（双重）。 */
-export type ItemType = 'event' | 'task' | 'both'
+/**
+ * 事项类型：纯事件 / 纯任务 / 事件+任务（双重）/ 关键日期。
+ *
+ * 0.2.12「全面统一」：关键日期（法定期限届满等不可逆时点）从 case-registry 的
+ * `case.keyDates` 字段迁入统一事项，作为独立 type='keydate' 存 items.json——
+ * 存储只剩一处，界面分区不变（时间轴只看 event/both，关键日期区只看 keydate）。
+ */
+export type ItemType = 'event' | 'task' | 'both' | 'keydate'
+
+/** 事件类事项（进时间轴/关键日程）：event / both。 */
+export function isEventItem(it: Pick<Item, 'type'>): boolean {
+  return it.type === 'event' || it.type === 'both'
+}
+
+/** 任务类事项（进任务树/任务台账）：task / both。 */
+export function isTaskItem(it: Pick<Item, 'type'>): boolean {
+  return it.type === 'task' || it.type === 'both'
+}
+
+/** 关键日期事项（进关键日期区 + 期限汇总，不随时间轴/任务树显示）。 */
+export function isKeyDateItem(it: Pick<Item, 'type'>): boolean {
+  return it.type === 'keydate'
+}
 
 /** 事项状态。 */
 export type ItemStatus = 'pending' | 'doing' | 'done' | 'cancelled'
@@ -26,6 +50,7 @@ export type ItemPriority = 'low' | 'medium' | 'high'
 export interface ItemSubtask {
   id: string
   title: string
+  detail?: string
   done: boolean
   deadline?: string
   time?: string
@@ -59,7 +84,7 @@ export interface Item {
   ownerType?: ItemOwnerType
   /** 归属名（案件名/项目名），冗余便于列表展示。 */
   ownerName?: string
-  /** 事项类型：event / task / both。 */
+  /** 事项类型：event / task / both / keydate。 */
   type: ItemType
   /** 事项名（开庭 / 立案 / 起草起诉状）。 */
   title: string
@@ -90,10 +115,24 @@ export interface Item {
   remindRules?: ItemRemindRule[]
   /** 该事项由哪个阶段模板任务展开而来（避免重复展开）。 */
   templateTitle?: string
-  /** 任务 ↔ 案件关键日期联动：关键日期 id（case-registry keyDates 数组项）。 */
+  /** 任务 ↔ 关键日期联动：指向 type='keydate' 事项的 id。 */
   keyDateId?: string
-  /** 任务是否带派生的关键日期提醒（true 时 keyDateId 指向案件 keyDates 项）。 */
+  /** 任务是否带派生的关键日期提醒（true 时 keyDateId 指向 keydate 事项）。 */
   remindKeyDate?: boolean
+  /* ------------------ 法定期限审计字段（type='keydate' 才有） ------------------ */
+  /**
+   * 期限规则 id（src/shared/playbook/period-rules.ts 的 PeriodRule.id）。
+   * 与 baseDate 组成幂等键：同案同规则同起算日只登记一条，不新增重复行。
+   */
+  ruleId?: string
+  /** 期限起算日（触发事由发生日，YYYY-MM-DD）。 */
+  baseDate?: string
+  /** 期限依据（法条/规则原文）。 */
+  cite?: string
+  /** 派生过程留痕（人可读，便于复核届满日怎么算出来的）。 */
+  computeTrace?: string
+  /** 数据来源标记（agent-computed / manual / import / migration…）。 */
+  source?: string
   createdAt?: string
   updatedAt?: string
   completedAt?: string

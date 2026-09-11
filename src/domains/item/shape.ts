@@ -15,6 +15,7 @@
  * 据此把同号案件/项目（如诉讼 2026-001 与非诉 2026-001）的事项正确归属。
  */
 import type { Item, TaskGroup } from './store/types.ts'
+import { isTaskItem } from './store/types.ts'
 
 /** 把一条 item（event/both）映射成 legacy TimelineEvent 形状。 */
 export function itemToTimelineEvent(it: Item): Record<string, unknown> {
@@ -32,6 +33,29 @@ export function itemToTimelineEvent(it: Item): Record<string, unknown> {
     time: it.time,
     status: it.status === 'done' ? 'completed' : it.status === 'cancelled' ? 'cancelled' : 'pending',
     remindRules: it.remindRules ?? [],
+    createdAt: it.createdAt,
+    updatedAt: it.updatedAt,
+  }
+}
+
+/**
+ * 把一条 item（type='keydate'）映射成 legacy KeyDate 形状。
+ *
+ * 0.2.12：关键日期不再是 case-registry 的字段，而是 items.json 里的一条事项；
+ * 案件读接口用本函数把 keydate 事项投影回 legacy `case.keyDates` 数组，界面
+ * 与旧契约不变，但盘上只有一处存储。
+ */
+export function itemToKeyDate(it: Item): Record<string, unknown> {
+  return {
+    id: it.id,
+    label: it.title,
+    date: it.date ?? '',
+    done: it.status === 'done',
+    ruleId: it.ruleId,
+    baseDate: it.baseDate,
+    cite: it.cite,
+    computeTrace: it.computeTrace,
+    source: it.source,
     createdAt: it.createdAt,
     updatedAt: it.updatedAt,
   }
@@ -58,9 +82,10 @@ export function itemStatusToLegacy(status: unknown): 'todo' | 'in_progress' | 'd
  */
 export function itemToLegacyTask(it: Item): Record<string, unknown> {
   const status = itemStatusToLegacy(it.status)
-  const mapSub = (sub: { id: string; title: string; done?: boolean; deadline?: string }) => ({
+  const mapSub = (sub: { id: string; title: string; detail?: string; done?: boolean; deadline?: string }) => ({
     id: sub.id,
     title: sub.title,
+    detail: sub.detail,
     done: sub.done === true,
     status: sub.done === true ? 'done' : 'todo',
     deadline: sub.deadline,
@@ -83,6 +108,9 @@ export function itemToLegacyTask(it: Item): Record<string, unknown> {
     templateTitle: it.templateTitle,
     groupId: it.groupId,
     groupName: it.groupName,
+    // 空串视为未链接（解链写 '' 以免 undefined 被 JSON clone 丢弃）。
+    keyDateId: it.keyDateId === undefined || it.keyDateId === '' ? undefined : it.keyDateId,
+    remindKeyDate: it.remindKeyDate === true,
     createdAt: it.createdAt,
     updatedAt: it.updatedAt,
   }
@@ -136,7 +164,7 @@ export function buildLegacyTaskGroups(
     })
   }
   for (const it of items) {
-    if (it.type === 'event') continue
+    if (!isTaskItem(it)) continue
     const ownerId = it.ownerId ?? ''
     const gid = it.groupId ?? '__ungrouped'
     const key = `${ownerId}|${gid}`

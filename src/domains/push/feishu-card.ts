@@ -82,7 +82,12 @@ function metaLine(row: DeadlineItem): string | undefined {
  * @param titlePrefix - optional prefix for the header title.
  * @returns the Feishu API response.
  */
-export async function sendDeadlineCard(rows: DeadlineItem[], titlePrefix?: string): Promise<Record<string, unknown>> {
+export async function sendDeadlineCard(
+  rows: DeadlineItem[],
+  titlePrefix?: string,
+  /** 法定期限巡检告警（0.2.12）：非空时在卡片尾部附一行，提醒去补登记。 */
+  periodWarning?: string,
+): Promise<Record<string, unknown>> {
   const bot = await loadFeishuConfig()
   const secret = await loadSecret(bot.secretRef)
   const token = await getToken(bot.appId, secret)
@@ -124,6 +129,13 @@ export async function sendDeadlineCard(rows: DeadlineItem[], titlePrefix?: strin
       elements.push({ tag: 'div', text: { tag: 'lark_md', content: row.detail } })
     }
   })
+
+  // 法定期限巡检告警（0.2.12）：有案子进了上诉期却没登期限，必须在提醒里出现，
+  // 否则「期限保护」就只保护了记得登记的那些。
+  if (periodWarning !== undefined && periodWarning.trim() !== '') {
+    elements.push({ tag: 'hr' })
+    elements.push({ tag: 'div', text: { tag: 'lark_md', content: `⚠️ **法定期限待登记**\n${periodWarning.trim()}` } })
+  }
 
   elements.push({ tag: 'hr' })
   elements.push({ tag: 'note', elements: [{ tag: 'plain_text', content: '由 AgentLex 自动推送 · 每天早上 8:30' }] })
@@ -181,7 +193,7 @@ export function parseSections(markdown: string): { header: string; sections: Arr
  * @param markdown - the markdown reminder text.
  * @returns the Feishu API response.
  */
-export async function sendFeishuCard(markdown: string): Promise<Record<string, unknown>> {
+export async function sendFeishuCard(markdown: string, opts: { template?: string } = {}): Promise<Record<string, unknown>> {
   const bot = await loadFeishuConfig()
   const secret = await loadSecret(bot.secretRef)
   const token = await getToken(bot.appId, secret)
@@ -205,7 +217,7 @@ export async function sendFeishuCard(markdown: string): Promise<Record<string, u
 
   const card = {
     config: { wide_screen_mode: true },
-    header: { template: 'blue', title: { tag: 'plain_text', content: header } },
+    header: { template: opts.template ?? 'blue', title: { tag: 'plain_text', content: header } },
     elements,
   }
   const url = `${FEISHU_BASE}/open-apis/im/v1/messages?receive_id_type=open_id`
@@ -214,4 +226,41 @@ export async function sendFeishuCard(markdown: string): Promise<Record<string, u
     msg_type: 'interactive',
     content: JSON.stringify(card),
   }, token)
+}
+
+/**
+ * 案件账实核对提醒（0.2.12）—— **独立一张卡**，不与每日到期提醒混。
+ *
+ * 两者性质不同：每日提醒回答「今天要干什么」，核对卡回答「你的账可能记错了」。
+ * 混在一起会让"今天没事"的日子看不出有异常，也会让异常被日常事项淹没。
+ * 每条给「证据 → 期望 → 动作」，律师照做即可，不用再回来问为什么。
+ */
+/** 把发现渲染成核对卡的 markdown（纯函数，便于单测）。 */
+export function patrolCardMarkdown(findings: Array<{
+  caseId: string
+  caseName: string
+  ruleName: string
+  severity: string
+  evidence: string[]
+  expectation: string
+  action: string
+}>): string {
+  const SEV: Record<string, string> = { high: '⚠ 高', medium: '· 中', low: '· 低' }
+  const lines: string[] = ['# 案件账实核对']
+  for (const f of findings) {
+    lines.push('')
+    lines.push(`## ${SEV[f.severity] ?? ''} ${f.caseId} ${f.caseName}`)
+    lines.push(`**${f.ruleName}**`)
+    for (const e of f.evidence) lines.push(`- ${e}`)
+    lines.push(`期望：${f.expectation}`)
+    lines.push(`动作：${f.action}`)
+  }
+  lines.push('')
+  lines.push(`（${findings.length} 项 · 由 AgentLex 每日核对；已确认无需处理的可用 mute_patrol_finding 归档）`)
+  return lines.join('\n')
+}
+
+/** 发送案件账实核对卡（独立消息，橙色标题区别于蓝色到期提醒）。 */
+export async function sendPatrolCard(findings: Parameters<typeof patrolCardMarkdown>[0]): Promise<Record<string, unknown>> {
+  return sendFeishuCard(patrolCardMarkdown(findings), { template: 'orange' })
 }

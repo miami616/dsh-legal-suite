@@ -32,6 +32,12 @@ export interface PeriodScope {
   clientRole?: string[]
   /** 文书种类限定（非终局裁决/终局裁决/判决/裁定）。留空 = 不限。 */
   docKind?: string[]
+  /**
+   * 受理法院限定（**地方法院口径补丁**用）：如 ['济南市历下区人民法院']。
+   * 留空 = 全国通用口径。带 court 的规则在匹配时算作更具体的一维，
+   * 因此本地补丁可以「只在某法院覆盖通用口径」而不必改内置表。
+   */
+  court?: string[]
 }
 
 /** 触发事由：收到/发生什么。 */
@@ -263,6 +269,8 @@ export interface PeriodRequest {
   clientRole?: string
   docKind?: string
   caseType?: string
+  /** 受理法院（地方法院口径补丁匹配用）。 */
+  court?: string
 }
 
 export interface PeriodCandidate {
@@ -299,14 +307,35 @@ function docMatch(ruleDoc: string, reqDoc: string | undefined): boolean {
 }
 
 /**
+ * 生效规则集合 = 内置表 + 本地补丁表（按 id 覆盖既有 / 新增本地口径规则）。
+ *
+ * **`confidence: 'proposed'` 的规则一律不生效**——模型提案只是「待确认的草案」，
+ * 必须经律师 `resolve_period_rule(accept)` 转成 `local-practice` 后才进补丁表。
+ * 这条是硬闸门：模型不得凭提案当已生效规则用（否则等于模型自己发明了期间长度）。
+ */
+export function mergePeriodRules(
+  overrides: PeriodRule[] = [],
+  builtin: PeriodRule[] = PERIOD_RULES,
+): PeriodRule[] {
+  const byId = new Map<string, PeriodRule>()
+  for (const r of builtin) byId.set(r.id, r)
+  for (const o of overrides) {
+    if (o === undefined || o === null || o.id === undefined || o.id === '') continue
+    if (o.confidence === 'proposed') continue
+    byId.set(o.id, o)
+  }
+  return [...byId.values()]
+}
+
+/**
  * 按触发事由匹配规则，返回按具体度降序的候选。
  *
  * 只做确定性匹配，不猜：候选 > 1 时应由模型结合案情判断或问律师
  * （如终局裁决未定性时会出现 15 日起诉与 30 日撤裁两条候选）。
  */
-export function matchPeriodRules(req: PeriodRequest): PeriodCandidate[] {
+export function matchPeriodRules(req: PeriodRequest, rules: PeriodRule[] = PERIOD_RULES): PeriodCandidate[] {
   const out: PeriodCandidate[] = []
-  for (const rule of PERIOD_RULES) {
+  for (const rule of rules) {
     if (rule.scope.procedure !== req.procedure) continue
     const caseType = matchToken(rule.scope.caseType, req.caseType, 'prefix')
     if (!caseType.ok) continue
@@ -316,11 +345,14 @@ export function matchPeriodRules(req: PeriodRequest): PeriodCandidate[] {
     if (!clientRole.ok) continue
     const docKind = matchToken(rule.scope.docKind, req.docKind)
     if (!docKind.ok) continue
+    const court = matchToken(rule.scope.court, req.court, 'prefix')
+    if (!court.ok) continue
     if (!docMatch(rule.trigger.doc, req.doc)) continue
     if (req.fact !== undefined && rule.trigger.fact !== req.fact) continue
     // 具体度 = 1（procedure 命中）+ 已确定的 scope 维度 + 给出了文书名。
+    // court 也算一维：带法院限定的本地补丁天然比通用口径更具体，优先命中。
     let specificity = 1
-    for (const m of [caseType, party, clientRole, docKind]) if (m.resolved) specificity++
+    for (const m of [caseType, party, clientRole, docKind, court]) if (m.resolved) specificity++
     if (req.doc !== undefined && req.doc !== '') specificity++
     out.push({ rule, specificity })
   }
@@ -329,8 +361,8 @@ export function matchPeriodRules(req: PeriodRequest): PeriodCandidate[] {
 }
 
 /** 规则 → 匹配度列表中的唯一命中（无命中返回 undefined；多候选返回 undefined 需自行判歧义）。 */
-export function pickPeriodRule(req: PeriodRequest): { rule?: PeriodRule; candidates: PeriodCandidate[]; ambiguous: boolean } {
-  const candidates = matchPeriodRules(req)
+export function pickPeriodRule(req: PeriodRequest, rules: PeriodRule[] = PERIOD_RULES): { rule?: PeriodRule; candidates: PeriodCandidate[]; ambiguous: boolean } {
+  const candidates = matchPeriodRules(req, rules)
   if (candidates.length === 0) return { candidates, ambiguous: false }
   const top = candidates[0]!
   const tied = candidates.filter((c) => c.specificity === top.specificity)
@@ -495,8 +527,8 @@ export function derivePeriod(rule: PeriodRule, baseDate: string): DerivedPeriod 
 }
 
 /** 规则摘要（工具描述内联用，模型据此知道表里有什么）。 */
-export function summarizeRules(filter?: { procedure?: string }): string {
-  const rows = PERIOD_RULES.filter((r) => filter?.procedure === undefined || r.scope.procedure === filter.procedure)
+export function summarizeRules(filter?: { procedure?: string }, rules: PeriodRule[] = PERIOD_RULES): string {
+  const rows = rules.filter((r) => filter?.procedure === undefined || r.scope.procedure === filter.procedure)
   return rows
     .map((r) => {
       const len = r.period.days !== undefined ? `${r.period.days}日`

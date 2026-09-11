@@ -22,6 +22,7 @@ import { createCaseStore } from '../lib/domains/litigation/store/index.js'
 import { createTimelineStore } from '../lib/domains/litigation/store/index.js'
 import { createScheduleStore } from '../lib/domains/litigation/store/index.js'
 import { createProjectStore } from '../lib/domains/nonlitigation/store/project-store.js'
+import { createItemStore } from '../lib/domains/item/store/item-store.js'
 import { createServiceStore } from '../lib/domains/nonlitigation/store/service-store.js'
 import { seedLitigationSample, seedNonLitigationSample } from '../lib/shared/seed/index.js'
 import {
@@ -51,14 +52,16 @@ function allTaskTitles(record) {
 
 const dataDir = await mkdtemp(join(tmpdir(), 'ls-seed-'))
 try {
-  const caseStore = createCaseStore(dataDir)
+  // 0.2.12：任务/关键日期只存 items.json（唯一真相源）。
+  const itemStore = createItemStore(join(dataDir, 'items'))
+  const caseStore = createCaseStore(dataDir, undefined, itemStore)
   const timelineStore = createTimelineStore(dataDir)
   const scheduleStore = createScheduleStore(dataDir)
-  const projectStore = createProjectStore(dataDir)
+  const projectStore = createProjectStore(dataDir, undefined, itemStore)
   const serviceStore = createServiceStore(dataDir)
 
   // ============ 1. seed litigation ============
-  const caseId = await seedLitigationSample(caseStore, timelineStore, scheduleStore, undefined, dataDir)
+  const caseId = await seedLitigationSample(caseStore, timelineStore, scheduleStore, itemStore, dataDir)
   check('seedLitigationSample returns caseId', caseId !== undefined, String(caseId))
   const caseRec = await caseStore.readCase(caseId)
   check('primary case name', caseRec?.name === '某科技公司与某贸易公司买卖合同纠纷', caseRec?.name)
@@ -106,9 +109,11 @@ try {
   check('trial task has subtasks', (trialTask?.subtasks?.length ?? 0) >= 2, `subtasks=${trialTask?.subtasks?.length}`)
   check('trial task has checklist', (trialTask?.checklist?.length ?? 0) >= 1, `checklist=${trialTask?.checklist?.length}`)
   check('primary case has keydates', (caseRec?.keyDates?.length ?? 0) >= 2, `keyDates=${caseRec?.keyDates?.length}`)
-  const events = await timelineStore.listEvents(caseId)
+  // 0.2.12：事件/日程都在 items.json（case-timeline.json 与 schedules.json 已退役）。
+  const caseItems = await itemStore.listItems(caseId)
+  const events = caseItems.filter((i) => i.type === 'event' || i.type === 'both')
   check('primary case timeline events', events.length >= 4, `events=${events.length}`)
-  const schedules = await scheduleStore.listItems(caseId)
+  const schedules = caseItems.filter((i) => i.date !== undefined && i.date !== '')
   check('primary case schedules', schedules.length >= 1, `schedules=${schedules.length}`)
 
   // 执行案例应有自己独有的任务（与诉讼阶段不重叠）
@@ -121,7 +126,7 @@ try {
   check('seedLitigationSample no-op on non-empty', again === undefined, String(again))
 
   // ============ 2. seed non-litigation ============
-  const projectId = await seedNonLitigationSample(projectStore, serviceStore, undefined, dataDir)
+  const projectId = await seedNonLitigationSample(projectStore, serviceStore, itemStore, dataDir)
   check('seedNonLitigationSample returns projectId', projectId !== undefined, String(projectId))
   check('projectId is numeric YYYY-NNN', /^\d{4}-\d{3}$/.test(projectId ?? ''), String(projectId))
   const proj = await projectStore.readProject(projectId)

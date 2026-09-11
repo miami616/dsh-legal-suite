@@ -1,11 +1,24 @@
+/**
+ * Project store: 非诉项目 registry（**只存项目元信息**）。
+ *
+ * 0.2.12「全面完整统一」：任务、事件、关键日期一律存 items.json（唯一真相源）。
+ *   - 写：本 store 的 task/keyDate 方法全部委托 itemStore（不再有第二个写入口）；
+ *   - 读：readRegistry / readProject 从 items 实时装配 taskGroups + keyDates，
+ *     既有消费方（项目详情/任务树/健康检查/读接口）形状不变，盘上只有一处存储。
+ */
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { JsonFileStore } from './file-store.ts'
-import { childId, nextProjectId, nowIso } from './id.ts'
-import type { ProjectRecord, ProjectRegistry, ProjectTask } from './types.ts'
+import { nextProjectId, nowIso } from './id.ts'
+import type { ItemStore } from '../../item/store/item-store.ts'
+import { isKeyDateItem } from '../../item/store/types.ts'
+import { buildOwnerTaskGroups, itemToKeyDate } from '../../item/shape.ts'
+import type { ProjectRecord, ProjectRegistry } from './types.ts'
 
 export interface ProjectStore {
   readRegistry(): Promise<ProjectRegistry>
+  /** 盘上原始 registry（不装配 items）；仅供一次性迁移读历史残留字段。 */
+  readRegistryRaw(): Promise<ProjectRegistry>
   readProject(projectId: string): Promise<ProjectRecord | undefined>
   registerProject(input: Record<string, unknown>): Promise<ProjectRecord>
   updateProject(projectId: string, patch: Record<string, unknown>): Promise<ProjectRecord>
@@ -13,8 +26,13 @@ export interface ProjectStore {
   upsertTaskGroup(projectId: string, group: Record<string, unknown>): Promise<ProjectRecord>
   deleteTaskGroup(projectId: string, groupId: string): Promise<ProjectRecord>
   reorderTaskGroups(projectId: string, orderedIds: string[]): Promise<ProjectRecord>
-  /** 0.2.2：剥离 registry 里的 taskGroups 镜像（任务并入统一事项后调用）。 */
+  /**
+   * 0.2.2：剥离 registry 里的 taskGroups 镜像。⚠ 不动 keyDates——keyDates 由
+   * 0.2.12 统一迁移负责并入 items，此处一并删会静默丢关键日期。
+   */
   stripTaskGroups(projectId: string): Promise<ProjectRecord>
+  /** 0.2.12：剥离 registry 里全部第二份存储字段（taskGroups + keyDates）。 */
+  stripLegacyFields(projectId: string): Promise<ProjectRecord>
   upsertTask(projectId: string, groupId: string, task: Record<string, unknown>): Promise<ProjectRecord>
   deleteTask(projectId: string, groupId: string, taskId: string): Promise<ProjectRecord>
   moveTask(projectId: string, taskId: string, toGroupId: string, index?: number): Promise<ProjectRecord>
@@ -29,7 +47,7 @@ export interface ProjectStore {
   deleteKeyDate(projectId: string, keyDateId: string): Promise<ProjectRecord>
 }
 
-export function createProjectStore(dataDir: string, ctx: Context): ProjectStore {
+export function createProjectStore(dataDir: string, ctx: Context, itemStore?: ItemStore): ProjectStore {
   const store = new JsonFileStore<ProjectRegistry>(
     join(dataDir, 'project-registry.json'),
     () => ({ registryVersion: '1.0', projects: {} }),
@@ -40,25 +58,55 @@ export function createProjectStore(dataDir: string, ctx: Context): ProjectStore 
   const save = (mutate: (reg: ProjectRegistry) => ProjectRegistry, reason?: string): Promise<ProjectRegistry> =>
     store.mutate(mutate, 'projects', undefined, reason)
 
-  function findGroup(proj: ProjectRecord, groupId: string): { group: NonNullable<ProjectRecord['taskGroups']>[number]; index: number } {
-    const groups = proj.taskGroups ?? []
-    const index = groups.findIndex((g) => g.id === groupId)
-    if (index < 0) throw new Error(`task group not found: ${groupId}`)
-    return { group: groups[index], index }
+  /** 统一事项 store；缺省即配置错误（0.2.12 起任务/关键日期只有 items 一处）。 */
+  function is(): ItemStore {
+    if (itemStore === undefined) {
+      throw new Error('project-store: itemStore is required (0.2.12 统一存储) — 任务与关键日期只存 items.json')
+    }
+    return itemStore
   }
 
-  function findTask(group: NonNullable<ProjectRecord['taskGroups']>[number], taskId: string): { task: ProjectTask; index: number } {
-    const tasks = group.tasks ?? []
-    const index = tasks.findIndex((t) => t.id === taskId)
-    if (index < 0) throw new Error(`task not found: ${taskId}`)
-    return { task: tasks[index], index }
+  /** 把一条 registry 记录补上从 items 派生的 keyDates / taskGroups（只读装配）。 */
+  async function hydrate(record: ProjectRecord): Promise<ProjectRecord> {
+    if (itemStore === undefined) return record
+    const [groups, allItems] = await Promise.all([itemStore.listGroups(), itemStore.listItems()])
+    const own = allItems.filter((i) => i.ownerId === record.projectId && (i.ownerType ?? 'nonlitigation') === 'nonlitigation')
+    return {
+      ...record,
+      keyDates: own.filter(isKeyDateItem).map((i) => itemToKeyDate(i)) as unknown as ProjectRecord['keyDates'],
+      taskGroups: buildOwnerTaskGroups(record.projectId, 'nonlitigation', groups, allItems) as unknown as ProjectRecord['taskGroups'],
+    }
+  }
+
+  async function requireProject(projectId: string): Promise<ProjectRecord> {
+    const reg = await store.read()
+    const record = reg.projects[projectId]
+    if (record === undefined) throw new Error(`project not found: ${projectId}`)
+    return hydrate(record)
   }
 
   return {
-    async readRegistry() { return store.read() },
+    async readRegistry() {
+      const reg = await store.read()
+      if (itemStore === undefined) return reg
+      const [groups, allItems] = await Promise.all([itemStore.listGroups(), itemStore.listItems()])
+      const next: ProjectRegistry = { ...reg, projects: {} }
+      for (const [id, rec] of Object.entries(reg.projects)) {
+        const own = allItems.filter((i) => i.ownerId === id && (i.ownerType ?? 'nonlitigation') === 'nonlitigation')
+        next.projects[id] = {
+          ...rec,
+          keyDates: own.filter(isKeyDateItem).map((i) => itemToKeyDate(i)) as unknown as ProjectRecord['keyDates'],
+          taskGroups: buildOwnerTaskGroups(id, 'nonlitigation', groups, allItems) as unknown as ProjectRecord['taskGroups'],
+        }
+      }
+      return next
+    },
+    async readRegistryRaw() { return store.read() },
     async readProject(projectId) {
       const reg = await store.read()
-      return reg.projects[projectId]
+      const record = reg.projects[projectId]
+      if (record === undefined) return undefined
+      return hydrate(record)
     },
     async registerProject(input) {
       const now = nowIso()
@@ -85,7 +133,6 @@ export function createProjectStore(dataDir: string, ctx: Context): ProjectStore 
           serviceScope: Array.isArray(input.serviceScope) ? (input.serviceScope as unknown[]).map(String) : [],
           folder: s(input.folder),
           summary: s(input.summary),
-          taskGroups: Array.isArray(input.taskGroups) ? input.taskGroups as ProjectRecord['taskGroups'] : [],
           createdAt: now,
           updatedAt: now,
         }
@@ -103,6 +150,10 @@ export function createProjectStore(dataDir: string, ctx: Context): ProjectStore 
         const cur = reg.projects[projectId]
         if (cur === undefined) throw new Error(`project not found: ${projectId}`)
         const next: ProjectRecord = { ...cur, ...patch, projectId, updatedAt: now }
+        // 0.2.12：keyDates / taskGroups 不是 registry 字段（存 items.json），
+        // 任何写路径都不许把它们塞回项目档案——发现即删，杜绝第二份存储复活。
+        delete (next as { keyDates?: unknown }).keyDates
+        delete (next as { taskGroups?: unknown }).taskGroups
         reg.projects[projectId] = next
         reg.lastUpdated = now
         updated = next
@@ -119,356 +170,164 @@ export function createProjectStore(dataDir: string, ctx: Context): ProjectStore 
       }, 'delete-project')
       return { deleted: true }
     },
+    /* ------------- 任务 / 关键日期：统一存 items.json（0.2.12） ------------- */
+    // project-registry.json 只存项目元信息。任务与关键日期一律走 itemStore，
+    // 读侧由 readRegistry/readProject 实时装配 taskGroups + keyDates。
+
     async upsertTaskGroup(projectId, group) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const groups = [...(proj.taskGroups ?? [])]
-        const gid = s(group.id) ?? childId('ptg')
-        const idx = groups.findIndex((g) => g.id === gid)
-        const name = s(group.name) ?? s(group.title) ?? '新阶段'
-        const existing = idx >= 0 ? groups[idx] : { id: gid, name, title: name, order: groups.length, tasks: [], createdAt: now }
-        const next = { ...existing, name, title: name, updatedAt: now }
-        if (idx >= 0) groups[idx] = next
-        else groups.push(next)
-        const result: ProjectRecord = { ...proj, taskGroups: groups, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'upsert-group')
-      return updated!
+      const gid = s(group.id) ?? s(group.groupId)
+      await is().upsertGroup({
+        ...(gid === undefined || gid === '' ? {} : { id: gid }),
+        ownerId: projectId,
+        ownerType: 'nonlitigation',
+        name: s(group.name) ?? s(group.title) ?? '新阶段',
+        ...(typeof group.order === 'number' ? { order: group.order } : {}),
+      })
+      return requireProject(projectId)
     },
+
     async deleteTaskGroup(projectId, groupId) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const groups = (proj.taskGroups ?? []).filter((g) => g.id !== groupId)
-        const result: ProjectRecord = { ...proj, taskGroups: groups, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'delete-group')
-      return updated!
+      await is().deleteGroup(groupId)
+      return requireProject(projectId)
     },
+
     async stripTaskGroups(projectId) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
+      // 只剥任务镜像；keyDates 留给 0.2.12 统一迁移（此处删会丢数据）。
       await save((reg) => {
         const proj = reg.projects[projectId]
         if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        if (proj.taskGroups === undefined || proj.taskGroups.length === 0) return reg
-        const result: ProjectRecord = { ...proj, taskGroups: [], updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
+        if (!Array.isArray(proj.taskGroups) || proj.taskGroups.length === 0) return reg
+        const next = { ...proj, updatedAt: nowIso() }
+        delete (next as { taskGroups?: unknown }).taskGroups
+        reg.projects[projectId] = next
+        reg.lastUpdated = next.updatedAt!
         return reg
-      }, 'strip-project-taskgroups')
-      return updated!
+      }, 'strip-taskgroups')
+      return requireProject(projectId)
     },
+
+    async stripLegacyFields(projectId) {
+      // 0.2.12：taskGroups + keyDates 都已在 items → 两个字段一起剥离。
+      // 判据是键是否存在（空壳也删），理由同 case-store。
+      await save((reg) => {
+        const proj = reg.projects[projectId]
+        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
+        const hasField = (key: string): boolean => Object.prototype.hasOwnProperty.call(proj, key)
+        if (!hasField('taskGroups') && !hasField('keyDates')) return reg
+        const next = { ...proj, updatedAt: nowIso() }
+        delete (next as { taskGroups?: unknown }).taskGroups
+        delete (next as { keyDates?: unknown }).keyDates
+        reg.projects[projectId] = next
+        reg.lastUpdated = next.updatedAt!
+        return reg
+      }, 'strip-legacy-fields')
+      return requireProject(projectId)
+    },
+
     async reorderTaskGroups(projectId, orderedIds) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const byId = new Map((proj.taskGroups ?? []).map((g) => [g.id, g]))
-        const groups = orderedIds
-          .map((id, index) => { const g = byId.get(id); if (g !== undefined) g.order = index; return g })
-          .filter((g): g is NonNullable<ProjectRecord['taskGroups']>[number] => g !== undefined)
-        const result: ProjectRecord = { ...proj, taskGroups: groups, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'reorder-groups')
-      return updated!
+      const byId = new Map((await is().listGroups(projectId)).map((g) => [g.id, g]))
+      for (let i = 0; i < orderedIds.length; i++) {
+        const g = byId.get(orderedIds[i]!)
+        if (g !== undefined && g.order !== i) await is().upsertGroup({ id: g.id, order: i })
+      }
+      return requireProject(projectId)
     },
+
     async upsertTask(projectId, groupId, task) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const groups = [...(proj.taskGroups ?? [])]
-        const gi = groups.findIndex((g) => g.id === groupId)
-        if (gi < 0) throw new Error(`group not found: ${groupId}`)
-        const g = groups[gi]
-        const tasks = [...(g.tasks ?? [])]
-        const tid = s(task.id) ?? childId('ptask')
-        const ti = tasks.findIndex((t) => t.id === tid)
-        const existing: ProjectTask = ti >= 0 ? tasks[ti] : {
-          id: tid, title: s(task.title) ?? '新任务', status: 'todo',
-          priority: (s(task.priority) as ProjectTask['priority']) ?? 'medium',
-          subtasks: [], checklist: [], createdAt: now,
-        }
-        const next = {
-          ...existing,
-          title: s(task.title) ?? existing.title,
-          status: (s(task.status) as ProjectTask['status']) ?? existing.status,
-          deadline: s(task.deadline) ?? existing.deadline,
-          time: s(task.time) ?? existing.time,
-          priority: (s(task.priority) as ProjectTask['priority']) ?? existing.priority,
-          // detail / templateTitle 此前完全未透传——建项目时写的任务说明被
-          // 静默丢弃（更新时同样丢弃）。此处新建与更新一并补上。
-          detail: s(task.detail) ?? existing.detail,
-          templateTitle: s(task.templateTitle) ?? existing.templateTitle,
-          updatedAt: now,
-        }
-        if (ti >= 0) tasks[ti] = next
-        else tasks.push(next)
-        groups[gi] = { ...g, tasks, updatedAt: now }
-        const result: ProjectRecord = { ...proj, taskGroups: groups, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'upsert-task')
-      return updated!
+      const groupName = (await is().listGroups(projectId)).find((g) => g.id === groupId)?.name
+      await is().upsertItem({
+        ...(s(task.id) === undefined || s(task.id) === '' ? {} : { id: s(task.id)! }),
+        ownerId: projectId,
+        ownerType: 'nonlitigation',
+        type: 'task',
+        title: s(task.title) ?? '新任务',
+        detail: s(task.detail),
+        date: s(task.deadline),
+        time: s(task.time),
+        priority: (task.priority as never) ?? 'medium',
+        status: (String(task.status ?? 'todo') === 'done' ? 'done' : String(task.status) === 'doing' || String(task.status) === 'in_progress' ? 'doing' : 'pending') as never,
+        groupId: groupId === '' ? undefined : groupId,
+        groupName,
+        templateTitle: s(task.templateTitle),
+        subtasks: Array.isArray(task.subtasks) ? (task.subtasks as never) : undefined,
+        checklist: Array.isArray(task.checklist) ? (task.checklist as never) : undefined,
+      })
+      return requireProject(projectId)
     },
+
     async deleteTask(projectId, groupId, taskId) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const groups = [...(proj.taskGroups ?? [])]
-        const gi = groups.findIndex((g) => g.id === groupId)
-        if (gi < 0) throw new Error(`group not found: ${groupId}`)
-        const tasks = (groups[gi].tasks ?? []).filter((t) => t.id !== taskId)
-        groups[gi] = { ...groups[gi], tasks, updatedAt: now }
-        const result: ProjectRecord = { ...proj, taskGroups: groups, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'delete-task')
-      return updated!
+      await is().deleteItem(taskId)
+      return requireProject(projectId)
     },
+
     async moveTask(projectId, taskId, toGroupId, index) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const groups = [...(proj.taskGroups ?? [])]
-        let moved: ProjectTask | undefined
-        for (let i = 0; i < groups.length; i++) {
-          const tasks = groups[i].tasks ?? []
-          const ti = tasks.findIndex((t) => t.id === taskId)
-          if (ti >= 0) {
-            moved = tasks[ti]
-            groups[i] = { ...groups[i], tasks: tasks.filter((_, idx) => idx !== ti), updatedAt: now }
-            break
-          }
-        }
-        if (moved === undefined) throw new Error(`task not found: ${taskId}`)
-        const gi = groups.findIndex((g) => g.id === toGroupId)
-        if (gi < 0) throw new Error(`target group not found: ${toGroupId}`)
-        const targetTasks = [...(groups[gi].tasks ?? [])]
-        const insertAt = index === undefined || index < 0 || index > targetTasks.length ? targetTasks.length : index
-        targetTasks.splice(insertAt, 0, moved)
-        groups[gi] = { ...groups[gi], tasks: targetTasks, updatedAt: now }
-        const result: ProjectRecord = { ...proj, taskGroups: groups, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'move-task')
-      return updated!
+      const task = await is().readItem(taskId)
+      if (task === undefined) throw new Error(`task not found: ${taskId}`)
+      const groupName = (await is().listGroups(projectId)).find((g) => g.id === toGroupId)?.name
+      void index
+      await is().upsertItem({ id: taskId, groupId: toGroupId, groupName })
+      return requireProject(projectId)
     },
+
     async upsertSubtask(projectId, groupId, taskId, subtask) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const groups = [...(proj.taskGroups ?? [])]
-        const gi = groups.findIndex((g) => g.id === groupId)
-        if (gi < 0) throw new Error(`group not found: ${groupId}`)
-        const tasks = [...(groups[gi].tasks ?? [])]
-        const ti = tasks.findIndex((t) => t.id === taskId)
-        if (ti < 0) throw new Error(`task not found: ${taskId}`)
-        const task = tasks[ti]
-        const subtasks = [...(task.subtasks ?? [])]
-        const sid = s(subtask.id) ?? childId('pst')
-        const si = subtasks.findIndex((x) => x.id === sid)
-        const done = subtask.done !== undefined ? Boolean(subtask.done) : subtask.status === 'done'
-        const existing = si >= 0 ? subtasks[si] : { id: sid, title: s(subtask.title) ?? '子任务', done: false, createdAt: now }
-        const next = { ...existing, title: s(subtask.title) ?? existing.title, done, status: done ? 'done' : 'todo', updatedAt: now }
-        if (si >= 0) subtasks[si] = next
-        else subtasks.push(next)
-        tasks[ti] = { ...task, subtasks, updatedAt: now }
-        groups[gi] = { ...groups[gi], tasks, updatedAt: now }
-        const result: ProjectRecord = { ...proj, taskGroups: groups, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'upsert-subtask')
-      return updated!
+      await is().addSubtask(taskId, {
+        ...(s(subtask.id) === undefined || s(subtask.id) === '' ? {} : { id: s(subtask.id)! }),
+        title: s(subtask.title) ?? '子任务',
+        detail: s(subtask.detail),
+        deadline: s(subtask.deadline),
+        done: subtask.done === undefined ? false : Boolean(subtask.done),
+      })
+      return requireProject(projectId)
     },
+
     async deleteSubtask(projectId, groupId, taskId, subtaskId) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const groups = [...(proj.taskGroups ?? [])]
-        const gi = groups.findIndex((g) => g.id === groupId)
-        if (gi < 0) throw new Error(`group not found: ${groupId}`)
-        const tasks = [...(groups[gi].tasks ?? [])]
-        const ti = tasks.findIndex((t) => t.id === taskId)
-        if (ti < 0) throw new Error(`task not found: ${taskId}`)
-        const task = tasks[ti]
-        const subtasks = (task.subtasks ?? []).filter((x) => x.id !== subtaskId)
-        tasks[ti] = { ...task, subtasks, updatedAt: now }
-        groups[gi] = { ...groups[gi], tasks, updatedAt: now }
-        const result: ProjectRecord = { ...proj, taskGroups: groups, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'delete-subtask')
-      return updated!
+      await is().deleteSubtask(taskId, subtaskId)
+      return requireProject(projectId)
     },
+
     async toggleChecklist(projectId, groupId, taskId, checklistId) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const groups = [...(proj.taskGroups ?? [])]
-        const gi = groups.findIndex((g) => g.id === groupId)
-        if (gi < 0) throw new Error(`group not found: ${groupId}`)
-        const tasks = [...(groups[gi].tasks ?? [])]
-        const ti = tasks.findIndex((t) => t.id === taskId)
-        if (ti < 0) throw new Error(`task not found: ${taskId}`)
-        const task = tasks[ti]
-        const checklist = [...(task.checklist ?? [])]
-        const ci = checklist.findIndex((x) => x.id === checklistId)
-        if (ci >= 0) checklist[ci] = { ...checklist[ci], done: !checklist[ci].done }
-        tasks[ti] = { ...task, checklist, updatedAt: now }
-        groups[gi] = { ...groups[gi], tasks, updatedAt: now }
-        const result: ProjectRecord = { ...proj, taskGroups: groups, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'toggle-checklist')
-      return updated!
+      await is().toggleChecklist(taskId, checklistId)
+      return requireProject(projectId)
     },
+
     async addChecklistItem(projectId, groupId, taskId, text) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const groups = [...(proj.taskGroups ?? [])]
-        const gi = groups.findIndex((g) => g.id === groupId)
-        if (gi < 0) throw new Error(`group not found: ${groupId}`)
-        const tasks = [...(groups[gi].tasks ?? [])]
-        const ti = tasks.findIndex((t) => t.id === taskId)
-        if (ti < 0) throw new Error(`task not found: ${taskId}`)
-        const task = tasks[ti]
-        const checklist = [...(task.checklist ?? []), { id: childId('pck'), text, done: false, createdAt: now }]
-        tasks[ti] = { ...task, checklist, updatedAt: now }
-        groups[gi] = { ...groups[gi], tasks, updatedAt: now }
-        const result: ProjectRecord = { ...proj, taskGroups: groups, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'add-checklist')
-      return updated!
+      await is().addChecklist(taskId, { text: String(text ?? '检查项') })
+      return requireProject(projectId)
     },
+
     async deleteChecklistItem(projectId, groupId, taskId, checklistId) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const groups = [...(proj.taskGroups ?? [])]
-        const gi = groups.findIndex((g) => g.id === groupId)
-        if (gi < 0) throw new Error(`group not found: ${groupId}`)
-        const tasks = [...(groups[gi].tasks ?? [])]
-        const ti = tasks.findIndex((t) => t.id === taskId)
-        if (ti < 0) throw new Error(`task not found: ${taskId}`)
-        const task = tasks[ti]
-        const checklist = (task.checklist ?? []).filter((x) => x.id !== checklistId)
-        tasks[ti] = { ...task, checklist, updatedAt: now }
-        groups[gi] = { ...groups[gi], tasks, updatedAt: now }
-        const result: ProjectRecord = { ...proj, taskGroups: groups, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'delete-checklist')
-      return updated!
+      await is().deleteChecklist(taskId, checklistId)
+      return requireProject(projectId)
     },
+
+    /* ------------------------------ key dates ------------------------------ */
+
     async upsertKeyDate(projectId, keyDate) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const keyDates = [...(proj.keyDates ?? [])]
-        const kid = s(keyDate.id) ?? childId('pkd')
-        const idx = keyDates.findIndex((k) => k.id === kid)
-        const existing = idx >= 0 ? keyDates[idx] : { id: kid, label: s(keyDate.label) ?? '关键日期', date: s(keyDate.date) ?? '', done: false, createdAt: now }
-        const next = {
-          ...existing,
-          label: s(keyDate.label) ?? existing.label,
-          date: s(keyDate.date) ?? existing.date,
-          done: keyDate.done !== undefined ? Boolean(keyDate.done) : existing.done,
-          updatedAt: now,
-        }
-        if (idx >= 0) keyDates[idx] = next
-        else keyDates.push(next)
-        const result: ProjectRecord = { ...proj, keyDates, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'upsert-keydate')
-      return updated!
+      const kid = s(keyDate.id)
+      const existing = kid === undefined || kid === '' ? undefined : await is().readItem(kid)
+      await is().upsertItem({
+        ...(existing === undefined ? {} : { id: existing.id }),
+        ownerId: projectId,
+        ownerType: 'nonlitigation',
+        type: 'keydate',
+        title: s(keyDate.label) ?? '关键日期',
+        date: s(keyDate.date),
+        status: keyDate.done !== undefined ? (Boolean(keyDate.done) ? 'done' : 'pending') : (existing?.status ?? 'pending'),
+        source: s(keyDate.source) ?? existing?.source ?? 'manual',
+      })
+      return requireProject(projectId)
     },
+
     async toggleKeyDate(projectId, keyDateId) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const keyDates = [...(proj.keyDates ?? [])]
-        const idx = keyDates.findIndex((k) => k.id === keyDateId)
-        if (idx >= 0) keyDates[idx] = { ...keyDates[idx], done: !keyDates[idx].done, updatedAt: now }
-        const result: ProjectRecord = { ...proj, keyDates, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'toggle-keydate')
-      return updated!
+      const item = await is().readItem(keyDateId)
+      if (item === undefined) throw new Error(`key date not found: ${keyDateId}`)
+      await is().toggleItem(keyDateId)
+      return requireProject(projectId)
     },
+
     async deleteKeyDate(projectId, keyDateId) {
-      const now = nowIso()
-      let updated: ProjectRecord | undefined
-      await save((reg) => {
-        const proj = reg.projects[projectId]
-        if (proj === undefined) throw new Error(`project not found: ${projectId}`)
-        const keyDates = (proj.keyDates ?? []).filter((k) => k.id !== keyDateId)
-        const result: ProjectRecord = { ...proj, keyDates, updatedAt: now }
-        reg.projects[projectId] = result
-        reg.lastUpdated = now
-        updated = result
-        return reg
-      }, 'delete-keydate')
-      return updated!
+      await is().deleteItem(keyDateId)
+      return requireProject(projectId)
     },
   }
 }

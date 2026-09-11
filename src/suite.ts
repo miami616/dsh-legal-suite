@@ -277,7 +277,7 @@ export function apply(ctx, config = {}) {
                         id: it.id,
                         title: it.title,
                         // 独立日程（type=event）标记 kind=event——只进未来日程，不进任务台账。
-                        kind: it.type === 'event' ? 'event' : 'task',
+                        kind: it.type === 'task' ? 'task' : 'event',
                         // item 状态语义 pending/doing/done → legacy todo/in_progress/done。
                         status: it.status === 'done' ? 'done' : it.status === 'doing' ? 'in_progress' : 'todo',
                         priority: it.priority ?? 'medium',

@@ -26,6 +26,7 @@ import {
   planStageExpansion,
 } from '../lib/domains/litigation/stage-expansion.js'
 import { createProjectStore } from '../lib/domains/nonlitigation/store/project-store.js'
+import { createItemStore } from '../lib/domains/item/store/item-store.js'
 import { createServiceStore } from '../lib/domains/nonlitigation/store/service-store.js'
 import {
   applyStageExpansion as applyProjectStage,
@@ -49,8 +50,10 @@ const HEARING = iso(10)
 
 const dataDir = await mkdtemp(join(tmpdir(), 'ls-stage-'))
 try {
-  const caseStore = createCaseStore(dataDir)
-  const projectStore = createProjectStore(dataDir)
+  // 0.2.12：任务/关键日期只存 items.json（唯一真相源）。
+  const itemStore = createItemStore(join(dataDir, 'items'))
+  const caseStore = createCaseStore(dataDir, undefined, itemStore)
+  const projectStore = createProjectStore(dataDir, undefined, itemStore)
   const serviceStore = createServiceStore(dataDir)
 
   /* ══════════════ 1. dryRun 不落库 ══════════════ */

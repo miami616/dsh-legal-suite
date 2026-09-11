@@ -11,8 +11,8 @@ let fails=0
 const check=(n,c,e='')=>{console.log(`${c?'PASS':'FAIL'}  ${n}${e?'  ('+e+')':''}`); if(!c)fails++}
 const dir=await mkdtemp(join(tmpdir(),'ls-e2e-'))
 try{
-  const cs=createCaseStore(dir)
   const items=createItemStore(dir)
+  const cs=createCaseStore(dir, undefined, items)
   // 模拟：用户收传票建案（我方被告，民商）
   const c=await cs.registerCase({name:'甲诉乙买卖合同案',type:'民商',cause:'买卖合同纠纷',status:'filing',level:'一审',ourSide:'defendant',court:'XX法院',caseNumber:'(2026)民初1号',filingDate:'2026-09-01'})
   check('建案返回 level', c.level==='一审', c.level)

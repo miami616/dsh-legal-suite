@@ -107,6 +107,8 @@ export interface KeyDate {
   derivedAt?: string
   /** 人读计算过程——回答「为什么是这天」。 */
   computeTrace?: string
+  /** 数据来源标记（agent-computed / manual / task-linked / migration…）。 */
+  source?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -143,6 +145,21 @@ export interface CaseRecord {
   expandOnStatus?: ExpandOnStatusMode
   /** 状态档位变更后尚未处理的「待展开阶段」（confirm/agent 模式产生）。 */
   pendingExpand?: PendingExpand
+  /**
+   * 法定期限闸门（0.2.12）：案件状态进入含**不变期间**的档位（庭后管理/上诉期）
+   * 却没有期限登记时的阻断级提示 + 派生建议。
+   *
+   * 为什么挂在案件上而不是 pendingExpand 里：闸门与「阶段是否待展开」是两件事
+   * ——阶段早就展开过的案件一样可能漏登期限，挂在 pendingExpand 上会随展开被清掉。
+   * 案件级字段是唯一存储处，登记成功后由 applyPeriodRegistration 自动清除。
+   */
+  periodGate?: PeriodGate
+  /**
+   * 闸门已确认（不再提醒）：用于**确实无需在本案登记期限**的情形——典型是二审
+   * 独立建档后，一审案的「上诉期届满」由二审案跟踪（用户 2026-09-10 的建档惯例）。
+   * 与「已登记」不同：这是律师的判断，必须留 reason 备查。
+   */
+  periodGateMuted?: { at: string; reason?: string }
   boundSessions?: string[]
   linkedContracts?: string[]
   linkedResearch?: string[]
@@ -207,6 +224,26 @@ export interface TimelineRegistry {
 export type ExpandOnStatusMode = 'confirm' | 'agent' | 'off'
 
 /** 状态档位变更时挂起的「待展开阶段」标记（confirm/agent 模式产生）。 */
+/** 法定期限闸门（0.2.12）——状态已进入不变期间但没有期限登记时的提示。 */
+export interface PeriodGate {
+  blocking: true
+  /** 缺失的规范术语（该程序轨下应登记的）。 */
+  missing: string[]
+  /** 人读提示。 */
+  notice: string
+  /** 派生建议（可直接喂 register_service）。 */
+  suggestions: Array<{
+    doc: string
+    fact: string
+    procedure: string
+    term: string
+    cite: string
+    length: string
+    ruleId: string
+  }>
+  createdAt: string
+}
+
 export interface PendingExpand {
   stageId: string
   stageName: string

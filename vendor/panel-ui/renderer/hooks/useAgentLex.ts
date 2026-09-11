@@ -520,7 +520,7 @@ const getSnapshot = () => state;
 // ============================================================
 
 // Loose shapes for the on-disk JSON (fields may be missing on older records).
-export interface DiskKeyDate { label?: string; date?: string; source?: string; completed?: boolean }
+export interface DiskKeyDate { label?: string; date?: string; source?: string; completed?: boolean; done?: boolean }
 export interface DiskBoundSession { sessionId?: string; label?: string; createdAt?: string; agentKey?: string }
 export interface DiskChecklistItem { id?: string; text?: string; done?: boolean }
 export interface DiskSubTask { id?: string; title?: string; deadline?: string; priority?: string; status?: string; createdAt?: string; updatedAt?: string }
@@ -682,7 +682,9 @@ export function normalizeCase(id: string, dc: DiskCase): CaseEntry {
     parties: normalizeParties(dc.parties),
     keyDates: (dc.keyDates ?? []).map(kd => ({
       label: kd.label ?? '', date: kd.date ?? '',
-      source: kd.source ?? 'agent-computed', completed: kd.completed ?? false,
+      // 0.2.12：keydate 事项落盘字段是 status→done（host 侧 itemToKeyDate 只出 done），
+      // 旧字段 completed 保留兼容；只读 completed 会让「已完成」恒为 false。
+      source: kd.source ?? 'agent-computed', completed: kd.completed ?? kd.done ?? false,
     })),
     boundSessions: (dc.boundSessions ?? []).map(bs => ({ sessionId: bs.sessionId ?? '', label: bs.label ?? '', createdAt: bs.createdAt ?? now, agentKey: bs.agentKey })),
     taskGroups: (dc.taskGroups ?? [])

@@ -16,6 +16,7 @@ import { childId, nowIso } from '../../litigation/store/id.ts'
 import type {
   Item, ItemChecklist, ItemRegistry, ItemStatus, ItemSubtask, ItemType, TaskGroup, TaskGroupRegistry,
 } from './types.ts'
+import { isTaskItem } from './types.ts'
 
 export type { Item, ItemRegistry, TaskGroup, TaskGroupRegistry }
 
@@ -39,7 +40,7 @@ export interface ItemStore {
    * items.json，不触碰 case-registry（0.2.0 split-brain：task 写 items 而
    * checklist 找 case-registry → not found）。
    */
-  addSubtask(taskId: string, input: { id?: string; title: string; deadline?: string; done?: boolean }): Promise<Item>
+  addSubtask(taskId: string, input: { id?: string; title: string; detail?: string; deadline?: string; done?: boolean }): Promise<Item>
   updateSubtask(taskId: string, subtaskId: string, patch: Partial<ItemSubtask>): Promise<Item>
   deleteSubtask(taskId: string, subtaskId: string): Promise<{ deleted: boolean }>
   addChecklist(taskId: string, input: { id?: string; text: string; done?: boolean }): Promise<Item>
@@ -197,6 +198,15 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
             checklist: input.checklist === undefined ? [] : clone(input.checklist),
             remindRules: input.remindRules === undefined ? undefined : clone(input.remindRules),
             templateTitle: s(input.templateTitle),
+            // 任务 ↔ 关键日期联动 + 法定期限审计字段（0.2.12 起 keydate 也是
+            // items 的一员，这些字段必须随创建一并落库，否则新建即丢）。
+            keyDateId: s(input.keyDateId),
+            remindKeyDate: input.remindKeyDate === true ? true : undefined,
+            ruleId: s(input.ruleId),
+            baseDate: s(input.baseDate),
+            cite: s(input.cite),
+            computeTrace: s(input.computeTrace),
+            source: s(input.source),
             createdAt: now,
             updatedAt: now,
           }
@@ -207,8 +217,9 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
         return next
       }, 'tasks', input.ownerId === undefined ? undefined : String(input.ownerId), 'item-upsert')
       if (result === undefined) return result!
-      // 有 date 的 event/task（日程）→ 广播日历同步事件（litigation 域监听并写 Apple 日历）。
-      if (result.date !== undefined && (result.type === 'event' || result.type === 'task')) {
+      // 有 date 的 event/task/keydate（日程与法定期限）→ 广播日历同步事件
+      // （litigation 域监听并写 Apple 日历）。keydate 按日程口径同步。
+      if (result.date !== undefined && result.type !== undefined) {
         try {
           const payload = clone(result)
           for (const listener of ctx?.events.dispatch('emit', ['agentlex:calendar-sync', payload]) ?? []) {
@@ -237,8 +248,8 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
         removedItem = removed
         return next
       }, 'tasks', ownerId, 'item-delete')
-      // 删除有 date 的 event/task → 广播日历同步删除事件（litigation 域监听并删 Apple 事件）。
-      if (deleted && removedItem !== undefined && removedItem.date !== undefined && (removedItem.type === 'event' || removedItem.type === 'task')) {
+      // 删除有 date 的 event/task/keydate → 广播日历同步删除事件（litigation 域监听并删 Apple 事件）。
+      if (deleted && removedItem !== undefined && removedItem.date !== undefined && removedItem.type !== undefined) {
         try {
           const payload = { id: removedItem.id }
           for (const listener of ctx?.events.dispatch('emit', ['agentlex:calendar-sync-delete', payload]) ?? []) {
@@ -282,7 +293,7 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
         const reg = normalize(rawReg)
         const task = reg.items.find((i) => i.id === taskId)
         if (task === undefined) throw new Error(`task not found: ${taskId}`)
-        if (task.type === 'event') throw new Error(`item is not a task: ${taskId}`)
+        if (!isTaskItem(task)) throw new Error(`item is not a task: ${taskId}`)
         const next = clone(reg)
         const target = next.items.find((i) => i.id === taskId)!
         const outcome = mutateFn(target)
@@ -301,7 +312,7 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
       return result!
     },
 
-    async addSubtask(taskId: string, input: { id?: string; title: string; deadline?: string; done?: boolean }): Promise<Item> {
+    async addSubtask(taskId: string, input: { id?: string; title: string; detail?: string; deadline?: string; done?: boolean }): Promise<Item> {
       const now = nowIso()
       const sid = input.id ?? childId('sub')
       return this.mutateTaskItems(taskId, (task) => {
@@ -311,6 +322,7 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
           const row = { ...subtasks[existingIdx]! }
           if (input.title !== undefined) row.title = String(input.title)
           if (input.done !== undefined) row.done = input.done === true
+          if (input.detail !== undefined) row.detail = input.detail === '' ? undefined : input.detail
           if (input.deadline !== undefined) row.deadline = input.deadline === '' ? undefined : input.deadline
           row.updatedAt = now
           subtasks[existingIdx] = row
@@ -319,6 +331,7 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
             id: sid,
             title: String(input.title ?? '子任务'),
             done: input.done === true,
+            detail: input.detail === undefined ? undefined : String(input.detail),
             deadline: input.deadline === undefined ? undefined : String(input.deadline),
             createdAt: now,
             updatedAt: now,

@@ -2,6 +2,195 @@
 
 ## 未发布（0.2.x 待定版号）
 
+## 0.2.12 — 全面完整统一：items.json 成为唯一真相源
+
+> 来源：2026-058 案「看板卡片没有提醒」复盘（`docs/ISSUE-看板卡片提醒与三桶存储口径.md`）。
+> 结论：0.2.2 的「统一」只做了**读时合并**（任务+事件进 items，关键日期仍在案件档案），
+> 且旧写入口仍活着——同一件事在 4 处各存一份，漏一处就出问题。
+> 本版把统一做实：**一处存储、一处写入、多处派生**。
+
+### 一、关键日期并入统一事项（新 `ItemType = 'keydate'`）
+
+- `case.keyDates` / `project.keyDates` 不再落 registry，改为 items.json 里的
+  `type='keydate'` 事项（保留 id、`ruleId`/`baseDate`/`cite`/`computeTrace` 审计字段）。
+- `Item` 新增审计字段：`ruleId`/`baseDate`/`cite`/`computeTrace`/`source`；
+  `upsertItem` 建新分支此前还会丢掉 `keyDateId`/`remindKeyDate`（潜在数据丢失），一并修复。
+- 新增类型判定助手 `isEventItem` / `isTaskItem` / `isKeyDateItem`，全库 20+ 处
+  `type !== 'task'` 式分派改为显式判定——否则 keydate 会漏进时间轴/任务树。
+
+### 二、一次性统一迁移（幂等、带备份）
+
+- 新增 `src/domains/litigation/unify-store.ts`：registry 残留 taskGroups + keyDates →
+  items，随后剥离两个字段；`schedules.json` → items(event) 并改名 `.legacy`。
+- 新增 `src/domains/nonlitigation/unify-store.ts`：项目 keyDates → items + 剥离字段。
+- 新增 `src/domains/task/unify-store.ts`：`tasks/standalone-tasks.json` → items
+  （`ownerType='standalone'`）并退役。
+- 迁移前自动写 `*.bak-unify-0.2.12` 备份；磁盘标记 `.agentlex-unified-*` 保证只跑一次。
+- **修一个会丢数据的顺序 bug**：0.2.2 的 `stripTaskGroups` 原先会连 keyDates 一起删，
+  使 0.2.12 迁移无 keyDate 可迁。现拆分为 `stripTaskGroups`（只剥任务镜像）与
+  `stripLegacyFields`（两者都剥，仅在并入 items 之后调用）。
+
+### 三、写路径收口：不再有第二个写入口
+
+- `case-store` / `project-store` 的任务与关键日期方法**全部委托 itemStore**，
+  registry 从此只存案件/项目元信息。`updateCase`/`updateProject` 显式删除
+  任何试图写回 `keyDates`/`taskGroups` 的 patch（发现即删，杜绝复活）。
+- `task-store`（独立任务）改为 items 代理版；`readRegistry`/`listTasks` 都从 items 读。
+- 新增 `readRegistryRaw()`：只有一次性迁移能读到盘上原始字段。
+
+### 四、读路径：形状不变，来源唯一
+
+- `readCase` / `readRegistry` / `readProject` 实时从 items 装配 `keyDates` +
+  `taskGroups`——期限汇总、健康检查、阶段检测、读接口、GUI 全部无需改动。
+- `/api/agentlex/read` 的 timeline 明确排除 keydate（关键日期走 keyDates 通道，不重复）。
+
+### 五、看板卡片：法定期限不再漏（2026-058 修复）
+
+- `CaseDashboard` 的 `keyDateChips` / 紧急日程弹层 / 一周角标 / 「下次关键节点」排序
+  改为消费**统一期限清单**（关键日期 + 时间轴日程，按 日期+标签 去重、关键日期优先），
+  与 host 侧 `computeDeadlines` 同口径。
+- 客户端 `normalizeCase` 读 `kd.done`（此前只读 legacy `completed`，而 host 只下发
+  `done` → 已完成的 keyDate 在前端恒为未完成）。
+- 卡片底部提示标签（关键节点倒计时 chips 与标签 chips）字号/内边距整体缩小一档
+  （`text-xs` → `text-[10px]`，图标 10 → 9，内边距 `px-2 py-0.5` → `px-1.5 py-[1px]`，
+  间距 `gap-1` → `gap-0.5`），卡片信息密度更清爽。
+- **底部提示行固定单行**：去掉 `flex-wrap`，改 `h-6 + whitespace-nowrap + overflow-hidden`
+  ——高度恒定、任何数据量都不换行（原来 2 枚 chips + 标签一多就把卡片撑高、行高跳动）。
+- **多个提醒不再并列**：提示只出「最近 1 条」一枚 chip，其余折成一枚 `+N`
+  （悬停 title 列出全部待办节点与日期）；标签 chip 限宽 `max-w-[5rem]` 截断。
+  实测 live 数据：13 个案件有未来节点，其中 4 个会折叠（2026-020 `+7`、2026-057 `+2`）。
+- 卡片底部的「N 会话」统计换成**任务统计**：未完成时显示「未完成/总数 项任务」，
+  全部完成时显示「N 项已完成」（会话数对办案进度没有信息量）。
+
+### 六、法定期限二期（原定 0.2.12，与本版合并发布）
+
+> 来源：`docs/期限规则表设计.md` §九 分期落地——0.2.11 把「登记范式」换成「只给事实、
+> 系统算届满日」，但**没有人负责检查「该登记的到底登记了没有」**。本期补上这道闸门。
+
+- **闸门（write-time）**：状态进入含**不变期间**的档位（庭后管理 / 上诉期）时，若该案
+  没有期限登记 → 落 `case.periodGate`（阻断级提示 + 派生建议：哪份文书、什么期间、
+  依据哪条、用哪个工具落库）。**独立于阶段展开**——阶段早就展开过的案件一样会漏登，
+  所以它是案件级字段，不是 `pendingExpand` 的子字段（与设计稿的偏差，见文档实施记录）。
+- **每日巡检（read-time）**：`patrolPeriodGaps()` 扫描同一批案件；闸门只在状态变化时
+  复查，巡检兜住历史存量。复用每日推送 ticker（0.2.9 通道），有缺口时即使当天没有到期
+  事项也发一张卡（尾部一行「法定期限待登记」）。新增工具 `period_patrol` +
+  路由 `/period-patrol`。**巡检只读，不修改任何数据**。
+- **措辞纪律（重要）**：提示**不断言「文书已送达」**，只说「**记录待核对**」——我们只看到
+  「档案里登记了这个节点」，而记录可能是预判或测试数据（实测 2026-034 的「裁判文书送达
+  2026-08-28」就是一条脏记录，用户确认「没有，那是个脏数据」）。提示把两种可能和对应动作
+  都摆出来：属实 → `register_service` 补登记；不实 → `delete_keydate` 删掉。
+  **脏记录比缺失更有害**，它会让闸门/巡检基于假事实报警。
+- **新增 `delete_keydate`**（工具 + 路由 + store）：此前系统里**没有任何删除关键日期的入口**，
+  录错/脏数据只能手工改 JSON。
+- **不再往飞书卡片塞巡检提示行**：巡检每天仍跑（结果进 run 结果与日志，便于审计），
+  但在记录可信度被确认之前不主动推给律师；需要时用 `period_patrol` 按需查。
+- **触发条件（重要，实施中修正过两次）**：**只认「裁判文书已送达」这一个证据**——
+  即案件里存在标题同时含【判决书/裁定书/裁决书/裁判文书】与【送达/收到/领取】的
+  **事实节点**（event/keydate，任务不算），且不含【撤诉/保全/管辖/指定/不予受理/执行】
+  这类不产生上诉期的裁定；已结案不提示；该轨无可用规则不提示。
+  - 教训：**不能用状态当条件**。`庭后管理`（post_trial）只是「开完庭、等判决」——
+    上诉期根本还没起算，什么都不该登记。按状态触发在真实数据上产生 8 个误报（用户当场
+    指出「这都是开完庭没有判决的啊」）；放宽成「标题含判决/裁定」又变成 25 个（连
+    `判决履行期限届满`、`财产保全裁定`、任务「领取裁判文书」都算进去了）。按送达证据
+    精筛后，真实数据只剩 2 个，其中 1 个是真缺口。
+  - 巡检行还给出**推算届满日**与**是否已过**：期限已过时提示改成「立即核对是否已上诉/
+    是否需补记」，而不是「请去登记」。
+- **判定口径**：规范术语由规则表按程序轨派生（**任一即满足**——终局裁决的 15 日起诉与
+  30 日撤裁是互斥备选，不是并列义务）；与 `health.ts` 的 `hasNode`（labels.some）同源。
+- **顺带修掉的真 bug**：`caseStore.deleteCase` 原先只删案件记录，**不清该案的事项**——
+  编号会被复用（`nextCaseId` 取 max+1，删掉末尾案件后新案拿回同一编号），新案一读就
+  「继承」了旧案的关键日期/任务（实测：删案后重建同号案，旧的上诉期届满复活）。
+  现删除时级联清理该案的 items 与阶段组壳。
+- **确认闸门**：确实无需在本案登记期限时可确认撤下提醒（典型：二审独立建档后一审案的
+  上诉期由二审案跟踪），留 `reason` 备查；工具 `mute_period_gate`。
+- **`proposed` 回流**：规则表未命中 → 不落库、只提示；新增工具 `propose_period_rule`
+  （**cite 必填**，无依据的提案不予受理）/ `resolve_period_rule`（accept/reject）。
+  硬闸门：`confidence='proposed'` 的规则**绝不参与匹配**，律师 accept 后才升
+  `local-practice` 进补丁表并立即生效。
+- **本地补丁表**：新增 `$DSH_HOME/agentlex/litigation/period-rules.json`
+  （`overrides` + `proposals`）。支持按 **id 覆盖**内置规则，也支持新增**按受理法院
+  限定**的本地口径（`PeriodScope.court`，匹配时算一维具体度 → 天然优先于全国通用口径）。
+- **提示措辞分叉**：巡检/闸门的提示区分两种情形——**已登记「裁判文书送达」**但缺期限
+  → 这是确定的漏登，动作是直接 `register_service`；**连送达都没登** → 可能是文书尚未送达
+  （案件刚进庭后、判决未下），也可能漏登，提示把两种可能都摆出来
+  （已送达→登记；未送达→`mute_period_gate` 确认暂不适用），避免天天误报。
+- **提前量任务链同日碰撞修复**：动作截止日落在休息日要往前挪，但前移会让相邻两环撞到
+  同一天（上诉期链 T-3=周五、T-2=周六 → 都变周五，「起草复核」和「递交」挤一天，链条退化）。
+  现前移之后**从最晚一环往前**保证严格递增：把起草/确认往前挤，让「递交」留在最贴近届满日
+  的位置（09-11 / 09-14 / 09-16 / 09-17 / 09-18，届满 09-21）。
+- **§八 接线收口**：飞书推送不再自建聚合——`collectAllDeadlines` 改调
+  `computeDeadlinesV2`（唯一出口），非诉项目/独立事项通过新增的 `opts.ownerMeta` 补元信息，
+  因此推送与期限汇总、体检共用同一套去重与 kind 优先级，不再出现「汇总一行、推送两行」。
+  `health.ts` 的规范术语集合与闸门共用 `period-gate.expectedJudgmentTerms`（同一口径）。
+
+### 七、案件账实核对（巡检，0.2.12）
+
+> 用户定调：「巡检这个有必要做，但是想想怎么能做好它」——**定位是账实不符核对**
+> （发现实际状态与登记不一致：漏登记、登记错了、该推进没推进）。
+
+- **与另两件事划清边界**：字段完整性归 `case_health`，任务逾期归任务台账；巡检只做
+  账实不符，否则同一问题三处各报一次。
+- **新增 `src/domains/litigation/patrol.ts`**：规则集是纯函数（证据 + 期望 + **一键动作**），
+  可单测可增删。第一批 6 条：
+  1. `period.missing_after_service` 裁判文书已送达但期限未登记（口径复用 `checkPeriodGate`）；
+  2. `period.expired_needs_progress` **期限已过但案件未推进**（用户明确要求的一条）；
+  3. `hearing.passed_state_not_advanced` 开庭已过但状态仍「庭前准备」；
+  4. `status.filed_but_not_advanced` **已有立案证据（传票/受理通知/开庭排期/案号）但状态仍立案前**
+     （用户补充的场景）；
+  5. `period.duplicate_registration` 同一期限重复登记；
+  6. `case.closed_with_open_tasks` 已结案仍有未完成任务。
+- **立案日期不参与核对**（用户裁定）：被告几乎不可能知道准确立案日，这是客观不可得、
+  不是账实不符；但"收到传票了状态还写立案中"是硬矛盾，与日期精度无关。
+- **独立消息**：新增 `sendPatrolCard`（橙色标题）——**单独一张「案件账实核对」卡**，
+  不与每日到期提醒混（一个回答"今天要干什么"，一个回答"你的账可能记错了"）。
+- **去重台账**：新增 `patrol-ledger.json`（`store/patrol-ledger-store.ts`）——指纹
+  `caseId|ruleId|证据`，**只有新出现或证据变化才推**；问题修好后指纹自动清理（复发能再报）；
+  `mute_patrol_finding` 确认无需处理的（留 reason）。
+- **新增工具/路由**：`patrol_scan`（只读）、`mute_patrol_finding`（确认/取消确认）；
+  取代此前的 `period_patrol` / `/period-patrol`。
+- **误报防线**（开发中实测踩过、已固化为测试用例）：
+  - 开庭节点已过但没勾完成（19 条）→ 读侧本来就当历史，**无后果**；
+  - 立案中却没有案号（8 条）→ `filing` **本来就是"等案号"**；
+  - 分期履行的同一标签不同日期（如「判决履行期限届满」2026-12-31 / 2027-06-30）→ **合法**，
+    只有"同标签同日期"或"救济期限同标签多条"才算重复；
+  - 任务「领取裁判文书」不是送达证据（**待办不是事实**）——只认 event/keydate；
+  - 跨审级日期（一审判决早于二审立案日）→ 合法。
+- **真实数据实测**：4 项异常、零误报 —— 2026-042/044（庭都开完了状态还写"收案"）、
+  2026-015（判决送达未登记上诉期，其上诉期在 058 跟踪 → 可 mute）、
+  2026-038（已结案仍有 4 条未完成任务）。
+- 新增 `scripts/verify-patrol-0212.mjs`（33 项：6 条规则命中 + 6 条误报防线 + 去重台账 + 卡片）。
+
+### 八、管家推进阶段不再弹确认框（0.2.12 修）
+
+- **问题**：管家调 `update_case` 推进状态后，前端会弹出「状态已推进，是否展开阶段任务？」
+  的确认框——那是给**手动改状态**用的 UI。根因：管家工具与浏览器**共用同一条 HTTP 路由**
+  `/api/agentlex-case/update-case`，路由按案件级 `expandOnStatus` 解析模式，默认 `confirm`，
+  于是管家的推进也被当成手动改。
+- **修法**：
+  1. 管家工具在请求体里带 `actor: 'agent'`（`buildBody`），路由据此判定调用方——
+     `actor='agent'` → 一律 **agent 态**（案件设了 `off` 则 `off`）；无 `actor`（浏览器手动改）
+     → 仍按案件设置 `confirm/agent/off`。
+  2. `actor` 是调用方标记，**从 patch 里剔除**，不写进案件档案。
+  3. 案件级 `expandOnStatus` 语义收窄为「**用户手动改时**要不要问」，管家不再继承
+     `confirm`——管家自己推进就自己收尾（同回合 `resolve_pending_expand` 或
+     `apply_stage_template`）。
+  4. 前端 `PendingExpandBar` 按 mode 分流：`confirm` → 弹窗（不变）；
+     `agent` → **不弹窗**，只在右下角留一枚不遮挡、不阻塞的窄条「管家推进到 X，Y 由管家处理中」
+     （管家处理完即消失；万一没收尾也不至于界面上永远看不见）。
+- 覆盖断言：`scripts/verify-status-transition.mjs` B7（8 条）。
+
+### 九、验证
+
+- 新增 `scripts/verify-unified-0212.mjs`（32 项：迁移/不丢数据/字段剥离/读侧装配/
+  写路径收口/幂等/期限引擎）。
+- 新增 `scripts/verify-period-0212.mjs`（40 项：闸门/巡检/确认闸门/proposed 回流/
+  本地补丁表/法院限定口径/统一出口去重）。
+- `scripts/verify-unified-022.mjs` 重写为 0.2.12 契约（旧版断言的是已被取代的 0.2.2 行为）。
+- 全量 verify：除既有失效脚本 `verify-stage-expansion.mjs`（仍用废弃 stageId `trial`）外全绿。
+- **3081 隔离实例实测**（live 数据副本）：巡检在真实数据里查出 **8 个案件**处于
+  庭后/上诉期却没有期限登记（确认后 7 个）；闸门、提案→采纳→生效、register_service
+  落三件套并自动解除闸门，全部走通。
+
 ## 0.2.11 — 法定期限规则表接线 + 期限链路两个接口 bug
 
 > 来源：2026-002 案（劳动仲裁裁决送达后进入 15 日起诉期）登记遗漏复盘

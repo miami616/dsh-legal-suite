@@ -41,14 +41,23 @@ export async function aggregateUnifiedTasks(
   nonlitigationDir: string,
   standalone: TaskItem[],
 ): Promise<TaskItem[]> {
-  // standalone 参数兼容旧调用；新逻辑从 items 读。
+  // 0.2.12：standalone 任务也在 items.json（ownerType='standalone'），本函数
+  // 直接读 items 即可覆盖三类归属；standalone 参数仅为旧调用签名兼容，按 id 去重。
   const itemsDir = join(litigationDir, '..', 'items')
   const reg = await readJson<ItemRegistryLike>(join(itemsDir, 'items.json'))
-  const out: TaskItem[] = [...standalone]
+  const out: TaskItem[] = []
+  const seen = new Set<string>()
+  for (const t of standalone) {
+    if (seen.has(t.id)) continue
+    seen.add(t.id)
+    out.push(t)
+  }
 
   for (const it of (reg?.items ?? [])) {
-    // 只取任务侧（task/both）。
-    if (it.type === 'event') continue
+    if (seen.has(it.id)) continue
+    seen.add(it.id)
+    // 只取任务侧（task/both）；事件与关键日期不进任务台账。
+    if (it.type !== 'task' && it.type !== 'both') continue
     const ownerId = it.ownerId ?? ''
     // ownerType 区分同号案件/项目/独立（2026-09-04）；缺省按历史（案件/独立）。
     const ownerType = it.ownerType ?? (ownerId === '' ? 'standalone' : 'litigation')

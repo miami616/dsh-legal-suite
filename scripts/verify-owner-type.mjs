@@ -35,11 +35,12 @@ mkdirSync(nlDir, { recursive: true })
 mkdirSync(itemsDir, { recursive: true })
 const dummyCtx = { events: { dispatch: () => [] } }
 try {
-  const caseStore = createCaseStore(litDir)
+  // 0.2.12：任务/关键日期只存 items.json（唯一真相源）→ 先建 itemStore。
+  const itemStore = createItemStore(itemsDir, dummyCtx)
+  const caseStore = createCaseStore(litDir, undefined, itemStore)
   const timelineStore = createTimelineStore(litDir)
   const scheduleStore = createScheduleStore(litDir)
-  const itemStore = createItemStore(itemsDir, dummyCtx)
-  const projectStore = createProjectStore(nlDir, dummyCtx)
+  const projectStore = createProjectStore(nlDir, dummyCtx, itemStore)
   const serviceStore = createServiceStore(nlDir, dummyCtx)
 
   await seedLitigationSample(caseStore, timelineStore, scheduleStore, itemStore)
@@ -60,7 +61,8 @@ try {
     groupMap.set(`${g.ownerId}|${g.id}`, { ownerId: g.ownerId, ownerType: g.ownerType, id: g.id, title: g.name, order: g.order, tasks: [] })
   }
   for (const it of items) {
-    if (it.type === 'event') continue
+    // 只取任务侧（task/both）——事件与关键日期不进任务组（与 item/shape 一致）。
+    if (it.type !== 'task' && it.type !== 'both') continue
     const gid = it.groupId ?? '__ungrouped'
     const key = `${it.ownerId}|${gid}`
     if (!groupMap.has(key)) groupMap.set(key, { ownerId: it.ownerId, ownerType: it.ownerType, id: gid, title: it.groupName ?? '未分组', order: groupMap.size, tasks: [] })

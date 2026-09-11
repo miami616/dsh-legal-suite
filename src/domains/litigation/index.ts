@@ -437,7 +437,9 @@ export function apply(ctx: Context, config: Config = {}): void {
           id: it.id,
           caseId: it.ownerId ?? '',
           caseName: it.ownerName ?? '',
-          type: (it.type === 'both' ? 'hearing' : 'case_event') as TimelineEvent['type'],
+          // 事件类型：优先 items.kind（0.2.11 起 upsert_event 落库 kind），
+          // 缺失时才按 type 兜底——否则上诉期/举证期会被归成「开庭」。
+          type: (it.kind ?? (it.type === 'both' ? 'hearing' : 'case_event')) as TimelineEvent['type'],
           title: it.title,
           detail: it.detail,
           date: it.date,

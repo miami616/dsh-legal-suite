@@ -13,12 +13,13 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { CaseStore } from './store/case-store.ts'
 import type { TimelineStore } from './store/timeline-store.ts'
 import type { ScheduleStore } from './store/schedule-store.ts'
-import { STATUS_LADDERS, STAGE_TRACKS, SIDE_STAGES, defaultLevelForType, getLitigationStatus } from '../../shared/playbook/litigation.ts'
+import { STATUS_LADDERS, STAGE_TRACKS, SIDE_STAGES, defaultLevelForType, getLitigationStatus, summarizeRules } from '../../shared/playbook/litigation.ts'
 import {
   applyStageExpansion,
   detectStageSuggestions,
   planStageExpansion,
 } from './stage-expansion.ts'
+import { applyPeriodRegistration, listRules, planPeriodRegistration, type ServiceRequest } from './period-service.ts'
 import { computeCaseHealth, computeRegistryHealth } from './health.ts'
 
 /** Stores the tool operates on (same instances as the route family). */
@@ -62,6 +63,9 @@ const ACTIONS = [
   'stage_suggestions',
   'case_health',
   'case_info',
+  'period_rules',
+  'derive_deadline',
+  'register_service',
 ] as const
 
 type Action = typeof ACTIONS[number]
@@ -120,6 +124,13 @@ const PARAMETERS = {
   dryRun: { type: 'boolean', description: 'apply_stage_template 传 true 时只返回展开计划不落库（预览用）；默认 false' },
   includeClosed: { type: 'boolean', description: 'case_health 不带 caseId 扫描全部时，是否包含已结案案件（默认 false）' },
   caseInfoAction: { type: 'string', description: 'case_info 的动作：read（只读案件文件夹里的 案件信息.md/案卷信息.md，不存在不创建）/ ensure（不存在则按模板新建，存在原样返回）。读回内容后按案情补全缺失字段，用 file-write 写回' },
+  /* ---- 法定期限规则表（v0.2.11）：只登记触发事由，届满日由系统派生 ---- */
+  doc: { type: 'string', description: '触发文书名（register_service/derive_deadline 必填）：仲裁裁决书/判决书/裁定书/起诉状副本/仲裁申请书副本/生效法律文书…' },
+  serviceDate: { type: 'string', description: '文书送达（或收到/生效）之日 YYYY-MM-DD——期间起算锚点，由管家从送达回证/裁定书载明日期读取' },
+  serviceFact: { type: 'string', description: '事实类型：送达/收到/作出/生效（默认 送达）' },
+  docKind: { type: 'string', description: '文书种类定性：非终局裁决/终局裁决/判决/裁定。定性本身是判断（不由系统猜）——终局裁决时劳动者 15 日起诉、用人单位 30 日申请撤裁，路径不同' },
+  clientRole: { type: 'string', description: '我方实体身份：劳动者/用人单位（终局裁决的救济路径靠它区分；普通诉讼不必传）' },
+  procedure: { type: 'string', description: '程序轨：劳动仲裁/一审/二审/再审/首次执行/恢复执行/商事仲裁/刑事。register_service/derive_deadline/period_rules 可选，缺省取案件 level' },
 } as const
 
 /** Tool description — the model reads this to know when to call. */
@@ -139,12 +150,21 @@ const DESCRIPTION = [
   '- 展开新案件只铺当前阶段任务，不要把全流程一次性铺出来；任务模板是参考骨架，可增删改。',
   '',
   '【管家自动程序动作（不要派成律师任务）】',
-  '收到法院文书/通知后的登记是管家职责，用关键日期+时间轴表达，不创建任务：',
-  '- 收到受理/举证通知书 → add_keydate「举证期限届满」+ upsert_event（举证通知/开庭传票）；',
-  '- 收到应诉通知/起诉状副本 → 若我方为被告 add_keydate「答辩期届满」；对方管辖异议/我方提异议走事件；',
-  '- 收到开庭传票 → upsert_event（开庭）+ add_keydate「开庭」；裁判文书送达 → add_keydate「裁判文书送达」',
-  '  +「上诉期届满」；判决生效后若对方未履行 → add_keydate「申请执行期限届满」。',
-  '不要在任务树里建「登记××」「锁定三大期限并倒排」这类登记/提醒任务——它们没有律师交付物。',
+  '收到法院文书/通知后的登记是管家职责，不创建「登记××」这类无交付物的任务。',
+  '',
+  '【法定期限：只登记触发事由，届满日由系统派生（v0.2.11，强制）】',
+  '法定不变期间（起诉期/上诉期/撤销裁决申请期/答辩期/申请执行期限）**禁止自行推算日期**：',
+  '一律用 register_service 登记，只给事实（收到什么文书、哪天送达），系统查规则表算届满日、',
+  '取规范术语、带法律依据，并自动铺「提前量任务链」（T-10 研读 → T-7 分析 → T-5 确认 → T-3 定稿 → T-2 递交）。',
+  '- 拿不准时先用 derive_deadline 只读预览（不落库）：返回候选、届满日、计算过程、依据与将落的任务；',
+  '- 规则表查不到（period_rules 可看全集）→ 不要编日期：依法条提案并说明依据，交律师确认后再落库；',
+  '  法院在文书中指定的期间（举证期限/答辩期等以通知书载明为准）仍按文书日期直接登记。',
+  '- 触发事由归一：判决书/裁定书/裁决书 → 「裁判文书送达」（status=done，进时间轴纪年）；',
+  '- 标签纪律：劳动仲裁裁决之后登记「起诉期届满」（无上诉！终局裁决用人单位才走「撤销裁决申请期届满」）；',
+  '  诉讼一审判决/裁定之后登记「上诉期届满」。术语错会把期限指向错误的程序——由规则表 term 兜底。',
+  '内置规则（procedure·文书种类/我方身份·触发 → 期间 → 术语）：',
+  '  ' + summarizeRules(),
+  '法院指定期间与非规范节点仍用 add_keydate / upsert_event 手工登记；期间类事项不要建任务（任务只留提前量动作）。',
   '',
   '【写入纪律】',
   '任务名写「动作」不写「状态」（用「出庭参加庭审」，不用「等待开庭」）；',
@@ -342,10 +362,14 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           return clean(plan)
         }
         case 'case_health': {
+          // 体检同时看时间轴日程（0.2.11）：只登日程不登关键日期也算登记，
+          // 且术语按案件 level 从规则表取（劳动仲裁 = 起诉期届满）。
+          const allItems = deps.itemStore === undefined ? undefined : await deps.itemStore.listItems()
           const healthOpts = {
             deadlines: deps.deadlines === undefined
               ? undefined
               : async (id: string) => await deps.deadlines!(id),
+            events: allItems,
           }
           const caseId = s(args.caseId)
           if (caseId !== undefined) {
@@ -366,6 +390,32 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
             includeClosed: args.includeClosed === true,
           })
           return clean({ count: rows.length, cases: rows })
+        }
+
+        /* ------------------- 法定期限规则表（0.2.11） -------------------- */
+        case 'period_rules': {
+          return clean({ count: listRules(s(args.procedure)).length, rules: listRules(s(args.procedure)) })
+        }
+        case 'derive_deadline':
+        case 'register_service': {
+          requireIds({ caseId: s(args.caseId) })
+          const rawFact = s(args.serviceFact)
+          const fact: ServiceRequest['fact'] = rawFact === '送达' || rawFact === '收到' || rawFact === '作出' || rawFact === '生效' ? rawFact : undefined
+          const request: ServiceRequest = {
+            doc: String(args.doc ?? ''),
+            date: String(args.serviceDate ?? args.date ?? ''),
+            fact,
+            clientRole: s(args.clientRole),
+            docKind: s(args.docKind),
+            procedure: s(args.procedure),
+          }
+          if (request.doc === '' || request.date === '') {
+            throw new Error('doc 与 serviceDate 均必填（只登记触发事由，届满日由规则表派生）')
+          }
+          if (action === 'derive_deadline') {
+            return clean(await planPeriodRegistration(cs, String(args.caseId), request))
+          }
+          return clean(await applyPeriodRegistration(cs, String(args.caseId), request, deps.itemStore))
         }
 
         /* ---------------------- case folder memory file ------------------ */
@@ -904,6 +954,9 @@ const HTTP_ROUTE: Record<Action, { route: string; map?: (data: unknown) => unkno
   stage_suggestions: { route: 'stage-suggestions' },
   case_health: { route: 'case-health' },
   case_info: { route: 'case-info' },
+  period_rules: { route: 'period-rules' },
+  derive_deadline: { route: 'derive-deadline' },
+  register_service: { route: 'register-service' },
 }
 
 /** Build the request payload (route + action fields) for an action. */
@@ -968,6 +1021,18 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
       if (args.caseId !== undefined) body.caseId = s(args.caseId)
       if (args.folder !== undefined) body.path = s(args.folder)
       if (args.caseInfoAction !== undefined) body.action = s(args.caseInfoAction)
+      return body
+    case 'period_rules':
+      if (args.procedure !== undefined) body.procedure = s(args.procedure)
+      return body
+    case 'derive_deadline': case 'register_service':
+      body.caseId = s(args.caseId)
+      if (args.doc !== undefined) body.doc = s(args.doc)
+      if (args.serviceDate !== undefined) body.serviceDate = s(args.serviceDate)
+      if (args.serviceFact !== undefined) body.serviceFact = s(args.serviceFact)
+      if (args.docKind !== undefined) body.docKind = s(args.docKind)
+      if (args.clientRole !== undefined) body.clientRole = s(args.clientRole)
+      if (args.procedure !== undefined) body.procedure = s(args.procedure)
       return body
     case 'upsert_task': case 'delete_task':
       body.caseId = s(args.caseId)

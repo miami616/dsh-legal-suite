@@ -94,7 +94,7 @@ export async function sendDeadlineCard(rows: DeadlineItem[], titlePrefix?: strin
 
   const elements: Array<Record<string, unknown>> = []
   // 副标题：日期 + 说明（日程与任务都覆盖）。
-  elements.push({ tag: 'div', text: { tag: 'lark_md', content: `**${dateLine}** · 今日与明日到期的日程与任务` } })
+  elements.push({ tag: 'div', text: { tag: 'lark_md', content: `**${dateLine}** · 今日与明日到期，及逾期未完成的任务` } })
   elements.push({ tag: 'hr' })
 
   if (rows.length === 0) {
@@ -104,10 +104,12 @@ export async function sendDeadlineCard(rows: DeadlineItem[], titlePrefix?: strin
   rows.forEach((row, i) => {
     if (i > 0) elements.push({ tag: 'hr' })
     const time = row.time !== undefined && row.time !== '' ? ` · ${row.time}` : ''
-    // 今天 → 红色标签；明天 → 橙色标签（lark_md 内联 text_tag 语法）。
-    const tagHtml = row.daysLeft === 0
-      ? `<text_tag color='red'>今天</text_tag>`
-      : `<text_tag color='orange'>明天</text_tag>`
+    // 逾期任务 → 醒目标签（任务才有逾期语义）；今天 → 红；明天 → 橙。
+    const tagHtml = row.daysLeft < 0
+      ? `<text_tag color='red'>已逾期 ${-row.daysLeft} 天</text_tag>`
+      : row.daysLeft === 0
+        ? `<text_tag color='red'>今天</text_tag>`
+        : `<text_tag color='orange'>明天</text_tag>`
     elements.push({ tag: 'div', text: { tag: 'lark_md', content: `**${row.label}**${time} ${tagHtml}` } })
     // 案件名（与事项同名或为空时省略，如独立任务/无归属事项）。
     if (row.caseName !== undefined && row.caseName !== '' && row.caseName !== row.label) {

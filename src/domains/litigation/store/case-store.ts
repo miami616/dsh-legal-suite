@@ -132,7 +132,11 @@ export interface CaseStore {
   /** Delete a case. */
   deleteCase(caseId: string): Promise<{ deleted: boolean }>
   /** Key dates. */
-  addKeyDate(caseId: string, label: string, date: string): Promise<CaseRecord>
+  /**
+   * 登记关键日程。`meta` 供期限规则表派生登记传审计字段（ruleId/baseDate/cite/
+   * computeTrace）——带 ruleId+baseDate 时按该组合幂等更新，不新增重复行。
+   */
+  addKeyDate(caseId: string, label: string, date: string, meta?: Partial<KeyDate>): Promise<CaseRecord>
   toggleKeyDate(caseId: string, keyDateIdToToggle: string): Promise<CaseRecord>
   /** Task groups. */
   upsertTaskGroup(caseId: string, group: Partial<TaskGroup>): Promise<CaseRecord>
@@ -394,14 +398,37 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
       return { deleted }
     },
 
-    async addKeyDate(caseId: string, label: string, date: string): Promise<CaseRecord> {
+    async addKeyDate(caseId: string, label: string, date: string, meta?: Partial<KeyDate>): Promise<CaseRecord> {
       const now = nowIso()
       await store.mutate((reg) => {
         const current = reg.cases[caseId]
         if (current === undefined) throw new Error(`case not found: ${caseId}`)
         const next = clone(reg)
         const record = next.cases[caseId]
-        record.keyDates = [...(record.keyDates ?? []), { id: keyDateId(), label, date, done: false, createdAt: now, updatedAt: now } satisfies KeyDate]
+        // 派生登记（0.2.11）：同一 ruleId+baseDate 幂等——只更新日期/术语/审计字段，
+        // 不新增重复的关键日程（旧版按 label 去重，措辞一漂移就出两行）。
+        const ruleId = meta?.ruleId
+        const baseDate = meta?.baseDate
+        const existing = ruleId !== undefined && baseDate !== undefined
+          ? (record.keyDates ?? []).find((k) => k.ruleId === ruleId && k.baseDate === baseDate)
+          : undefined
+        if (existing !== undefined) {
+          existing.label = label
+          existing.date = date
+          existing.cite = meta?.cite ?? existing.cite
+          existing.computeTrace = meta?.computeTrace ?? existing.computeTrace
+          existing.derivedAt = now
+          existing.updatedAt = now
+        } else {
+          record.keyDates = [
+            ...(record.keyDates ?? []),
+            {
+              id: keyDateId(), label, date, done: false,
+              ...(meta ?? {}),
+              createdAt: now, updatedAt: now,
+            } satisfies KeyDate,
+          ]
+        }
         record.updatedAt = now
         next.lastUpdated = now
         return next

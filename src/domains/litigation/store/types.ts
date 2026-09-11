@@ -96,6 +96,17 @@ export interface KeyDate {
   label: string
   date: string
   done?: boolean
+  /* ---- 派生审计字段（0.2.11 期限规则表）：手工登记时全部留空 ---- */
+  /** 命中的规则 id（PeriodRule.id）——去重/幂等/审计一律用它，不用 label。 */
+  ruleId?: string
+  /** 起算日（送达/收到/生效之日）。 */
+  baseDate?: string
+  /** 法律依据。 */
+  cite?: string
+  /** 派生时间（ISO）。 */
+  derivedAt?: string
+  /** 人读计算过程——回答「为什么是这天」。 */
+  computeTrace?: string
   createdAt?: string
   updatedAt?: string
 }

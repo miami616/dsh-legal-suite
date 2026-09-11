@@ -18,7 +18,7 @@
  * 8:30 timer or a manual /run trigger).
  */
 
-import { computeDeadlines, type DeadlineItem } from '../litigation/deadlines.ts'
+import { computeDeadlines, eventKind, type DeadlineItem } from '../litigation/deadlines.ts'
 import { createCaseStore } from '../litigation/store/case-store.ts'
 import { JsonFileStore } from '../litigation/store/file-store.ts'
 import { createItemStore } from '../item/store/item-store.ts'
@@ -28,6 +28,17 @@ import { join } from 'node:path'
 
 /** 提醒窗口：今天（daysLeft === 0）与明天（daysLeft === 1）。 */
 export const WINDOW_DAYS = [0, 1]
+
+/**
+ * 推送窗口选择（0.2.11）：今天/明天到期的事项，**外加逾期未完成的任务**。
+ *
+ * 逾期只属于任务——日程过期即历史（vendor taskAggregation 的既有约定：
+ * events never go overdue），所以这里是 `kind === 'task' && daysLeft < 0`，
+ * 而不是对一切 kind 放宽。
+ */
+export function selectPushRows(items: DeadlineItem[]): DeadlineItem[] {
+  return items.filter((item) => WINDOW_DAYS.includes(item.daysLeft) || (item.kind === 'task' && item.daysLeft < 0))
+}
 
 /** Human "remaining" label for a deadline row. */
 export function remainingLabel(daysLeft: number): string {
@@ -267,14 +278,16 @@ export async function collectAllDeadlines(
       const isEvent = it.type === 'event' || it.type === 'both'
       const isTask = it.type === 'task' || it.type === 'both'
       const source = ownerType === 'standalone' ? 'standalone' : ownerType === 'nonlitigation' ? 'nonlitigation' : 'litigation'
-      // 事件 → 关键日程/时间轴（kind 按类型）。
+      // 事件 → 关键日程/时间轴（kind 按事件类型；0.2.11 修：旧代码只看 it.type，
+      // 于是所有事件都被当成 hearing/keydate，上诉期/举证期在卡片上标成「开庭」）。
       if (isEvent) {
+        const eventType = it.kind ?? (it.type === 'both' ? 'hearing' : 'case_event')
         items.push(makeItem({
           caseId: ownerId,
           caseName: ownerName,
           date: datePart(it.date),
           label: it.title,
-          kind: it.type === 'both' ? 'hearing' : 'keydate',
+          kind: eventKind(eventType),
           source,
           time: timePart(it.date) ?? it.time,
           detail: it.detail,
@@ -331,7 +344,12 @@ export async function runDeadlinePush(
   const items = await collectAllDeadlines(dirs.litigation, dirs.nonlitigation, dirs.tasks)
 
   // 2. Filter to the daily window: today (daysLeft === 0) and tomorrow (daysLeft === 1).
-  const due = items.filter((item) => WINDOW_DAYS.includes(item.daysLeft))
+  //
+  // ⚠ 逾期任务不设上限（0.2.11 修）：任务到期未完成就是**逾期**（taskAggregation
+  // 的 isTaskOverdue 语义），一个 09-24 到期未办的「递交起诉状」在 09-25 之后
+  // 从提醒里消失，等于把最该催的事静默掉了。日程仍维持 [0,1]——日程过期即历史，
+  // 不产生逾期，不重推。
+  const due = selectPushRows(items)
 
   // 3. Dedupe against the ledger (per-day: only today's records count).
   //    force=true（手动触发）绕过台账，推送窗口内全部。

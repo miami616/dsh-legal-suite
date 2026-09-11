@@ -1029,36 +1029,18 @@ export const FIRST_INSTANCE_STAGES = STAGE_TRACKS['一审']
 
 /* ---------------------------------------------------------- 期限规则 */
 
-export interface LegalPeriod {
-  name: string
-  days?: number
-  months?: number
-  years?: number
-  /** 起算点。 */
-  from: string
-  note?: string
-}
-
 /**
- * 常用法定期限（以现行法律与受诉法院要求为准）。
+ * 法定期限规则表已迁至 `./period-rules.ts`。
  *
- * 管家引用时**必须提示用户复核**：程序细节因审级、程序类型、法院口径而异，
- * 系统只能给出排期依据，不能替代对期限的实质判断。
+ * 旧版这里是 `LEGAL_PERIODS`（名称 → 天数）的平铺清单：不带程序、当事人地位、
+ * 触发文书、起算规则、顺延与法律依据，因而**无法参与任何计算**（全库零消费者），
+ * 也正是 2026-002 案「起诉期被登记成上诉期」的温床。
+ *
+ * 现统一为 `PeriodRule[]`：管家只登记触发事由，届满日由 `derivePeriod()` 派生，
+ * 规范术语取自规则的 `term`。**不保留双表**——双表必然再次分叉。
  */
-export const LEGAL_PERIODS: LegalPeriod[] = [
-  { name: '提交答辩状', days: 15, from: '被告收到起诉状副本之日', note: '民事一审；涉外为 30 日' },
-  { name: '举证期限', days: 15, from: '举证通知书载明', note: '一审普通程序不少于 15 日；简易程序不超过 15 日；小额诉讼一般不超过 7 日' },
-  { name: '民事上诉期（判决）', days: 15, from: '判决书送达之日' },
-  { name: '民事上诉期（裁定）', days: 10, from: '裁定书送达之日' },
-  { name: '刑事上诉/抗诉期', days: 10, from: '判决书送达之日' },
-  { name: '申请再审', months: 6, from: '判决、裁定生效之日', note: '有法定特殊情形的自知道或应当知道之日起 6 个月' },
-  { name: '申请执行期间', years: 2, from: '法律文书规定履行期间的最后一日起' },
-  { name: '立案审查', days: 7, from: '法院收到起诉状之日', note: '符合起诉条件的应立案并通知当事人' },
-  { name: '诉前保全后起诉', days: 30, from: '法院采取保全措施之日', note: '逾期不起诉的，法院解除保全' },
-  { name: '执行立案审查', days: 7, from: '法院收到执行申请之日' },
-  { name: '劳动仲裁时效', years: 1, from: '当事人知道或应当知道权利被侵害之日' },
-  { name: '不服劳动仲裁裁决起诉', days: 15, from: '收到仲裁裁决书之日' },
-]
+export { PERIOD_RULES, derivePeriod, matchPeriodRules, summarizeRules } from './period-rules.ts'
+export type { PeriodRule, DerivedPeriod } from './period-rules.ts'
 
 /* -------------------------------------------------------- 排期提前量 */
 
@@ -1102,6 +1084,29 @@ export const LEAD_TIME_RULES: LeadTimeRule[] = [
       { days: 5, item: '取得当事人书面确认' },
       { days: 3, item: '完成上诉状起草与内部复核' },
       { days: 2, item: '递交上诉状并缴纳上诉费' },
+    ],
+  },
+  {
+    // 劳动仲裁轨（劳动争议调解仲裁法 §50）：不服非终局裁决的 15 日起诉期。
+    // 2026-002 案暴露的缺口——原四条锚点链没有这一条，导致起诉期只能靠人工
+    // 在日历上盯，没有任何动作节点兜底。
+    anchor: '起诉期届满',
+    steps: [
+      { days: 10, item: '领取并研读仲裁裁决书，评估起诉可行性' },
+      { days: 7, item: '取得当事人书面起诉确认' },
+      { days: 5, item: '完成起诉状起草与内部复核' },
+      { days: 3, item: '递交起诉状并办理立案' },
+    ],
+  },
+  {
+    // 答辩期：法定 15 日（民诉法 §128）/ 劳动仲裁 10 日。答辩状不提交不影响
+    // 审理，但答辩要点必须在期内固定，否则庭上被动。
+    anchor: '答辩期届满',
+    steps: [
+      { days: 7, item: '研读起诉状副本与对方证据' },
+      { days: 5, item: '梳理答辩要点与反驳思路' },
+      { days: 3, item: '完成答辩状起草与内部复核' },
+      { days: 2, item: '提交答辩状并留存递交回执' },
     ],
   },
   {

@@ -25,6 +25,22 @@ import { hydrateCaseTaskGroups, hydrateRegistryTaskGroups } from './task-view.ts
 import { selfVersion } from './self-version.ts'
 import { applyStageExpansion, detectStageSuggestions, planStageExpansion } from './stage-expansion.ts'
 import { computeCaseHealth, computeRegistryHealth } from './health.ts'
+import { applyPeriodRegistration, listRules, planPeriodRegistration, type ServiceRequest } from './period-service.ts'
+
+/** HTTP body → 期限登记请求（0.2.11）。 */
+function serviceRequest(b: Record<string, unknown>): ServiceRequest {
+  const rawFact = b.serviceFact === undefined ? undefined : String(b.serviceFact)
+  const fact: ServiceRequest['fact'] =
+    rawFact === '送达' || rawFact === '收到' || rawFact === '作出' || rawFact === '生效' ? rawFact : undefined
+  return {
+    doc: String(b.doc ?? ''),
+    date: String(b.serviceDate ?? b.date ?? ''),
+    fact,
+    clientRole: b.clientRole === undefined ? undefined : String(b.clientRole),
+    docKind: b.docKind === undefined ? undefined : String(b.docKind),
+    procedure: b.procedure === undefined ? undefined : String(b.procedure),
+  }
+}
 
 /** Route prefix for the whole family. */
 export const API_PREFIX = '/api/agentlex-case'
@@ -525,17 +541,24 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
 
   route(`${API_PREFIX}/event`, async (d, b, res) => {
     // 统一事项模型：时间轴事件写 items.json（type=event）。
+    // ⚠ id 双拼写兼容（0.2.11 修 Bug）：agent 工具层 buildBody 发的是 `id`，
+    // 浏览器/curl 侧历史上发 `eventId`。旧代码只读 `b.eventId` → 工具层传的 id
+    // 落空 → upsert 退化成新建，同一事项出现两条日程（幂等性被破坏）。
+    const eventId = b.eventId ?? b.id
     if (d.itemStore !== undefined) {
       const created = await d.itemStore.upsertItem({
         ownerId: String(b.caseId ?? ''),
         ownerType: 'litigation',
         type: 'event',
+        // kind 落库（0.2.11 修 Bug）：旧代码完全没传 kind，事件类型永远为 null，
+        // 期限汇总只能按 it.type 归类 → 上诉期/举证期被标成「开庭」。
+        kind: b.kind === undefined ? (b.type === undefined ? undefined : String(b.type)) : String(b.kind),
         title: String(b.title ?? b.label ?? '新事件'),
         date: b.date === undefined ? undefined : String(b.date),
         time: b.time === undefined ? undefined : String(b.time),
         detail: b.detail === undefined ? undefined : String(b.detail),
         status: (b.status as never) ?? 'pending',
-        ...(b.eventId !== undefined ? { id: String(b.eventId) } : {}),
+        ...(eventId !== undefined && eventId !== '' ? { id: String(eventId) } : {}),
       })
       // 备忘 #21：事件增改后 bump 案件 updatedAt（与任务一致，卡片按最近更新置顶）。
       await d.caseStore.updateCase(String(b.caseId ?? ''), {})
@@ -649,8 +672,10 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
   // 路径必须是 case-health：`/health` 已被上面的插件健康检查占用，
   // 同一路径注册两次会在启动时崩溃（历史上 /events 就踩过这个坑）。
   route(`${API_PREFIX}/case-health`, async (d, b, res) => {
+    const events = d.itemStore === undefined ? undefined : await d.itemStore.listItems()
     const opts = {
       deadlines: d.deadlines === undefined ? undefined : async (caseId: string) => await d.deadlines!(caseId),
+      events,
     }
     const caseId = b.caseId === undefined ? undefined : String(b.caseId)
     if (caseId !== undefined && caseId !== '') {
@@ -671,6 +696,34 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       includeClosed: b.includeClosed === true,
     })
     ok(res, { count: cases.length, cases })
+  })
+
+  /* ------------------- 法定期限规则表（0.2.11） ---------------------- */
+  // 只登记触发事由，届满日由规则表派生：derive-deadline 只读预览，
+  // register-service 落「关键日程 + 时间轴日程 + 提前量任务链」三件套。
+  route(`${API_PREFIX}/period-rules`, async (_d, b, res) => {
+    const rules = listRules(b.procedure === undefined ? undefined : String(b.procedure))
+    ok(res, { count: rules.length, rules })
+  })
+
+  route(`${API_PREFIX}/derive-deadline`, async (d, b, res) => {
+    const caseId = String(b.caseId ?? '')
+    if (caseId === '') return fail(res, 'caseId required')
+    try {
+      ok(res, await planPeriodRegistration(d.caseStore, caseId, serviceRequest(b)))
+    } catch (error) {
+      fail(res, error, 400)
+    }
+  })
+
+  route(`${API_PREFIX}/register-service`, async (d, b, res) => {
+    const caseId = String(b.caseId ?? '')
+    if (caseId === '') return fail(res, 'caseId required')
+    try {
+      ok(res, await applyPeriodRegistration(d.caseStore, caseId, serviceRequest(b), d.itemStore))
+    } catch (error) {
+      fail(res, error, 400)
+    }
   })
 
   /* ------------------------------- import ----------------------------- */

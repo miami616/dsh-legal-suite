@@ -280,6 +280,7 @@ export function createCaseStore(dataDir: string, ctx?: Context): CaseStore {
           status: input.status === undefined ? undefined : String(input.status),
           court: input.court === undefined ? undefined : String(input.court),
           judge: input.judge === undefined ? undefined : String(input.judge),
+          judgePhone: input.judgePhone === undefined ? undefined : String(input.judgePhone),
           level: input.level === undefined ? undefined : String(input.level),
           caseNumber: input.caseNumber === undefined ? undefined : String(input.caseNumber),
           claimAmount: input.claimAmount === undefined ? undefined : String(input.claimAmount),

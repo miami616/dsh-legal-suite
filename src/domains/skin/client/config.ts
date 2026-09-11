@@ -24,7 +24,8 @@ export interface AgentLexSkinConfig {
   /** 工作区右边栏（workspace-sidebar）开关。 */
   workspaceSidebarEnabled: boolean
   /** 会话内文件/链接点击用侧边栏打开。 */
-  openReferencesInSidebar: boolean
+  /** 会话绑定案件/项目时，右边栏自动带上「案件卷宗」面板。 */
+  autoOpenCaseTab: boolean
   /** 备忘录（memo）开关。 */
   memoEnabled: boolean
   /** 外观主题 key：见 themes.ts AGENTLEX_THEMES（warm/pure/jade/ink/wisteria/orange/codex/cinnabar/indigo/celadon/onyx） */
@@ -54,7 +55,7 @@ const DEFAULT_CONFIG: AgentLexSkinConfig = {
   taskEnabled: true,
   skillsToolsEnabled: true,
   workspaceSidebarEnabled: true,
-  openReferencesInSidebar: true,
+  autoOpenCaseTab: true,
   memoEnabled: true,
   theme: DEFAULT_THEME_KEY,
   conversationJustify: true,
@@ -143,7 +144,7 @@ export function setSkinConfig(next: Partial<AgentLexSkinConfig>): void {
     taskEnabled: effective(config.taskEnabled),
     skillsToolsEnabled: effective(config.skillsToolsEnabled),
     workspaceSidebarEnabled: effective(config.workspaceSidebarEnabled),
-    openReferencesInSidebar: effective(config.openReferencesInSidebar),
+    autoOpenCaseTab: effective(config.autoOpenCaseTab),
     memoEnabled: effective(config.memoEnabled),
   })
   if (typeof window !== 'undefined') {
@@ -156,7 +157,7 @@ export function setSkinConfig(next: Partial<AgentLexSkinConfig>): void {
         taskEnabled: effective(config.taskEnabled),
         skillsToolsEnabled: effective(config.skillsToolsEnabled),
         workspaceSidebarEnabled: effective(config.workspaceSidebarEnabled),
-        openReferencesInSidebar: effective(config.openReferencesInSidebar),
+        autoOpenCaseTab: effective(config.autoOpenCaseTab),
         memoEnabled: effective(config.memoEnabled),
         conversationJustify: config.conversationJustify,
         conversationEnhance: config.conversationEnhance,

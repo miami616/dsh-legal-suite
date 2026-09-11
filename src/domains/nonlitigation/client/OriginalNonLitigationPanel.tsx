@@ -54,6 +54,15 @@ export function OriginalNonLitigationPanel({ launchManager, onClose, getArchived
     })
   }, [launchManager, bindProjectSession, projects, onClose])
 
+  // 「在侧边栏打开」项目卷宗：走与诉讼侧同一条通道 ——
+  // agentlex-workspace:panel-open（展开右边栏）+ reveal-request（把该目录设为
+  // 「案件卷宗」tab 的根并打开）。官方右边栏缺席时由自绘面板接住。
+  const handleOpenProjectFolder = useCallback((folder: string) => {
+    // 先 reveal（决定右边栏宽度），再 panel-open。
+    window.dispatchEvent(new CustomEvent('agentlex-workspace:reveal-request', { detail: { path: folder } }))
+    window.dispatchEvent(new CustomEvent('agentlex-workspace:panel-open'))
+  }, [])
+
   return (
     <ImagePreviewProvider>
       <ToastProvider>
@@ -69,6 +78,7 @@ export function OriginalNonLitigationPanel({ launchManager, onClose, getArchived
             selectedProjectId={selectedProjectId}
             onSelectProject={setSelectedProjectId}
             onStartProjectService={handleStartProjectService}
+            onOpenProjectFolder={handleOpenProjectFolder}
             getArchivedSessionIds={getArchivedSessionIds}
             trafficInset={0}
             hasDockedSession={false}

@@ -28,6 +28,8 @@ interface NonLitigationDetailPageProps {
   isActive?: boolean;
   /** Launch a sub-service session inside this project */
   onStartProjectService: (typeId: string, message: string) => void;
+  /** 在右侧边栏（官方右边栏「案件卷宗」tab）打开该项目卷宗文件夹。 */
+  onOpenProjectFolder?: (folder: string) => void;
   /** Resolves the DSH workspace archive set — archived sessions are hidden
    *  from the historical-session dropdown. */
   getArchivedSessionIds?: () => Promise<Set<string>>;
@@ -58,8 +60,19 @@ function AgentSessionButton({
   getArchivedSessionIds?: () => Promise<Set<string>>;
 }) {
   const [open, setOpen] = useState(false);
-  const [archivedIds, setArchivedIds] = useState<ReadonlySet<string>>(new Set());
+  // null = 归档集合尚未取回（此时不显示数量，避免把已归档会话算进去后
+  // 点开按钮又「立刻掉回」真实数量的闪烁——备忘 #32）。
+  const [archivedIds, setArchivedIds] = useState<ReadonlySet<string> | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  // 挂载层传入的取函数每次渲染都可能是新引用；用 ref 持有最新值，让预取
+  // effect 只依赖 boundSessions，不会自我触发。
+  const archivedFetcherRef = useRef(getArchivedSessionIds);
+  archivedFetcherRef.current = getArchivedSessionIds;
+  const refreshArchived = useCallback((): void => {
+    void (archivedFetcherRef.current?.() ?? Promise.resolve(new Set<string>()))
+      .then(setArchivedIds)
+      .catch(() => setArchivedIds(new Set<string>()));
+  }, []);
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -67,17 +80,23 @@ function AgentSessionButton({
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
 
+  // 进页面即预取归档集合（绑定变化 / 窗口重新聚焦时刷新）。
+  useEffect(() => { refreshArchived(); }, [refreshArchived, boundSessions]);
+  useEffect(() => {
+    const onFocus = (): void => refreshArchived();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshArchived]);
+
   const mySessions = boundSessions.filter(s =>
-    (s.agentKey ?? 'contracts') === agent.key && !archivedIds.has(s.sessionId));
+    (s.agentKey ?? 'contracts') === agent.key && !(archivedIds?.has(s.sessionId) ?? false));
 
   const toggle = (): void => {
     if (mySessions.length === 0) { onOpen(); return; }
     if (!open) {
       // Refresh the archive set on every open so sessions archived in the
       // DSH workspace disappear from the list immediately.
-      void (getArchivedSessionIds?.() ?? Promise.resolve(new Set<string>()))
-        .then(setArchivedIds)
-        .catch(() => {});
+      refreshArchived();
     }
     setOpen(!open);
   };
@@ -88,7 +107,7 @@ function AgentSessionButton({
         className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-[var(--ink)] text-[var(--paper)] hover:opacity-90 shadow-sm transition-all">
         <agent.Icon size={14} />
         {agent.label}
-        {mySessions.length > 0 && <span className="ml-0.5 opacity-60">({mySessions.length}) ▾</span>}
+        {archivedIds !== null && mySessions.length > 0 && <span className="ml-0.5 opacity-60">({mySessions.length}) ▾</span>}
       </button>
       {open && mySessions.length > 0 && (
         <div className="absolute top-full right-0 mt-1 w-60 bg-[var(--paper-elevated)] border border-[var(--paper-inset)] rounded-xl shadow-xl z-50 py-1 overflow-hidden">
@@ -115,7 +134,7 @@ function AgentSessionButton({
 }
 
 export default memo(function NonLitigationDetailPage({
-  projectId, isActive: _isActive, onStartProjectService, getArchivedSessionIds,
+  projectId, isActive: _isActive, onStartProjectService, onOpenProjectFolder, getArchivedSessionIds,
 }: NonLitigationDetailPageProps) {
   const {
     projects, timelineEvents, schedules, updateProject,
@@ -525,6 +544,9 @@ export default memo(function NonLitigationDetailPage({
                           className="flex items-center gap-1 hover:text-[var(--blue)] transition-colors cursor-pointer" title="在 Finder 中打开">
                           <FolderOpen size={12} className="text-[var(--ink-muted)] shrink-0" />{entry.folder.split('/').pop()}
                         </button>
+                        {onOpenProjectFolder && (
+                          <button onClick={() => onOpenProjectFolder(entry.folder!)} className="ml-2 text-xs text-[var(--ink-muted)] hover:text-[var(--ink)]">在侧边栏打开</button>
+                        )}
                         <button onClick={handleBindFolder} className="ml-2 text-xs text-[var(--ink-muted)] hover:text-[var(--ink)]">更换</button>
                       </>
                     ) : (

@@ -192,8 +192,9 @@ export function openCaseFolderInSidebar(
   // Fallback（better-sidebar 未装配 / 已淘汰）：路由到
   // dsh-legal-suite/workspace-sidebar 原生右侧面板——先打开面板，
   // 再派发 reveal 请求让其在树内定位案件文件夹根。
-  window.dispatchEvent(new CustomEvent('agentlex-workspace:panel-open', { detail: {} }))
+  // 先 reveal（决定右边栏宽度），再 panel-open。
   window.dispatchEvent(
     new CustomEvent('agentlex-workspace:reveal-request', { detail: { path: folder } }),
   )
+  window.dispatchEvent(new CustomEvent('agentlex-workspace:panel-open', { detail: {} }))
 }

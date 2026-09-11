@@ -17,6 +17,7 @@ import { ImagePreviewProvider } from './ImagePreviewContext.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import DirectoryPanel from './DirectoryPanel.tsx'
 import { chatInputBridge } from './chat-input-bridge.ts'
+import { i18n as rendererI18n } from '@/i18n'
 import { queryBinding, type WorkspaceBinding } from './bindings.ts'
 import { pickDirectoryPath } from '../../../shared/folder-picker.ts'
 
@@ -25,6 +26,39 @@ export interface WorkspacePanelProps {
   sessionId?: string
   /** Session workspace cwd (from the sessions feed). */
   cwd?: string
+  /**
+   * Preferred tree root when the session is bound to a case/project folder
+   * (official right sidebar tab: 案件/项目卷宗文件夹优先于会话工作区打开).
+   * The real `cwd` stays reachable through「回到工作区」.
+   */
+  preferredRoot?: string | null
+  /**
+   * 树根优先落在会话绑定的案件/项目卷宗文件夹上（官方右边栏 tab 用）。
+   * 默认 false —— 自绘面板保持「跟随会话工作区、案件文件夹需手动切」的旧语义。
+   */
+  preferBindingFolder?: boolean
+  /**
+   * 精简工具条（右边栏 tab 用）：只留「搜索 / 切换目录 / 返回卷宗」，
+   * 不带「案件·项目」跳转 chip、也不带无谓的「回到工作区」。
+   */
+  minimalChrome?: boolean
+  /**
+   * 文件打开交给 DSH 原生预览（我们插件不再自带预览）。给了它，树里的
+   * 文件点击/回车一律回调它，内置预览弹层不再渲染。
+   */
+  onOpenFileNative?: (absolutePath: string) => void
+  /**
+   * 「返回卷宗」时清掉外部的根覆盖（详情页「在侧边栏打开」定向过来的目录）。
+   * 只切 rootSource 是不够的 —— 覆盖还在，auto 会又把根解析回那个目录。
+   */
+  onClearPreferredRoot?: () => void
+}
+
+/** 把树里的相对路径拼成绝对路径（已经是绝对路径就原样返回）。 */
+function toAbsolute(root: string, path: string): string {
+  if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) return path
+  const base = root.replace(/[\\/]+$/, '')
+  return base === '' ? path : `${base}/${path.replace(/^\.\//, '')}`
 }
 
 function baseName(path: string): string {
@@ -33,13 +67,34 @@ function baseName(path: string): string {
   return at === -1 ? trimmed : trimmed.slice(at + 1)
 }
 
-export function WorkspacePanel({ sessionId, cwd }: WorkspacePanelProps): ReactNode {
-  const [manualRoot, setManualRoot] = useState<string | null>(null)
+/**
+ * 把卷宗面板的语言钉到**中文**。
+ *
+ * 起因：面板自带的右键菜单走 vendored i18n，其初始语言取 `navigator.language`
+ * （或 DSH 应用语言）—— 只要环境是英文，同一个右边栏里就会出现「卷宗面板菜单
+ * = 英文、原生树菜单 = 中文」两套并存（用户 2026-09-11 反馈「两种右键菜单不
+ * 一致」）。AgentLex 这套业务界面本来就是中文产品（诉讼/非诉/任务面板全部
+ * 硬编码中文），这里统一跟随产品语言，两处菜单才真正一致。
+ */
+function useAppLocale(): void {
+  useEffect(() => {
+    if (rendererI18n.language !== 'zh-CN') void rendererI18n.changeLanguage('zh-CN')
+  }, [])
+}
+
+export function WorkspacePanel({ sessionId, cwd, preferredRoot = null, preferBindingFolder = false, minimalChrome = false, onOpenFileNative, onClearPreferredRoot }: WorkspacePanelProps): ReactNode {
+  useAppLocale()
   const [refreshTick, setRefreshTick] = useState(0)
-  const [currentRoot, setCurrentRoot] = useState<string>(cwd ?? '')
+  // 根目录来源：auto = 绑定卷宗优先（preferredRoot）否则会话工作区；
+  // workspace = 用户显式回到会话工作区；manual = 用户手选目录。
+  const [rootSource, setRootSource] = useState<'auto' | 'workspace' | 'manual'>('auto')
+  const [manualPath, setManualPath] = useState('')
 
   // 案件/项目绑定（当前会话 ↔ case/project folder）
   const [binding, setBinding] = useState<WorkspaceBinding | null>(null)
+  // 绑定查询是否已落定（preferBindingFolder 时先等它，避免先渲染会话工作区
+  // 再跳到卷宗文件夹的闪动）。
+  const [bindingChecked, setBindingChecked] = useState(false)
 
   // ── 文件搜索开关（按钮在工具条，状态传给 DirectoryPanel）──
   const [searchMode, setSearchMode] = useState(false)
@@ -50,27 +105,49 @@ export function WorkspacePanel({ sessionId, cwd }: WorkspacePanelProps): ReactNo
 
   const treeStateRef = useRef<{ openPaths: Set<string>; directoryInfo: null }>({ openPaths: new Set(), directoryInfo: null })
 
-  // ── 根目录：跟随会话 cwd，除非用户手动切换（保留原语义）──
-  useEffect(() => {
-    if (manualRoot === null && cwd) setCurrentRoot(cwd)
-  }, [cwd, manualRoot])
+  // ── 根目录解析：auto 时绑定卷宗 / preferredRoot 优先，否则跟随会话 cwd ──
+  const bindingRoot = binding !== null && binding.folder !== null && binding.folder !== '' ? binding.folder : null
+  const autoRoot = preferredRoot !== null && preferredRoot !== ''
+    ? preferredRoot
+    : (preferBindingFolder && bindingRoot !== null ? bindingRoot : (cwd ?? ''))
+  const currentRoot = rootSource === 'manual'
+    ? manualPath
+    : rootSource === 'workspace'
+      ? (cwd ?? '')
+      : autoRoot
+  /** 根被钉在了别的目录（详情页「在侧边栏打开」定向 / 用户手动切换）。 */
+  const canReturnToCase = (preferredRoot !== null && preferredRoot !== '') || rootSource !== 'auto'
 
   // ── 绑定查询：会话绑定到案件/项目时拿到其文件夹 ──
   useEffect(() => {
     let active = true
     if (!sessionId) {
       setBinding(null)
+      setBindingChecked(true)
       return
     }
-    void queryBinding(sessionId).then((found) => {
-      if (active) setBinding(found)
-    })
-    return () => { active = false }
+    const load = (): void => {
+      void queryBinding(sessionId).then((found) => {
+        if (active) {
+          setBinding(found)
+          setBindingChecked(true)
+        }
+      })
+    }
+    load()
+    // 绑定关系可能在本页打开之后建立（如刚建会话并绑案）——监听注册表变化重查。
+    window.addEventListener('agentlex:registry-changed', load)
+    window.addEventListener('agentlex:session-bound', load)
+    return () => {
+      active = false
+      window.removeEventListener('agentlex:registry-changed', load)
+      window.removeEventListener('agentlex:session-bound', load)
+    }
   }, [sessionId])
 
   const handleConfirmRoot = useCallback((path: string) => {
-    setManualRoot(path)
-    setCurrentRoot(path)
+    setRootSource('manual')
+    setManualPath(path)
     setRefreshTick((t) => t + 1)
   }, [])
 
@@ -146,6 +223,15 @@ export function WorkspacePanel({ sessionId, cwd }: WorkspacePanelProps): ReactNo
     chatInputBridge.insertSlashCommand(command)
   }, [])
 
+  // preferBindingFolder：先等绑定查询落定，避免「会话工作区 → 卷宗文件夹」闪动。
+  if (preferBindingFolder && !bindingChecked) {
+    return (
+      <div className="flex h-full items-center justify-center px-4 text-sm text-[var(--ink-muted)]">
+        正在解析案件卷宗…
+      </div>
+    )
+  }
+
   if (!sessionId || !currentRoot) {
     return (
       <div className="flex h-full items-center justify-center px-4 text-sm text-[var(--ink-muted)]">
@@ -154,7 +240,12 @@ export function WorkspacePanel({ sessionId, cwd }: WorkspacePanelProps): ReactNo
     )
   }
 
-  const rootLabel = binding?.kind === 'case' ? binding.name : (baseName(currentRoot) === '' ? '工作区' : baseName(currentRoot))
+  // 标题跟随**当前根**：绑定卷宗与当前根一致时用案件名（更好读），否则用目录名。
+  // （之前只要是绑定案件就恒显案件名，切换目录后标题不变。）
+  const currentBase = baseName(currentRoot)
+  const rootLabel = binding !== null && binding.folder !== null && currentRoot === binding.folder
+    ? binding.name
+    : (currentBase === '' ? '工作区' : currentBase)
 
   return (
     <ToastProvider>
@@ -179,18 +270,39 @@ export function WorkspacePanel({ sessionId, cwd }: WorkspacePanelProps): ReactNo
           </button>
           <div className="min-w-0 flex-1" />
           <div className="flex flex-shrink-0 items-center gap-0.5">
-            {binding?.kind === 'case' && binding.folder !== null && (
-              <span className="mr-0.5 rounded bg-[var(--paper-inset)] px-1.5 py-0.5 text-[10px] text-[var(--accent-warm)]">案件</span>
-            )}
-            {/* 手动切换过目录时，提供一键回到会话工作区 */}
-            {manualRoot !== null && cwd !== '' && manualRoot !== cwd && (
+            {/* minimalChrome：不带「案件/项目」跳转 chip 与「回到工作区」这类
+                与当前卷宗无关的按钮（用户明确要求精简）。 */}
+            {!minimalChrome && binding !== null && binding.folder !== null && (
               <button
                 type="button"
-                onClick={() => { setManualRoot(null); setCurrentRoot(cwd); setRefreshTick((t) => t + 1) }}
+                onClick={() => { setRootSource('auto'); setRefreshTick((t) => t + 1) }}
+                title={`打开${binding.kind === 'case' ? '案件卷宗' : '项目'}文件夹：${binding.folder}`}
+                className={`mr-0.5 rounded px-1.5 py-0.5 text-[10px] transition-colors hover:bg-[var(--paper-inset)] ${
+                  currentRoot === binding.folder ? 'bg-[var(--paper-inset)] text-[var(--accent-warm)]' : 'text-[var(--ink-muted)]'
+                }`}
+              >
+                {binding.kind === 'case' ? '案件' : '项目'}
+              </button>
+            )}
+            {!minimalChrome && cwd !== '' && currentRoot !== cwd && (
+              <button
+                type="button"
+                onClick={() => { setRootSource('workspace'); setRefreshTick((t) => t + 1) }}
                 className="flex h-6 items-center rounded px-1.5 text-xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--paper-inset)] hover:text-[var(--ink)]"
                 title={`回到会话工作区：${cwd}`}
               >
                 回到工作区
+              </button>
+            )}
+            {/* 覆盖来自外部（详情页「在侧边栏打开」）时，给一个回到本会话卷宗的入口 */}
+            {minimalChrome && canReturnToCase && (
+              <button
+                type="button"
+                onClick={() => { onClearPreferredRoot?.(); setRootSource('auto'); setRefreshTick((t) => t + 1) }}
+                className="flex h-6 items-center rounded px-1.5 text-xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--paper-inset)] hover:text-[var(--ink)]"
+                title="回到本会话绑定的卷宗"
+              >
+                返回卷宗
               </button>
             )}
             <button
@@ -207,11 +319,16 @@ export function WorkspacePanel({ sessionId, cwd }: WorkspacePanelProps): ReactNo
         <div className="flex min-h-0 flex-1 flex-col" data-agentlex-workspace-views-file>
           <DirectoryPanel
             agentDir={currentRoot}
-            caseFolder={binding?.kind === 'case' ? binding.folder : null}
+            /* ⚠ 只有「自动跟随」时才把绑定卷宗交给 DirectoryPanel 做 case/workspace
+               切换；用户手动选了目录或外部定向之后必须交 null，否则 DirectoryPanel
+               的 effectiveRoot 会被 caseFolder 顶回去 —— 这正是「切换目录没反应」
+               的根因。minimalChrome 下也不给（那一档已经藏了根切换）。 */
+            caseFolder={!minimalChrome && rootSource === 'auto' && binding?.kind === 'case' ? binding.folder : null}
             caseName={binding?.kind === 'case' ? binding.name : null}
             bindingKind={binding?.kind ?? null}
             projectDisplayName={rootLabel}
             projectIcon={undefined}
+            hideRootSwitcher={minimalChrome}
             provider={undefined}
             providers={undefined}
             onProviderChange={undefined}
@@ -236,7 +353,12 @@ export function WorkspacePanel({ sessionId, cwd }: WorkspacePanelProps): ReactNo
             onInsertSlashCommand={handleInsertSlashCommand}
             onOpenSettings={undefined}
             onSyncSkillToGlobal={undefined}
-            onFilePreviewExternal={undefined}
+            /* 原生预览：内部弹层靠 onFilePreviewExternal 关闭，实际打开走
+               onOpenFileNative。⚠ DirectoryPanel 给的 node.path 是**相对树根**的
+               路径（官方 workspace_files 的树就是这样），这里必须先拼成绝对路径，
+               否则原生预览会到会话工作区里找一个不存在的同名文件。 */
+            onFilePreviewExternal={onOpenFileNative === undefined ? undefined : (data) => onOpenFileNative(toAbsolute(currentRoot, data.path))}
+            onOpenFileNative={onOpenFileNative === undefined ? undefined : (path) => onOpenFileNative(toAbsolute(currentRoot, path))}
           />
         </div>
         </ErrorBoundary>

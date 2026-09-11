@@ -81,6 +81,7 @@ const PARAMETERS = {
   status: { type: 'string', description: `进度，取值须与审级 level 匹配的规范阶梯：${LADDER_LABELS}。level 未指明时按一审阶梯校验` },
   court: { type: 'string', description: '受理法院' },
   judge: { type: 'string', description: '承办法官' },
+  judgePhone: { type: 'string', description: '承办法官联系电话（法官/书记员对外联系方式）' },
   level: { type: 'string', description: '审级/程序：一审/二审/再审/劳动仲裁/商事仲裁/首次执行/恢复执行/刑事。update_case 设 level 时自动追加到审级历程（instances）。转二审/再审/执行 = 切 level（任务在对应轨模板展开），不是堆任务' },
   instances: { type: 'json', description: '审级历程数组（可选，update_case 传则整体覆盖）：[{ level, status?, caseNo?, court?, plaintiff?, defendant?, result? }]，按时间先后排列。通常不传，靠 level 自动同步' },
   claimAmount: { type: 'string', description: '标的额，如 84000 或 8.4万' },
@@ -391,6 +392,8 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
               level: record.level,
               caseNumber: record.caseNumber,
               court: record.court,
+              judge: record.judge,
+              judgePhone: record.judgePhone,
             }))
           }
           return clean(await readCaseInfoFile(folder))
@@ -436,7 +439,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
         case 'update_case': {
           requireIds({ caseId: s(args.caseId) })
           const patch: Record<string, unknown> = {}
-          for (const key of ['name', 'type', 'cause', 'status', 'court', 'judge', 'level', 'claimAmount', 'filingDate', 'ourSide', 'caseNumber', 'summary', 'folder', 'expandOnStatus'] as const) {
+          for (const key of ['name', 'type', 'cause', 'status', 'court', 'judge', 'judgePhone', 'level', 'claimAmount', 'filingDate', 'ourSide', 'caseNumber', 'summary', 'folder', 'expandOnStatus'] as const) {
             const value = s(args[key])
             if (value !== undefined) patch[key] = value
           }
@@ -917,7 +920,7 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
       if (typeof args.includeOverdue === 'boolean') body.includeOverdue = args.includeOverdue
       return body
     case 'register_case':
-      for (const key of ['name', 'type', 'cause', 'status', 'court', 'judge', 'level', 'claimAmount', 'filingDate', 'ourSide', 'caseNumber', 'summary', 'folder'] as const) {
+      for (const key of ['name', 'type', 'cause', 'status', 'court', 'judge', 'judgePhone', 'level', 'claimAmount', 'filingDate', 'ourSide', 'caseNumber', 'summary', 'folder'] as const) {
         const value = s(args[key])
         if (value !== undefined) body[key] = value
       }
@@ -931,7 +934,7 @@ function buildBody(action: Action, args: Record<string, unknown>): Record<string
       if (args.label !== undefined) body.label = s(args.label)
       if (args.date !== undefined) body.date = s(args.date)
       if (action === 'update_case') {
-        for (const key of ['name', 'type', 'cause', 'status', 'court', 'judge', 'level', 'claimAmount', 'filingDate', 'ourSide', 'caseNumber', 'summary', 'folder', 'expandOnStatus'] as const) {
+        for (const key of ['name', 'type', 'cause', 'status', 'court', 'judge', 'judgePhone', 'level', 'claimAmount', 'filingDate', 'ourSide', 'caseNumber', 'summary', 'folder', 'expandOnStatus'] as const) {
           const value = s(args[key])
           if (value !== undefined) body[key] = value
         }

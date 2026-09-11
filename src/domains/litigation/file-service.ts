@@ -271,6 +271,7 @@ export async function readCaseInfoFile(root: string): Promise<CaseInfoResult> {
 export async function ensureCaseInfoFile(root: string, seed: {
   caseId?: string; caseName?: string; type?: string; cause?: string;
   statusLabel?: string; level?: string; caseNumber?: string; court?: string;
+  judge?: string; judgePhone?: string;
 }): Promise<CaseInfoResult & { created: boolean }> {
   const base = resolve(root)
   const existing = await readCaseInfoFile(base)
@@ -291,6 +292,8 @@ export async function ensureCaseInfoFile(root: string, seed: {
     `| 审级 | ${seed.level ?? ''} |`,
     `| 案号 | ${seed.caseNumber ?? ''} |`,
     `| 审理法院 | ${seed.court ?? ''} |`,
+    `| 承办法官 | ${seed.judge ?? ''} |`,
+    `| 法官联系电话 | ${seed.judgePhone ?? ''} |`,
     '',
     '## 当事人',
     '',

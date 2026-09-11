@@ -29,6 +29,9 @@ export interface Config {
   taskEnabled?: boolean
   skillsToolsEnabled?: boolean
   workspaceSidebarEnabled?: boolean
+  /** 会话绑定案件/项目时，右边栏自动带上「案件卷宗」面板。 */
+  autoOpenCaseTab?: boolean
+  /** @deprecated 旧键：语义已被 autoOpenCaseTab 取代，仅作迁移回退读取。 */
   openReferencesInSidebar?: boolean
   memoEnabled?: boolean
   theme?: string
@@ -58,7 +61,7 @@ export const Config: z<Config> = z.object({
   taskEnabled: z.boolean().default(true),
   skillsToolsEnabled: z.boolean().default(true),
   workspaceSidebarEnabled: z.boolean().default(true),
-  openReferencesInSidebar: z.boolean().default(true),
+  autoOpenCaseTab: z.boolean().default(true),
   memoEnabled: z.boolean().default(true),
   theme: z.string().default('warm'),
   conversationJustify: z.boolean().default(true),
@@ -115,7 +118,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     taskEnabled: config.taskEnabled ?? true,
     skillsToolsEnabled: config.skillsToolsEnabled ?? true,
     workspaceSidebarEnabled: config.workspaceSidebarEnabled ?? true,
-    openReferencesInSidebar: config.openReferencesInSidebar ?? true,
+    autoOpenCaseTab: config.autoOpenCaseTab ?? config.openReferencesInSidebar ?? true,
     memoEnabled: config.memoEnabled ?? true,
     theme: config.theme ?? 'warm',
     conversationJustify: config.conversationJustify ?? true,
@@ -139,7 +142,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       taskEnabled: value.taskEnabled ?? true,
       skillsToolsEnabled: value.skillsToolsEnabled ?? true,
       workspaceSidebarEnabled: value.workspaceSidebarEnabled ?? true,
-      openReferencesInSidebar: value.openReferencesInSidebar ?? true,
+      autoOpenCaseTab: value.autoOpenCaseTab ?? value.openReferencesInSidebar ?? true,
       memoEnabled: value.memoEnabled ?? true,
       theme: value.theme ?? 'warm',
       conversationJustify: value.conversationJustify ?? true,

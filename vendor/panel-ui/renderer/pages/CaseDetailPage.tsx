@@ -192,8 +192,19 @@ function AgentSessionButton({
   getArchivedSessionIds?: () => Promise<Set<string>>;
 }) {
   const [open, setOpen] = useState(false);
-  const [archivedIds, setArchivedIds] = useState<ReadonlySet<string>>(new Set());
+  // null = 归档集合尚未取回。此时按钮不显示数量——否则会把已归档会话算进去，
+  // 用户点开按钮后才「立刻掉回」真实数量（备忘 #32）。
+  const [archivedIds, setArchivedIds] = useState<ReadonlySet<string> | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  // 挂载层传入的取函数每次渲染都可能是新引用，用 ref 持有最新值，让预取
+  // effect 只依赖 boundSessions，避免自我触发死循环。
+  const archivedFetcherRef = useRef(getArchivedSessionIds);
+  archivedFetcherRef.current = getArchivedSessionIds;
+  const refreshArchived = useCallback((): void => {
+    void (archivedFetcherRef.current?.() ?? Promise.resolve(new Set<string>()))
+      .then(setArchivedIds)
+      .catch(() => setArchivedIds(new Set<string>()));
+  }, []);
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -201,17 +212,24 @@ function AgentSessionButton({
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
 
+  // 进页面即预取归档集合（绑定变化 / 窗口重新聚焦时刷新），按钮上的数量从
+  // 一开始就是真实数量，不必等用户点开按钮才纠正。
+  useEffect(() => { refreshArchived(); }, [refreshArchived, boundSessions]);
+  useEffect(() => {
+    const onFocus = (): void => refreshArchived();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshArchived]);
+
   const mySessions = boundSessions.filter(s =>
-    (s.agentKey ?? 'litigation') === agent.key && !archivedIds.has(s.sessionId));
+    (s.agentKey ?? 'litigation') === agent.key && !(archivedIds?.has(s.sessionId) ?? false));
 
   const toggle = (): void => {
     if (mySessions.length === 0) { onOpen(); return; }
     if (!open) {
       // Refresh the archive set on every open so sessions archived in the
       // DSH workspace disappear from the list immediately.
-      void (getArchivedSessionIds?.() ?? Promise.resolve(new Set<string>()))
-        .then(setArchivedIds)
-        .catch(() => {});
+      refreshArchived();
     }
     setOpen(!open);
   };
@@ -222,7 +240,7 @@ function AgentSessionButton({
         className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-[var(--ink)] text-[var(--paper)] hover:opacity-90 shadow-sm transition-all">
         <agent.Icon size={14} />
         {agent.label}
-        {mySessions.length > 0 && <span className="ml-0.5 opacity-60">({mySessions.length}) ▾</span>}
+        {archivedIds !== null && mySessions.length > 0 && <span className="ml-0.5 opacity-60">({mySessions.length}) ▾</span>}
       </button>
       {open && mySessions.length > 0 && (
         <div className="absolute top-full right-0 mt-1 w-60 bg-[var(--paper-elevated)] border border-[var(--paper-inset)] rounded-xl shadow-xl z-50 py-1 overflow-hidden">
@@ -814,6 +832,7 @@ export default memo(function CaseDetailPage({ caseId, isActive: _isActive, onOpe
                 <div><span className="text-xs text-[var(--ink-muted)]">案件类型</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'type', value: entry.type, options: CASE_TYPES.filter(t => t.key !== '__all').map(t => t.label) })}</p></div>
                 <div><span className="text-xs text-[var(--ink-muted)]">审理法院</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'court', value: entry.court })}</p></div>
                 <div><span className="text-xs text-[var(--ink-muted)]">承办法官</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'judge', value: entry.judge })}</p></div>
+                <div><span className="text-xs text-[var(--ink-muted)]">法官联系电话</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'judgePhone', value: entry.judgePhone, placeholder: '未填写' })}</p></div>
                 <div><span className="text-xs text-[var(--ink-muted)]">立案日期</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'filingDate', value: entry.filingDate, placeholder: '未设置' })}</p></div>
                 <div><span className="text-xs text-[var(--ink-muted)]">诉讼标的</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'claimAmount', value: entry.claimAmount ? formatAmount(entry.claimAmount) : undefined })}</p></div>
                 <div><span className="text-xs text-[var(--ink-muted)]">收费金额</span><p className="text-[var(--ink)] mt-0.5 font-medium">{renderEditable({ field: 'fee', value: entry.fee ? formatAmount(entry.fee) : undefined, placeholder: '未填写' })}</p></div>

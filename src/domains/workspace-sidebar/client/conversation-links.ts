@@ -133,6 +133,12 @@ export function mountConversationLinkHandler(ctx: ClientContext): () => void {
       const target = event.target as Element | null
       if (target === null || !(target instanceof Element)) return
       if (target.closest('[data-agentlex-workspace-panel]') !== null) return
+      // ⚠ 官方右边栏（含我们的「案件卷宗」面板）里的点击**一律不拦截**：
+      // 树里的文件名（如 案件信息.md）会被这里当成「会话里的文件路径」，
+      // 于是 preventDefault + stopPropagation 把树行自己的打开逻辑吃掉 ——
+      // 这就是「md 点了没反应」的根因。
+      if (target.closest('[class*="rightbarCol"]') !== null) return
+      if (target.closest('[data-agentlex-workspace-root]') !== null) return
 
       const cwd = sessionCwd(ctx)
       let path = pathFromTarget(target, cwd)
@@ -238,7 +244,7 @@ async function copyPath(path: string): Promise<boolean> {
 }
 
 /**
- * 会话内文件/链接右键菜单：显示路径、用系统打开、复制路径、md 边栏预览。
+ * 会话内文件/链接右键菜单：显示路径、在侧边栏打开、用系统打开、复制路径。
  * 返回 disposer。
  */
 export function mountConversationLinkContextMenu(ctx: ClientContext): () => void {
@@ -285,14 +291,17 @@ export function mountConversationLinkContextMenu(ctx: ClientContext): () => void
       return b
     }
 
+    /** 在右侧边栏打开该路径：目录→切树根；文件→直接开原生预览（含所在目录）。 */
+    const openInSidebar = (): void => {
+      // ⚠ 先 reveal（它带着「开的是什么」→ 右边栏该多宽），再 panel-open。
+      // 反过来会让 panel-open 先按「当前活动 tab」算成树宽缩一下，再被纠正。
+      window.dispatchEvent(new CustomEvent('agentlex-workspace:reveal-request', { detail: { path, open: true } }))
+      window.dispatchEvent(new CustomEvent('agentlex-workspace:panel-open'))
+    }
+
+    el.appendChild(item('在侧边栏打开', openInSidebar))
     el.appendChild(item('用系统打开', () => openWithSystem(path)))
     el.appendChild(item('复制路径', () => { void copyPath(path) }))
-    if (isMarkdownPath(path)) {
-      el.appendChild(item('在边栏预览', () => {
-        window.dispatchEvent(new CustomEvent('agentlex-workspace:panel-open'))
-        window.dispatchEvent(new CustomEvent('agentlex-workspace:reveal-request', { detail: { path, open: true } }))
-      }))
-    }
 
     document.body.appendChild(el)
     // 视口边缘防溢出
@@ -310,6 +319,15 @@ export function mountConversationLinkContextMenu(ctx: ClientContext): () => void
       if (target === null || !(target instanceof Element)) return
       if (target.closest('[data-agentlex-workspace-panel]') !== null) return
       if (target.closest('[data-agentlex-link-menu]') !== null) return
+      // 右边栏里的右键**一律放行**，别在这里再弹一个叠上去：
+      //   - 我们的「案件卷宗」面板（DirectoryPanel）自带右键菜单；
+      //   - 官方原生文件树有自己的菜单（native-tree-menu.ts 叠加的那套）。
+      // ⚠ 必须按整个右栏列排除：案件卷宗面板既没有 data-side="rightbar"，
+      // 也没有 data-files-state —— 之前只排这两个，于是卷宗树里同时冒出两个菜单。
+      if (target.closest('[class*="rightbarCol"]') !== null) return
+      if (target.closest('[data-agentlex-workspace-root]') !== null) return
+      if (target.closest('[data-agentlex-tree-menu]') !== null) return
+      if (target.closest('[data-side="rightbar"], [data-files-state]') !== null) return
 
       const cwd = sessionCwd(ctx)
       let path = pathFromTarget(target, cwd)

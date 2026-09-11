@@ -169,6 +169,13 @@ const DirectoryPanel = memo(
       onSyncSkillToGlobal,
       onFilePreviewExternal,
       searchActive,
+      // AgentLex：精简工具条（右边栏 tab 用）时不显示「工作区/案件文件夹」
+      // 根切换 chip —— 用户明确要求不带无关按钮。tsconfig 不含 client 域，
+      // esbuild 直接透传，无需在 props 类型里声明。
+      hideRootSwitcher = false,
+      // AgentLex：文件打开**全部交给 DSH 原生预览**（我们插件不再自带预览）。
+      // 给了它就不再走内置预览弹层/图片查看器，直接回调打开方。
+      onOpenFileNative,
     },
     ref,
   ) {
@@ -942,6 +949,11 @@ const DirectoryPanel = memo(
 
     const handlePreview = useCallback(async (node: DirectoryTreeNode) => {
       if (node.type !== "file") return;
+      // 原生预览优先：DTL/DirectoryPanel 不再自己解文件。
+      if (onOpenFileNative) {
+        onOpenFileNative(node.path);
+        return;
+      }
 
       const myReq = ++previewReqIdRef.current;
       setIsPreviewLoading(true);
@@ -974,7 +986,7 @@ const DirectoryPanel = memo(
         // the setter so the UI keeps reflecting the fresh in-flight request.
         if (myReq === previewReqIdRef.current) setIsPreviewLoading(false);
       }
-    }, [fileService, onFilePreviewExternal, toast]);
+    }, [fileService, onFilePreviewExternal, onOpenFileNative, toast]);
 
     /** Route a rich document (pdf/docx/xlsx/xls/pptx) to the read-only viewer.
      *  Unlike handlePreview, this does NOT call readPreview (binary → UTF-8
@@ -986,6 +998,10 @@ const DirectoryPanel = memo(
       if (node.type !== "file") return;
       const richDocKind = getRichDocKind(node.name);
       if (!richDocKind) return;
+      if (onOpenFileNative) {
+        onOpenFileNative(node.path);
+        return;
+      }
       previewReqIdRef.current++;
       // Clear loading regardless of branch: the reqId bump above means a prior
       // in-flight text/image preview's finally won't reset it, and the external
@@ -1010,6 +1026,11 @@ const DirectoryPanel = memo(
      *  shared by row clicks and keyboard Enter. */
     const previewNode = useCallback(
       async (data: DirectoryTreeNode) => {
+        // 原生预览优先（我们插件不再自带预览，文件一律交给 DSH）。
+        if (onOpenFileNative) {
+          onOpenFileNative(data.path);
+          return;
+        }
         if (isImageFile(data.name)) {
           // Image branch — same latest-wins pattern as handleImagePreview.
           // We don't delegate to it because this branch also drives
@@ -1039,7 +1060,7 @@ const DirectoryPanel = memo(
           toast.info(tRef.current("workspaceFiles.directory.toasts.unsupportedPreview"));
         }
       },
-      [fileService, handlePreview, handleRichDocPreview, openPreview, toast],
+      [fileService, handlePreview, handleRichDocPreview, onOpenFileNative, openPreview, toast],
     );
     // 同步 previewNode 到 ref（供前面声明的 external reveal effect 调用）。
     useEffect(() => {
@@ -1127,6 +1148,10 @@ const DirectoryPanel = memo(
 
     const handleImagePreview = async (node: DirectoryTreeNode) => {
       if (node.type !== "file") return;
+      if (onOpenFileNative) {
+        onOpenFileNative(node.path);
+        return;
+      }
       const myReq = ++previewReqIdRef.current;
       try {
         // PRD 0.2.7 Phase D: pre-migration this fetched the sidecar's
@@ -3113,7 +3138,7 @@ const DirectoryPanel = memo(
                     {shortenPathForDisplay(effectiveRoot)}
                   </div>
                 </div>
-                {caseFolder && (
+                {caseFolder && !hideRootSwitcher && (
                   <div className="ml-auto flex flex-shrink-0 items-center rounded-lg border border-[var(--line)] p-0.5 text-xs">
                     <button
                       type="button"

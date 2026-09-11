@@ -761,6 +761,8 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
             level: record.level,
             caseNumber: record.caseNumber,
             court: record.court,
+            judge: record.judge,
+            judgePhone: record.judgePhone,
           }))
           return
         }
@@ -774,6 +776,8 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
         level: b.level === undefined ? undefined : String(b.level),
         caseNumber: b.caseNumber === undefined ? undefined : String(b.caseNumber),
         court: b.court === undefined ? undefined : String(b.court),
+        judge: b.judge === undefined ? undefined : String(b.judge),
+        judgePhone: b.judgePhone === undefined ? undefined : String(b.judgePhone),
       }))
       return
     }

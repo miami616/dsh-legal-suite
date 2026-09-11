@@ -46,6 +46,8 @@ interface NonLitigationManagerProps {
   /** Resolves the DSH workspace archive set — archived sessions are hidden
    *  from the project detail's historical-session dropdown. */
   getArchivedSessionIds?: () => Promise<Set<string>>;
+  /** 在右侧边栏打开项目卷宗文件夹（官方右边栏「案件卷宗」tab）。 */
+  onOpenProjectFolder?: (folder: string) => void;
   trafficInset?: number;
   hasDockedSession?: boolean;
   dockedSessionTitle?: string;
@@ -63,6 +65,7 @@ export default memo(function NonLitigationManager({
   onSelectProject,
   onStartProjectService,
   getArchivedSessionIds,
+  onOpenProjectFolder,
   trafficInset = 0,
   hasDockedSession = false,
   dockedSessionTitle,
@@ -260,6 +263,7 @@ export default memo(function NonLitigationManager({
                 projectId={selectedProjectId}
                 isActive
                 onStartProjectService={(typeId, message) => onStartProjectService(selectedProjectId, typeId, message)}
+                onOpenProjectFolder={onOpenProjectFolder}
                 getArchivedSessionIds={getArchivedSessionIds}
               />
             </Suspense>
@@ -509,6 +513,7 @@ export default memo(function NonLitigationManager({
             projectId={selectedProjectId}
             isActive
             onStartProjectService={(typeId, message) => onStartProjectService(selectedProjectId, typeId, message)}
+            onOpenProjectFolder={onOpenProjectFolder}
             getArchivedSessionIds={getArchivedSessionIds}
           />
         </MobileDetailDrawer>

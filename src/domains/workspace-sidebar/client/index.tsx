@@ -1,14 +1,19 @@
 /**
  * Browser-half entry for dsh-legal-suite/workspace-sidebar.
  *
- * Mounts the AgentLex workspace as an independent right panel — no longer a
- * dsh-better-sidebar tab. Session context (current session id + cwd) comes
- * from the dsh sessions feed (`ctx.sessions`).
+ * 优先接入 DSH 官方右边栏（`ctx.sidebarRightTabs` + `ctx.sidebarRight`，
+ * 见 official-sidebar.tsx）：把 AgentLex 文件树（含右键菜单）注册为官方
+ * 右边栏的 tab 并接管官方 `files` 页；服务缺席（旧 harness）时退回自绘
+ * 右栏面板（mount.tsx，body 锚定 + AppFrame 右侧缩进）。
+ *
+ * Session context (current session id + cwd) comes from the dsh sessions feed
+ * (`ctx.sessions`).
  */
 import '@/i18n'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { mountWorkspacePanel } from './mount.tsx'
+import { mountOfficialSidebarFiles } from './official-sidebar.tsx'
 import { workspaceCss } from './generated-workspace-css.ts'
 import { mountConversationLinkHandler, mountConversationLinkContextMenu } from './conversation-links.ts'
 
@@ -69,36 +74,87 @@ html[data-agentlex-theme] [data-agentlex-workspace-root] {
 export function apply(ctx: ClientContext): void {
   const removeCss = injectWorkspaceCss()
   let disposePanel: (() => void) | null = null
+  let disposeOfficial: (() => void) | null = null
   let disposeLinks: (() => void) | null = null
   let disposeContextMenu: (() => void) | null = null
   let panelEnabled = true
-  let openRefsEnabled = true
+  let autoCaseTabEnabled = true
+  // 官方右边栏接入（备忘 #30）：服务/槽位可能晚于本插件就绪，短轮询重试；
+  // 重试期内不挂自绘面板（避免两套面板同时出现），放弃后再退回自绘。
+  let officialAttempts = 0
+  let officialUnavailable = false
+  let officialRetry: number | undefined
+
+  const OFFICIAL_MAX_ATTEMPTS = 10
+  const OFFICIAL_RETRY_MS = 300
+
+  const clearOfficialRetry = (): void => {
+    if (officialRetry !== undefined) {
+      window.clearTimeout(officialRetry)
+      officialRetry = undefined
+    }
+  }
 
   // 从 AgentLex 设置（设置 → AgentLex 设置 → 模块开关）读取：
-  //   workspaceSidebarEnabled — 工作区右边栏总开关（卸载/重挂面板）；
-  //   openReferencesInSidebar  — 会话内文件/链接点击用侧边栏打开。
+  //   workspaceSidebarEnabled — 右侧文件栏总开关（官方右边栏接入 + 自绘兜底 +
+  //                             会话内文件链接拦截）；
+  //   openReferencesInSidebar  — 「自动打开案件卷宗」：会话绑定案件/项目时，
+  //                             右边栏自动带上卷宗面板。
   const sync = (): void => {
-    if (panelEnabled) {
-      if (disposePanel === null) disposePanel = mountWorkspacePanel(ctx)
-      if (disposeLinks === null && openRefsEnabled) disposeLinks = mountConversationLinkHandler(ctx)
-      // 右键菜单（显示路径/打开/复制/预览）独立于「点击用边栏打开」开关，常驻。
-      if (disposeContextMenu === null) disposeContextMenu = mountConversationLinkContextMenu(ctx)
-    } else {
+    if (!panelEnabled) {
+      disposeOfficial?.()
+      disposeOfficial = null
       disposePanel?.()
       disposePanel = null
       disposeLinks?.()
       disposeLinks = null
       disposeContextMenu?.()
       disposeContextMenu = null
+      clearOfficialRetry()
+      return
     }
+    // 官方右边栏优先：接管官方 files 页，自绘面板退役。
+    if (disposeOfficial === null && !officialUnavailable) {
+      disposeOfficial = mountOfficialSidebarFiles(ctx, { autoOpenCaseTab: autoCaseTabEnabled })
+      if (disposeOfficial !== null) {
+        disposePanel?.()
+        disposePanel = null
+        clearOfficialRetry()
+      } else {
+        officialAttempts += 1
+        if (officialAttempts < OFFICIAL_MAX_ATTEMPTS) {
+          if (officialRetry === undefined) {
+            officialRetry = window.setTimeout(() => {
+              officialRetry = undefined
+              sync()
+            }, OFFICIAL_RETRY_MS)
+          }
+        } else {
+          officialUnavailable = true
+        }
+      }
+    }
+    if (disposePanel === null && disposeOfficial === null && officialUnavailable) {
+      disposePanel = mountWorkspacePanel(ctx)
+    }
+    // 会话内文件/链接 → 右侧栏：属于「右侧文件栏」本体能力，只看总开关。
+    if (disposeLinks === null) disposeLinks = mountConversationLinkHandler(ctx)
+    // 右键菜单（显示路径/打开/复制/预览）独立于「点击用边栏打开」开关，常驻。
+    if (disposeContextMenu === null) disposeContextMenu = mountConversationLinkContextMenu(ctx)
   }
   const onToggles = (e: Event): void => {
     const detail = (e as CustomEvent<Record<string, unknown>>).detail ?? {}
     if (typeof detail.workspaceSidebarEnabled === 'boolean') panelEnabled = detail.workspaceSidebarEnabled
-    if (typeof detail.openReferencesInSidebar === 'boolean') openRefsEnabled = detail.openReferencesInSidebar
-    if (disposeLinks !== null && !openRefsEnabled) {
-      disposeLinks()
-      disposeLinks = null
+    if (typeof detail.autoOpenCaseTab === 'boolean') {
+      const changed = autoCaseTabEnabled !== detail.autoOpenCaseTab
+      autoCaseTabEnabled = detail.autoOpenCaseTab
+      // 「自动打开案件卷宗」改了：官方接入需按新值重挂。
+      if (changed) {
+        disposeOfficial?.()
+        disposeOfficial = null
+        officialUnavailable = false
+        officialAttempts = 0
+      }
     }
     sync()
   }
@@ -106,6 +162,8 @@ export function apply(ctx: ClientContext): void {
   sync()
   ctx.effect(() => () => {
     window.removeEventListener('agentlex:toggles-changed', onToggles)
+    clearOfficialRetry()
+    disposeOfficial?.()
     disposePanel?.()
     disposeLinks?.()
     disposeContextMenu?.()

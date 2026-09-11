@@ -93,6 +93,8 @@ export interface CaseEntry {
   status: string;
   folder: string;
   judge?: string;
+  /** 承办法官联系电话（备忘 #31）。 */
+  judgePhone?: string;
   claimAmount?: string;
   /** 收费金额（自由字符串，与 claimAmount 同格式，如 "50万"/"80000"）。 */
   fee?: string;
@@ -534,7 +536,7 @@ export interface DiskTaskGroup {
 export interface DiskCase {
   caseId?: string; caseNumber?: string; name?: string; alias?: string[];
   type?: string; caseType?: string; cause?: string; status?: string; folder?: string; court?: string;
-  judge?: string; claimAmount?: string; fee?: string; retainerUnit?: string; filingDate?: string; summary?: string;
+  judge?: string; judgePhone?: string; claimAmount?: string; fee?: string; retainerUnit?: string; filingDate?: string; summary?: string;
   level?: string;
   instances?: CaseEntry['instances'];
   parties?: CaseEntry['parties'];
@@ -665,6 +667,7 @@ export function normalizeCase(id: string, dc: DiskCase): CaseEntry {
     status: normalizeStatus(dc.status ?? 'intake', level),
     folder: dc.folder ?? '',
     judge: dc.judge ?? '',
+    judgePhone: dc.judgePhone ?? '',
     claimAmount: dc.claimAmount ?? '',
     fee: dc.fee ?? '',
     retainerUnit: typeof dc.retainerUnit === 'string' ? dc.retainerUnit : '',

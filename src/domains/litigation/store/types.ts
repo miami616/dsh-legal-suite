@@ -110,6 +110,8 @@ export interface CaseRecord {
   status?: string
   court?: string
   judge?: string
+  /** 承办法官联系电话（备忘 #31：案件详情页需要能记/看法官电话）。 */
+  judgePhone?: string
   level?: string
   /** 审级历程（原应用 instances），用于卡片左轨轨迹。 */
   instances?: Array<Record<string, unknown>>

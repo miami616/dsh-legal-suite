@@ -506,13 +506,19 @@ export function AgentLexSettingsSection(props: {
         <Toggle label="任务管理" description="独立任务 + 跨插件统一任务视图" checked={config.taskEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('taskEnabled', v)} />
         <Toggle label="备忘录" description="随手记 + 会话 #编号 引用备忘" checked={config.memoEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('memoEnabled', v)} />
         <Toggle label="技能与工具" description="技能 / MCP 面板与输入框选择" checked={config.skillsToolsEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('skillsToolsEnabled', v)} />
-        <Toggle label="工作区右边栏" description="会话右侧文件树 / 预览 / 搜索" checked={config.workspaceSidebarEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('workspaceSidebarEnabled', v)} />
+        <Toggle
+          label="右侧文件栏"
+          description="官方右边栏：原生文件树 + 案件卷宗面板（右键新建/重命名/删除）"
+          checked={config.workspaceSidebarEnabled}
+          disabled={!config.agentlexEnabled}
+          onChange={(v) => commitSetting('workspaceSidebarEnabled', v)}
+        />
         <div style={{ paddingLeft: 22, opacity: config.agentlexEnabled && config.workspaceSidebarEnabled ? 1 : 0.5, pointerEvents: config.agentlexEnabled && config.workspaceSidebarEnabled ? 'auto' : 'none' }}>
           <Toggle
-            label="侧边栏打开文件/链接"
-            description="点击会话中的文件路径在右侧栏定位；仅 md 文件预览"
-            checked={config.openReferencesInSidebar}
-            onChange={(v) => commitSetting('openReferencesInSidebar', v)}
+            label="自动打开案件卷宗"
+            description="会话绑定案件 / 项目时，右边栏自动带上卷宗面板"
+            checked={config.autoOpenCaseTab}
+            onChange={(v) => commitSetting('autoOpenCaseTab', v)}
           />
         </div>
       </div>

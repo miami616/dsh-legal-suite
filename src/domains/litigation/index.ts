@@ -30,13 +30,14 @@ import { createPeriodRuleStore } from './store/period-rule-store.ts'
 import { createPatrolLedgerStore } from './store/patrol-ledger-store.ts'
 import { createTimelineStore } from './store/timeline-store.ts'
 import { createItemStore } from '../item/store/item-store.ts'
-import { isEventItem, isTaskItem } from '../item/store/types.ts'
+import { isEventItem, isTaskItem, normalizeItemType } from '../item/store/types.ts'
 import { computeDeadlines, computeDeadlinesV2 } from './deadlines.ts'
 import { nowIso } from './store/id.ts'
 import type { TimelineEvent } from './store/types.ts'
 import { defaultSourcePath, importFromAgentLex } from './import/agentlex-migrate.ts'
 import { makeRoutes } from './routes.ts'
 import { syncEventToAppleCalendar, removeAppleCalendarEvent, listAppleCalendars } from '../calendar-sync/index.ts'
+import { shouldSyncToCalendar, calendarEventTitle, pickSyncableItems } from '../calendar-sync/rules.ts'
 import { registerLitigationHttpTool } from './tools.ts'
 import { installSettingsSection } from '../../shared/settings-adapter.ts'
 import {
@@ -490,27 +491,56 @@ export function apply(ctx: Context, config: Config = {}): void {
     disposers.push(ctx.on('agentlex:registry-changed' as keyof Events, () => {
       void snapshotDataDir('litigation', dataDir, home)
     }))
+    /**
+     * 事项归属显示名：优先事项自带 ownerName，其次案件名 / 项目名，最后编号兜底。
+     *
+     * 日历标题「【开庭】案件名」、卡片、飞书推送都按这个口径取名字——事项里
+     * ownerName 经常是空的（只带 ownerId），不查名就会写成「【开庭】2026-021」。
+     */
+    async function resolveOwnerLabel(ownerId?: string, ownerName?: string): Promise<string> {
+      if (ownerName !== undefined && ownerName !== '') return ownerName
+      if (ownerId === undefined || ownerId === '') return ''
+      try {
+        const reg = await caseStore.readRegistry()
+        const name = reg.cases?.[ownerId]?.name
+        if (name !== undefined && name !== '') return name
+      } catch { /* 案件名补全失败不阻塞同步 */ }
+      try {
+        const raw = await readFile(join(resolveDataDir(), '..', 'nonlitigation', 'project-registry.json'), 'utf8')
+        const pr = JSON.parse(raw) as { projects?: Record<string, { name?: string }> }
+        const name = pr.projects?.[ownerId]?.name
+        if (name !== undefined && name !== '') return name
+      } catch { /* 项目名补全失败不阻塞同步 */ }
+      return ownerId
+    }
+
     // Apple 日历同步：监听统一事项的日程变更（诉讼/非诉/独立的事件与任务），
     // 建立/更新时写 Apple 日历，删除时删 Apple 事件。监听常驻，handler 内检查开关。
     disposers.push(ctx.on('agentlex:calendar-sync' as keyof Events, (item: { id: string; title?: string; ownerId?: string; ownerName?: string; date?: string; time?: string; detail?: string; type?: string }) => {
       if (current().calendarSyncEnabled !== true) return
       if (item.date === undefined) return
-      // 同步范围：事件（含关键日期，按日程口径）/ 带日期任务，按 type 检查对应开关。
-      if ((item.type === 'event' || item.type === 'both' || item.type === 'keydate') && current().calendarSyncEvents !== true) return
-      if ((item.type === 'task' || item.type === 'both') && current().calendarSyncTasks !== true) return
-      // 标题用案件/项目名（优先 item.ownerName，缺失时回退编号兜底）。
-      const ownerLabel = item.ownerName ?? (item.ownerId !== undefined && item.ownerId !== '' ? item.ownerId : '')
+      // 该不该进日历：集中在 calendar-sync/rules.ts 判定——只同步尚未发生的日程，
+      // 答辩期/举证期暂不同步，任务严格按任务开关（不再靠 type 白名单）。
+      const gate = shouldSyncToCalendar(
+        { type: normalizeItemType(item.type), title: item.title ?? '', date: item.date, time: item.time },
+        { syncEvents: current().calendarSyncEvents === true, syncTasks: current().calendarSyncTasks === true },
+      )
+      if (!gate.sync) return
       // 时间：优先 item.time；缺失时从 detail 提取（开庭/会议等日程的明确时间点
       // 常写在 detail 里）——提取到就用具体时间，不做全天。
       const resolvedTime = item.time ?? extractTimeFromDetail(item.detail)
-      void syncEventToAppleCalendar({
+      // 归属显示名要查案件/项目名（很多事项的 ownerName 是空的，只带编号——
+      // 监听路径此前直接用编号，导致日历里出现「【开庭】2026-021」；与手动同步
+      // 路径口径统一，一律查名）。
+      void resolveOwnerLabel(item.ownerId, item.ownerName).then((ownerLabel) => syncEventToAppleCalendar({
         itemId: item.id,
-        title: `${item.title ?? '日程'}${ownerLabel !== '' ? ` - ${ownerLabel}` : ''}`,
-        date: item.date,
+        // 标题格式：【事项标题】案件名（用户 2026-09-11 口径）。
+        title: calendarEventTitle(item.title ?? '日程', ownerLabel),
+        date: item.date ?? '',
         time: resolvedTime,
         detail: item.detail,
         calendarName: current().calendarName ?? '个人',
-      })
+      }))
     }))
     disposers.push(ctx.on('agentlex:calendar-sync-delete' as keyof Events, (payload: { id: string }) => {
       if (current().calendarSyncEnabled !== true) return
@@ -571,18 +601,15 @@ export function apply(ctx: Context, config: Config = {}): void {
               if (p?.name) ownerNameById.set(id, p.name)
             }
           } catch { /* 项目名补全失败不阻塞同步 */ }
+          // 统一规则筛选 + 去重（calendar-sync/rules.ts）：
+          //   只同步尚未发生的日程；答辩期/举证期暂不同步；任务严格按任务开关；
+          //   同一「归属+日期+标题」只写一条（修 0.2.12 的重复问题）。
+          const targets = pickSyncableItems(items, { syncEvents, syncTasks, today: todayStr })
+          const skipped = items.length - targets.length
           let synced = 0
           let failed = 0
-          let skipped = 0
-          for (const it of items) {
-            if (it.date === undefined || it.date === null || it.date === '') { skipped++; continue }
-            // 只同步今天及以后的日程（过去的日程不同步进日历）。
-            if (it.date < todayStr) { skipped++; continue }
-            // 同步范围：events 开关覆盖 event/both/keydate；tasks 开关覆盖 task/both。
-            const isEvent = it.type === 'event' || it.type === 'both' || it.type === 'keydate'
-            const isTask = it.type === 'task' || it.type === 'both'
-            if (!(isEvent && syncEvents) && !(isTask && syncTasks)) { skipped++; continue }
-            // 标题：事项名 + 案件/项目名（优先 item.ownerName，其次查找表，最后编号兜底）。
+          for (const it of targets) {
+            // 标题：案件/项目名（优先 item.ownerName，其次查找表，最后编号兜底）。
             const ownerLabel = it.ownerName ?? (it.ownerId !== undefined && it.ownerId !== '' ? (ownerNameById.get(it.ownerId) ?? it.ownerId) : '')
             // 时间：优先 item.time；缺失时从 detail 提取（开庭/会议等日程的明确时间点
             // 常写在 detail 里，如「14:45 济南市历下区人民法院…」）——提取到就用具体
@@ -590,8 +617,9 @@ export function apply(ctx: Context, config: Config = {}): void {
             const resolvedTime = it.time ?? extractTimeFromDetail(it.detail)
             const uid = await syncEventToAppleCalendar({
               itemId: it.id,
-              title: `${it.title ?? '日程'}${ownerLabel !== '' ? ` - ${ownerLabel}` : ''}`,
-              date: it.date,
+              // 标题格式：【事项标题】案件名（用户 2026-09-11 口径）。
+              title: calendarEventTitle(it.title ?? '日程', ownerLabel),
+              date: it.date ?? '',
               time: resolvedTime,
               detail: it.detail,
               calendarName: current().calendarName ?? '个人',

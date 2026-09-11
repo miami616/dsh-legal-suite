@@ -93,12 +93,23 @@ try {
   const validKeyDates = new Set(KEYDATE_LABELS)
   // 任务派生的关键日期以任务标题为标签（set_task_keydate 的行为），因此标签
   // 合法的判定是：在规范词表内，**或**等于本案某个规范任务名。
-  const badKeyDates = cases.flatMap((c) => {
-    const ownTitles = new Set(allTaskTitles(c))
-    return (c.keyDates ?? [])
-      .map((k) => k.label)
-      .filter((l) => !validKeyDates.has(l) && !ownTitles.has(l))
+  // 0.2.13：keydate 类型退役，期限就是日程。这里按**事项级期限字段**取
+  // （ruleId/baseDate 或 source='keydate'/'migration'/'task-linked'），
+  // 而不是 case.keyDates 兼容投影（那是「该案全部日程」，含开庭/立案等普通日程）。
+  const allItemsForLabels = await itemStore.listItems()
+  const deadlineItems = allItemsForLabels.filter((i) => {
+    if (i.type !== 'event' && i.type !== 'both') return false
+    if ((i.ruleId ?? '') !== '' || (i.baseDate ?? '') !== '') return true
+    return i.source === 'keydate' || i.source === 'migration' || i.source === 'task-linked'
   })
+  const badKeyDates = deadlineItems
+    .map((i) => ({ label: i.title, caseId: i.ownerId }))
+    .filter((x) => {
+      const c = cases.find((cc) => cc.caseId === x.caseId)
+      const ownTitles = new Set(c ? allTaskTitles(c) : [])
+      return !validKeyDates.has(x.label) && !ownTitles.has(x.label)
+    })
+    .map((x) => x.label)
   check('all case keydate labels canonical', badKeyDates.length === 0, badKeyDates.join(' | '))
 
   // ---- 主案例结构完整性（docx：庭前准备含开庭动作） ----

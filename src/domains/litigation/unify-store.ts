@@ -153,7 +153,7 @@ async function runUnify(
           ownerId: rec.caseId,
           ownerType: 'litigation',
           ownerName: rec.name,
-          type: 'keydate',
+          type: 'event',
           title: String(kd.label ?? '关键日期'),
           date: kd.date === undefined ? undefined : String(kd.date),
           status: kd.done === true ? 'done' : 'pending',

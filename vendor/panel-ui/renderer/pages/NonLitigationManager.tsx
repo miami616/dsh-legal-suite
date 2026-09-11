@@ -422,8 +422,8 @@ export default memo(function NonLitigationManager({
                     {/* 左轨：项目编号（类型前缀小号 + 序号大字）+ 底部类型签 */}
                     <div className="flex flex-col py-2.5 border-r border-[var(--paper-inset)]" style={{ background: 'color-mix(in srgb, var(--paper-inset) 80%, transparent)' }}>
                       <div className="px-1.5 leading-tight break-words">
-                        {idHead && <div className="font-mono text-xs text-[var(--ink-subtle)] tracking-[0.02em]">{idHead}</div>}
-                        <div className="font-mono text-lg font-bold text-[var(--ink)] tracking-[0.02em]">{idTail}</div>
+                        {idHead && <div className="text-xs font-semibold text-[var(--ink-muted)] tracking-[0.02em]" style={{ fontFamily: "-apple-system, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif", fontVariantNumeric: 'tabular-nums' }}>{idHead}</div>}
+                        <div className="text-xl font-extrabold text-[var(--ink)] tracking-[0.01em]" style={{ fontFamily: "-apple-system, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif", fontVariantNumeric: 'tabular-nums' }}>{idTail}</div>
                       </div>
                       <div className="mt-auto px-1.5 pb-0.5">
                         <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-semibold ${typeConfig?.color || 'bg-[var(--paper-inset)] text-[var(--ink-muted)]'}`}>{typeConfig?.label || p.projectType}</span>

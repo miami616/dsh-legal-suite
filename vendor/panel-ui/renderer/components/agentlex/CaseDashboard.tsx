@@ -198,7 +198,9 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
   }, [tagPool]);
 
   const filteredCases = useMemo(() => {
-    let result = visibleCases;
+    // 搜索默认跨**全部案件（含已归档）**：归档开关只管不带搜索词时的列表，
+    // 不能因为案件归档了就搜不到（用户 2026-09-11 要求）。
+    let result = searchQuery.trim() !== '' ? cases : visibleCases;
     if (typeFilter) result = result.filter(c => c.type === typeFilter);
     if (levelFilter) result = result.filter(c => c.level === levelFilter);
     if (statusFilter) result = result.filter(c => normalizeStatus(c.status) === statusFilter);
@@ -213,7 +215,13 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
       );
     }
     return result;
-  }, [visibleCases, typeFilter, levelFilter, statusFilter, tagFilter, searchQuery]);
+  }, [cases, visibleCases, typeFilter, levelFilter, statusFilter, tagFilter, searchQuery]);
+
+  /** 搜索结果里有多少条是已归档——给个提示，免得以为列表乱了。 */
+  const archivedInResult = useMemo(
+    () => (searchQuery.trim() === '' ? 0 : filteredCases.filter(c => c.archived).length),
+    [filteredCases, searchQuery],
+  );
 
   // Pre-computed timeline-lookup map for efficient per-case queries.
   const caseTimelineMap = useMemo(() => {
@@ -562,6 +570,13 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
         <CaseBoard cases={cases} onClose={() => setShowBoard(false)} />
       )}
 
+      {/* 搜索结果含归档案件时的提示（搜索默认跨全部案件，含已归档） */}
+      {archivedInResult > 0 && (
+        <p className="text-xs text-[var(--ink-muted)] -mt-2">
+          搜索结果含 <b className="text-[var(--ink)]">{archivedInResult}</b> 条已归档案件（搜索默认包含归档，卡片上有「已归档」标记）
+        </p>
+      )}
+
       {/* Card grid or empty state */}
       {cases.length === 0 ? (
         <div className="text-center py-16 rounded-2xl bg-[var(--paper-elevated)] border border-dashed border-[var(--paper-inset)]">
@@ -593,8 +608,8 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
                 {/* 左轨：编号（年份小号 + 序号大字）+ 审级历程 */}
                 <div className="py-3 border-r border-[var(--paper-inset)]" style={{ background: 'color-mix(in srgb, var(--paper-inset) 80%, transparent)' }}>
                   <div className="px-2 leading-tight break-words">
-                    {head && <div className="text-xs text-[var(--ink-subtle)] tracking-[0.02em]" style={{ fontFamily: "'Microsoft YaHei','微软雅黑',sans-serif" }}>{head}</div>}
-                    <div className="text-lg font-bold text-[var(--ink)] tracking-[0.02em]" style={{ fontFamily: "'Microsoft YaHei','微软雅黑',sans-serif" }}>{tail}</div>
+                    {head && <div className="text-xs font-semibold text-[var(--ink-muted)] tracking-[0.02em]" style={{ fontFamily: "-apple-system, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif", fontVariantNumeric: 'tabular-nums' }}>{head}</div>}
+                    <div className="text-xl font-extrabold text-[var(--ink)] tracking-[0.01em]" style={{ fontFamily: "-apple-system, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif", fontVariantNumeric: 'tabular-nums' }}>{tail}</div>
                   </div>
                   <div className="relative mt-2">
                     {levels.length === 0 ? (
@@ -627,6 +642,9 @@ export default memo(function CaseDashboard({ cases, timelineEvents = [], onOpenC
                     </span>
                     <h3 className="flex-1 min-w-0 text-sm font-semibold text-[var(--ink)] truncate leading-snug" style={{ letterSpacing: '-0.005em' }} title={s(c.name)}>{s(c.name)}</h3>
                     <StatusBadge status={normalizeStatus(c.status, c.level)} level={c.level} />
+                    {c.archived && (
+                      <span className="shrink-0 px-1.5 py-[1px] rounded-sm text-[10px] font-medium bg-[var(--paper-inset)] text-[var(--ink-muted)]">已归档</span>
+                    )}
                   </div>
                   {/* 我方：同侧所有我方当事人（可能多人，逐行清晰） */}
                   <div className="mt-2 flex items-start gap-1.5 text-xs text-[var(--ink-muted)] min-w-0">

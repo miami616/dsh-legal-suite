@@ -23,6 +23,7 @@ import type { CaseRecord } from './store/types.ts'
 import type { Item } from '../item/store/types.ts'
 import type { PeriodRule } from '../../shared/playbook/period-rules.ts'
 import { checkPeriodGate, docNodesFromItems, isServiceEvidence } from './period-gate.ts'
+import { isEventItem, isTaskItem } from '../item/store/types.ts'
 
 export type PatrolSeverity = 'high' | 'medium' | 'low'
 
@@ -91,11 +92,11 @@ const PRE_FILING_STATE = /^(intake|pre_filing|filing)$/
 const FILED_EVIDENCE = /(传票|受理通知|立案通知|应诉通知|举证通知|缴费通知|开庭通知|开庭排期|缴纳诉讼费|受理案件通知|开庭|答辩期)/
 
 /** 该案的关键日期事项。 */
-const keyDatesOf = (items: Item[]): Item[] => items.filter((i) => i.type === 'keydate')
+const keyDatesOf = (items: Item[]): Item[] => items.filter(isEventItem)
 /** 该案的日程事项（不含任务与关键日期）。 */
-const eventsOf = (items: Item[]): Item[] => items.filter((i) => i.type === 'event' || i.type === 'both')
+const eventsOf = (items: Item[]): Item[] => items.filter(isEventItem)
 /** 该案的任务事项。 */
-const tasksOf = (items: Item[]): Item[] => items.filter((i) => i.type === 'task' || i.type === 'both')
+const tasksOf = (items: Item[]): Item[] => items.filter(isTaskItem)
 
 const today = (): string => new Date().toISOString().slice(0, 10)
 

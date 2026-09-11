@@ -51,6 +51,13 @@ export interface PeriodTrigger {
 export interface PeriodRule {
   /** 稳定语义键——去重、幂等、审计一律用它，不用 label。 */
   id: string
+  /**
+   * 停用：不参与 matchPeriodRules 匹配。
+   *
+   * 用于 scope 已知有语义错误、但暂时无法正确表达（需要跨案信息）的规则——
+   * 宁可先不生成，也不要生成废纸期限。
+   */
+  disabled?: boolean
   scope: PeriodScope
   trigger: PeriodTrigger
   period: PeriodLength
@@ -229,6 +236,20 @@ export const PERIOD_RULES: PeriodRule[] = [
   /* --------------------------- 执行 --------------------------- */
   {
     id: 'enforcement.apply',
+    /**
+     * ⚠ 0.2.13 停用（disabled）。
+     *
+     * 原 scope 是 `procedure: '首次执行'`——但「申请执行期限」的前提是**还没申请执行**，
+     * 挂在执行案上毫无意义（2026-09-11 实测：2026-040 执行案自己挂着一条
+     * 「申请执行期限届满 2028-07-05」，2026-025 二审案挂着一条而执行案 2026-041
+     * 早已在 executing）。
+     *
+     * 正确的 scope 是**实质审理程序**（一审/二审/再审/仲裁）里"生效法律文书已生效、
+     * 对方未履行、且我方尚未申请执行"的案件。最后那个条件需要跨案判断（同案是否已
+     * 有执行案），0.2.13 未实现——宁可先不生成，也不要生成废纸期限。
+     * 重新启用前先补：① scope.procedure 支持多值；② 「已有执行案」判定。
+     */
+    disabled: true,
     scope: { procedure: '首次执行' },
     trigger: { doc: '生效法律文书', fact: '生效' },
     period: { years: 2 },
@@ -336,6 +357,8 @@ export function mergePeriodRules(
 export function matchPeriodRules(req: PeriodRequest, rules: PeriodRule[] = PERIOD_RULES): PeriodCandidate[] {
   const out: PeriodCandidate[] = []
   for (const rule of rules) {
+    // 停用规则不参与匹配（scope 待重新定义，见 enforcement.apply 注释）。
+    if (rule.disabled === true) continue
     if (rule.scope.procedure !== req.procedure) continue
     const caseType = matchToken(rule.scope.caseType, req.caseType, 'prefix')
     if (!caseType.ok) continue

@@ -120,7 +120,7 @@ try {
   const rawReg2 = JSON.parse(await readFile(join(litDir, 'case-registry.json'), 'utf8'))
   check('写后 registry 仍无 taskGroups/keyDates 字段', rawReg2.cases[caseId].taskGroups === undefined && rawReg2.cases[caseId].keyDates === undefined)
   const items2 = await itemStore.listItems(caseId)
-  check('写后 items 含新任务与新关键日期', items2.some((i) => i.id === 'task-write-1') && items2.some((i) => i.type === 'keydate' && i.title === '举证期限届满'))
+  check('写后 items 含新任务与新关键日期', items2.some((i) => i.id === 'task-write-1') && items2.some((i) => i.type === 'event' && i.title === '举证期限届满'))
 
   console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`)
 } catch (error) {

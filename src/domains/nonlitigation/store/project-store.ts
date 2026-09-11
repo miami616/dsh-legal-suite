@@ -309,11 +309,11 @@ export function createProjectStore(dataDir: string, ctx: Context, itemStore?: It
         ...(existing === undefined ? {} : { id: existing.id }),
         ownerId: projectId,
         ownerType: 'nonlitigation',
-        type: 'keydate',
+        type: 'event',
         title: s(keyDate.label) ?? '关键日期',
         date: s(keyDate.date),
         status: keyDate.done !== undefined ? (Boolean(keyDate.done) ? 'done' : 'pending') : (existing?.status ?? 'pending'),
-        source: s(keyDate.source) ?? existing?.source ?? 'manual',
+        source: s(keyDate.source) ?? existing?.source ?? 'keydate',
       })
       return requireProject(projectId)
     },

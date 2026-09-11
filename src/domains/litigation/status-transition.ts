@@ -24,6 +24,7 @@ import type { ItemStore } from '../item/store/item-store.ts'
 import { stageForStatus } from '../../shared/playbook/litigation.ts'
 import { checkPeriodGate } from './period-gate.ts'
 import type { PeriodRule } from '../../shared/playbook/period-rules.ts'
+import { isEventItem } from '../item/store/types.ts'
 import {
   applyStageExpansion,
   findAnchorDate,
@@ -189,8 +190,8 @@ export async function syncFilingEventOnPretrial(opts: {
   const today = opts.enteredAt ?? new Date().toISOString().slice(0, 10)
   const items = await itemStore.listItems(caseId)
   // 受理通知送达事件（管家登记后以此为准）
-  const serviceEvent = items.find((i) => i.type !== 'task' && i.type !== 'keydate' && i.title === '受理通知送达' && i.date)
-  let filingEvent = items.find((i) => i.type !== 'task' && i.type !== 'keydate' && i.title === '立案')
+  const serviceEvent = items.find((i) => isEventItem(i) && i.title === '受理通知送达' && i.date)
+  let filingEvent = items.find((i) => isEventItem(i) && i.title === '立案')
   if (filingEvent === undefined) {
     await itemStore.upsertItem({
       ownerId: caseId,

@@ -531,7 +531,7 @@ export function createCaseStore(dataDir: string, ctx?: Context, itemStore?: Item
         ownerId: caseId,
         ownerType: 'litigation',
         ownerName: current.name,
-        type: 'keydate',
+        type: 'event',
         title: label,
         date,
         status: existing?.status ?? 'pending',
@@ -539,7 +539,7 @@ export function createCaseStore(dataDir: string, ctx?: Context, itemStore?: Item
         baseDate,
         cite: meta?.cite,
         computeTrace: meta?.computeTrace,
-        source: meta?.source ?? existing?.source,
+        source: meta?.source ?? existing?.source ?? 'keydate',
       })
       return requireCase(caseId)
     },
@@ -686,7 +686,7 @@ export function createCaseStore(dataDir: string, ctx?: Context, itemStore?: Item
             ownerId: caseId,
             ownerType: 'litigation',
             ownerName: task.ownerName,
-            type: 'keydate',
+            type: 'event',
             title: task.title,
             date: task.date,
             status: 'pending',

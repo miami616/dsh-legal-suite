@@ -42,6 +42,7 @@ import {
 import type { CaseStore } from './store/case-store.ts'
 import type { CaseRecord, CaseRegistry, CaseTask } from './store/types.ts'
 import type { Item } from '../item/store/types.ts'
+import { isEventItem } from '../item/store/types.ts'
 
 /* ------------------------------------------------------------ 阶段映射 */
 
@@ -282,7 +283,7 @@ export async function planStageOnRecord(
   const events: PlannedEvent[] = []
   if (caseItems !== undefined && (stage.events ?? []).length > 0) {
     const existingEventTitles = new Set(
-      caseItems.filter((i) => i.type !== 'task' && i.type !== 'keydate').map((i) => String(i.title ?? '')),
+      caseItems.filter((i) => isEventItem(i)).map((i) => String(i.title ?? '')),
     )
     for (const ev of stage.events ?? []) {
       if (ev.auto === false) continue

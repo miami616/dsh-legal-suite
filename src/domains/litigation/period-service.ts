@@ -16,6 +16,7 @@ import type { CaseStore } from './store/case-store.ts'
 import type { CaseRecord } from './store/types.ts'
 import type { ItemStore, TaskGroup } from '../item/store/item-store.ts'
 import { LEAD_TIME_RULES, daysBefore } from '../../shared/playbook/litigation.ts'
+import { isEventItem } from '../item/store/types.ts'
 import {
   PERIOD_RULES, addDaysStr, derivePeriod, matchPeriodRules, previousWorkday,
   type DerivedPeriod, type PeriodCandidate, type PeriodRule, type PeriodTrigger,
@@ -284,7 +285,7 @@ export async function applyPeriodRegistration(
 
   // 2) 触发事由日程（已发生 → done，进时间轴纪年，不进关键日程倒计时）
   for (const ev of plan.events) {
-    const dup = items.find((it) => it.type !== 'task' && it.type !== 'keydate' && it.title === ev.title && it.date === ev.date)
+    const dup = items.find((it) => isEventItem(it) && it.title === ev.title && it.date === ev.date)
     if (dup !== undefined) {
       skipped.push(`时间轴日程已存在：${ev.title} ${ev.date}`)
       continue
@@ -311,7 +312,7 @@ export async function applyPeriodRegistration(
       group = await itemStore.upsertGroup({ ownerId: caseId, ownerType: 'litigation', name: plan.groupName })
     }
     for (const t of plan.tasks) {
-      const dup = items.find((it) => it.type !== 'task' && it.type !== 'keydate' && it.title === t.title)
+      const dup = items.find((it) => isEventItem(it) && it.title === t.title)
         ?? items.find((it) => it.title === t.title && it.groupId === group!.id)
       if (dup !== undefined) {
         skipped.push(`提前量任务已存在：${t.title}`)

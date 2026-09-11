@@ -23,6 +23,7 @@ import { applyPeriodRegistration, listRules, planPeriodRegistration, type Servic
 import { runPatrol, groupItemsByCase } from './patrol.ts'
 import { PERIOD_RULES, type PeriodRule } from '../../shared/playbook/period-rules.ts'
 import { computeCaseHealth, computeRegistryHealth } from './health.ts'
+import { isEventItem } from '../item/store/types.ts'
 
 /** Stores the tool operates on (same instances as the route family). */
 export interface ToolDeps {
@@ -194,6 +195,11 @@ const DESCRIPTION = [
   '内置规则（procedure·文书种类/我方身份·触发 → 期间 → 术语）：',
   '  ' + summarizeRules(),
   '法院指定期间与非规范节点仍用 add_keydate / upsert_event 手工登记；期间类事项不要建任务（任务只留提前量动作）。',
+  '【期限登记纪律】（2026-09-11 用户口径，踩过坑）：',
+  '  · **当事人的履行期限不登记**——判决/调解书里对方分期付款的「履行期限届满」是对方的付款义务，',
+  '    不是我方要盯的期限（实测被误登记 11 条，全进了日历）。只登记影响**我方程序权利**的期限。',
+  '  · 「申请执行期限届满」只在**尚未申请执行**时登记：本案 level 已是首次执行/恢复执行，',
+  '    或同案已有执行案（如二审案已有对应执行案），都不再登记——已进入执行程序，该期限是废纸。',
   '',
   '【写入纪律】',
   '任务名写「动作」不写「状态」（用「出庭参加庭审」，不用「等待开庭」）；',
@@ -353,7 +359,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           // 0.2.2 并库退役，不再合并 legacy。
           if (deps.itemStore !== undefined) {
             const itemsEvents = (await deps.itemStore.listItems(args.caseId === undefined ? undefined : String(args.caseId)))
-              .filter((it) => it.type !== 'task' && it.type !== 'keydate')
+              .filter((it) => isEventItem(it))
             const { itemToTimelineEvent } = await import('../item/shape.ts')
             const out = itemsEvents.map((it) => itemToTimelineEvent(it))
             return clean({ count: out.length, events: out })
@@ -922,7 +928,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           requireIds({ eventId: s(args.eventId) })
           if (deps.itemStore !== undefined) {
             const existing = await deps.itemStore.readItem(String(args.eventId))
-            if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
+            if (existing !== undefined && isEventItem(existing)) {
               const updated = await deps.itemStore.toggleItem(String(args.eventId))
               return { eventId: updated.id, status: updated.status, ok: true }
             }
@@ -936,7 +942,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           // 回落 legacy case-timeline.json，保证两种来源都能删掉（备忘录 #3）。
           if (deps.itemStore !== undefined) {
             const existing = await deps.itemStore.readItem(String(args.eventId))
-            if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
+            if (existing !== undefined && isEventItem(existing)) {
               await deps.itemStore.deleteItem(String(args.eventId))
               return { deleted: true }
             }

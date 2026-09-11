@@ -8,7 +8,8 @@
  * 优先），成功后把旧文件退役改名（task-groups.json.legacy），此后不再读取。
  * 每个写操作广播 agentlex:registry-changed，供各面板刷新。
  */
-import { readFile, rename } from 'node:fs/promises'
+import { copyFile, readFile, rename, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { JsonFileStore, clone } from '../../litigation/store/file-store.ts'
@@ -16,7 +17,7 @@ import { childId, nowIso } from '../../litigation/store/id.ts'
 import type {
   Item, ItemChecklist, ItemRegistry, ItemStatus, ItemSubtask, ItemType, TaskGroup, TaskGroupRegistry,
 } from './types.ts'
-import { isTaskItem } from './types.ts'
+import { isTaskItem, normalizeItemType } from './types.ts'
 
 export type { Item, ItemRegistry, TaskGroup, TaskGroupRegistry }
 
@@ -75,8 +76,21 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
     const any = reg as ItemRegistry & { groups?: unknown; items?: unknown }
     const out: ItemRegistry = { ...reg }
     out.groups = Array.isArray(any.groups) ? any.groups as TaskGroup[] : []
-    out.items = Array.isArray(any.items) ? any.items as Item[] : []
+    out.items = Array.isArray(any.items) ? (any.items as Item[]).map(normalizeItem) : []
     return out
+  }
+
+  /**
+   * 事项读时归一（0.2.13）：历史 `type:'keydate'` 就是日程 → `'event'`。
+   *
+   * 关键日期不是第三种数据，只是 0.2.12 搬家时多开的 type。读时统一归一，下游
+   * （时间轴/期限汇总/日历同步/任务树）只需认三种 type；落盘由 migrateKeydateTypes()
+   * 一次性改写，写回后盘上不再有第四种值。
+   */
+  function normalizeItem(it: Item): Item {
+    const raw = (it as { type?: string }).type
+    const t = normalizeItemType(raw)
+    return t === raw ? it : { ...it, type: t }
   }
 
   /** 读取 + 归一化（每次读都确保两个数组存在）。 */
@@ -87,8 +101,57 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
   /* ------------------------- 旧 task-groups.json 退役迁移 ------------------------- */
   let migratePromise: Promise<void> | null = null
   const ensureMigrated = (): Promise<void> => {
-    if (migratePromise === null) migratePromise = migrateLegacyGroups()
+    if (migratePromise === null) {
+      migratePromise = (async () => {
+        await migrateLegacyGroups()
+        await migrateKeydateTypes()
+      })()
+    }
     return migratePromise
+  }
+
+  /**
+   * 0.2.13 落盘迁移：`type:'keydate'` → `'event'`（关键日期即日程）。
+   *
+   * 幂等：标记文件 `.agentlex-keydate-merged-0.2.13` + 备份 `items.json.bak-keydate-merge-0.2.13`。
+   * 读时归一（normalizeItem）已保证行为正确，这里只是把盘上第四种值抹平。
+   */
+  async function migrateKeydateTypes(): Promise<void> {
+    const markFile = join(dataDir, '.agentlex-keydate-merged-0.2.13')
+    if (existsSync(markFile)) return
+    let raw: string
+    try {
+      raw = await readFile(file, 'utf8')
+    } catch {
+      // 还没有 items.json（全新安装）→ 无事可做，直接落标记。
+      try { await writeFile(markFile, nowIso(), 'utf8') } catch { /* best-effort */ }
+      return
+    }
+    let items: Item[]
+    try {
+      const doc = JSON.parse(raw) as { items?: unknown }
+      items = Array.isArray(doc.items) ? doc.items as Item[] : []
+    } catch {
+      console.warn('[item-store] items.json 解析失败，跳过 keydate→日程 落盘迁移（读时仍已归一）')
+      return
+    }
+    const legacy = items.filter((i) => (i as { type?: string }).type === 'keydate')
+    if (legacy.length > 0) {
+      try { await copyFile(file, `${file}.bak-keydate-merge-0.2.13`) } catch { /* best-effort */ }
+      try {
+        await store.mutate((rawReg) => {
+          // normalize 已把 keydate 归一为 event，这里只需写回。
+          const next = clone(normalize(rawReg))
+          next.lastUpdated = nowIso()
+          return next
+        }, 'tasks', undefined, 'keydate-merge-0.2.13')
+        console.log(`[item-store] 0.2.13 统一：${legacy.length} 条关键日期并入日程（type keydate → event）`)
+      } catch (error) {
+        console.warn('[item-store] keydate→日程 落盘迁移失败（读时仍已归一）:', error)
+        return
+      }
+    }
+    try { await writeFile(markFile, nowIso(), 'utf8') } catch { /* best-effort */ }
   }
 
   async function migrateLegacyGroups(): Promise<void> {

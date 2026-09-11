@@ -51,6 +51,7 @@ export const API_PREFIX = '/api/agentlex-case'
 import type { ItemStore } from '../item/store/item-store.ts'
 import type { PeriodRuleStore } from './store/period-rule-store.ts'
 import type { PatrolLedgerStore } from './store/patrol-ledger-store.ts'
+import { isEventItem } from '../item/store/types.ts'
 
 export interface RouteDeps {
   caseStore: CaseStore
@@ -559,7 +560,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
       const items = await d.itemStore.listItems(caseId)
       const out: unknown[] = []
       for (const it of items) {
-        if (it.type === 'task' || it.type === 'keydate') continue
+        if (!isEventItem(it)) continue
         out.push(itemToTimelineEvent(it))
       }
       out.sort((a, b) => String((a as { date?: string }).date ?? '').localeCompare(String((b as { date?: string }).date ?? '')))
@@ -601,7 +602,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (eventId === '') return fail(res, 'eventId required')
     if (d.itemStore !== undefined) {
       const existing = await d.itemStore.readItem(eventId)
-      if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
+      if (existing !== undefined && isEventItem(existing)) {
         const r = await d.itemStore.deleteItem(eventId)
         // 备忘 #21：事件删除后 bump 案件 updatedAt。
         if (existing.ownerId !== undefined && existing.ownerId !== '') {
@@ -620,7 +621,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     if (eventId === '') return fail(res, 'eventId required')
     if (d.itemStore !== undefined) {
       const existing = await d.itemStore.readItem(eventId)
-      if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
+      if (existing !== undefined && isEventItem(existing)) {
         const updated = await d.itemStore.toggleItem(eventId)
         // 备忘 #21：事件状态切换后 bump 案件 updatedAt。
         if (existing.ownerId !== undefined && existing.ownerId !== '') {

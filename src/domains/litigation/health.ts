@@ -237,7 +237,7 @@ export async function computeCaseHealth(
     rules: opts.rules,
     events: (opts.events ?? [])
       .filter((e) => e.ownerId === undefined || e.ownerId === record.caseId)
-      .filter((e) => e.type !== 'task' && e.type !== 'keydate')
+      .filter((e) => e.type === 'event' || e.type === 'both')
       .map((e) => ({ title: e.title, date: e.date })),
   }
   for (const rule of applicable) {

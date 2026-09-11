@@ -10,6 +10,7 @@
  */
 
 import type { ItemStore } from '../item/store/item-store.ts'
+import { isEventItem } from '../item/store/types.ts'
 
 export async function ensureCaseOpenEvent(
   itemStore: ItemStore | undefined,
@@ -18,7 +19,7 @@ export async function ensureCaseOpenEvent(
 ): Promise<boolean> {
   if (itemStore === undefined) return false
   const items = await itemStore.listItems(caseId)
-  if (items.some((i) => i.type !== 'task' && i.type !== 'keydate' && i.title === '收案')) return false
+  if (items.some((i) => isEventItem(i) && i.title === '收案')) return false
   await itemStore.upsertItem({
     ownerId: caseId,
     ownerType: 'litigation',

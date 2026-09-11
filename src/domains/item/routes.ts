@@ -8,6 +8,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ItemStore } from './store/item-store.ts'
 import type { ApiResponse } from './store/types.ts'
 import { buildLegacyTaskGroupsFromStore, itemToLegacyTask, itemToTimelineEvent } from './shape.ts'
+import { isEventItem } from './store/types.ts'
 
 export interface RouteDeps {
   itemStore: ItemStore
@@ -114,7 +115,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     // timeline = type 为 event/both 的事项（转成 TimelineEvent 形状）。
     const timeline: Record<string, unknown> = {}
     for (const it of items) {
-      if (it.type === 'task' || it.type === 'keydate') continue
+      if (!isEventItem(it)) continue
       timeline[it.id] = itemToTimelineEvent(it)
     }
     // taskGroups = 统一事项按 (ownerId, groupId) 分组（共享 builder）。

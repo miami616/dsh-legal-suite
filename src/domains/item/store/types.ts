@@ -1,13 +1,14 @@
 /**
  * 统一事项模型 — 数据模型。
  *
- * 把「事件（timelineEvents）」「任务（taskGroups[].tasks）」「关键日期
- * （case.keyDates）」统一为一个「事项 Item」，用 type 区分。一个事项一次登记，
- * 多视图自动分流：
- *   - event   → 关键日程/时间轴
- *   - task    → 任务树
- *   - both    → 两者都进
- *   - keydate → 关键日期区（法定期限届满等不可逆时点）
+ * 只有两类数据：**任务**与**日程**，有些二者关联。一个事项一次登记，多视图自动分流：
+ *   - event → 日程（尚未发生 → 关键日程 + 日历同步；已经过去 → 历史时间轴）
+ *   - task  → 任务（任务树 / 任务台账；只有任务才有"逾期"）
+ *   - both  → 日程 + 任务（双重）
+ *
+ * 日程一律带日期；带不带具体时间点是同一种数据的两种形态（全天 / 定时），
+ * 不构成类型差异。法定期限（举证期/上诉期/时效届满…）就是日程，其来源与
+ * 计算依据作为普通字段留在事项上（ruleId/baseDate/cite/computeTrace）。
  *
  * 存储：<dataDir>/items.json（扁平列表），唯一真相源——替代 case-timeline.json
  * + taskGroups + schedules.json + standalone-tasks.json + registry.keyDates。
@@ -17,15 +18,29 @@
 export type ItemOwnerType = 'litigation' | 'nonlitigation' | 'standalone'
 
 /**
- * 事项类型：纯事件 / 纯任务 / 事件+任务（双重）/ 关键日期。
+ * 事项类型：日程 / 任务 / 二者兼有。
  *
- * 0.2.12「全面统一」：关键日期（法定期限届满等不可逆时点）从 case-registry 的
- * `case.keyDates` 字段迁入统一事项，作为独立 type='keydate' 存 items.json——
- * 存储只剩一处，界面分区不变（时间轴只看 event/both，关键日期区只看 keydate）。
+ * 0.2.13：删掉 0.2.12 引入的 `'keydate'`——关键日期不是第三种数据，它就是日程。
+ * 盘上存量可能还有 `type:'keydate'`（迁移前），读时由 normalizeItemType 归一为
+ * `'event'`，迁移后落盘统一。`both` 保留（用户明确要求先留着）。
  */
-export type ItemType = 'event' | 'task' | 'both' | 'keydate'
+export type ItemType = 'event' | 'task' | 'both'
 
-/** 事件类事项（进时间轴/关键日程）：event / both。 */
+/** 盘上可能出现的历史 type 值（迁移前），只用于读时归一。 */
+export type LegacyItemType = 'keydate'
+
+/**
+ * 读时归一：历史 `'keydate'` → `'event'`。
+ *
+ * 关键日期本来就是日程，只是 0.2.12 搬家时多开了一个 type。所有读路径先过这里，
+ * 于是下游（时间轴/期限汇总/日历同步/任务树）只需要认三种 type。
+ */
+export function normalizeItemType(t: string | undefined | null): ItemType {
+  if (t === 'task' || t === 'both') return t
+  return 'event'
+}
+
+/** 日程类事项（进关键日程/时间轴/日历同步）：event / both。 */
 export function isEventItem(it: Pick<Item, 'type'>): boolean {
   return it.type === 'event' || it.type === 'both'
 }
@@ -35,9 +50,26 @@ export function isTaskItem(it: Pick<Item, 'type'>): boolean {
   return it.type === 'task' || it.type === 'both'
 }
 
-/** 关键日期事项（进关键日期区 + 期限汇总，不随时间轴/任务树显示）。 */
+/**
+ * 法定期限来源的日程（由期限规则算出：带 ruleId/baseDate/cite）。
+ *
+ * 这是**字段判断**，不是类型判断——期限就是日程，只是它记得自己从哪条规则算出来。
+ * 需要区分「规则生成的期限」与「手工登记日程」的地方（期限汇总、闸门、巡检）用它。
+ */
+export function isRuleDerivedItem(it: Pick<Item, 'ruleId' | 'baseDate'>): boolean {
+  return (it.ruleId ?? '') !== '' || (it.baseDate ?? '') !== ''
+}
+
+/**
+ * @deprecated 0.2.13 起没有 `keydate` 类型——关键日期就是日程。
+ *
+ * 保留此判定**只为旧读接口的兼容投影**（`case.keyDates`）：投影 = 该案的日程。
+ * 语义上它不再是「第三种数据」，只是一个兼容壳（0.2.14 计划拆除）。
+ * 新代码不要用它做业务分派——问「是不是日程」用 isEventItem，问「是不是规则生成的
+ * 期限」用 isRuleDerivedItem，问「是不是手工登记的期限」用 source==='keydate'。
+ */
 export function isKeyDateItem(it: Pick<Item, 'type'>): boolean {
-  return it.type === 'keydate'
+  return isEventItem(it)
 }
 
 /** 事项状态。 */

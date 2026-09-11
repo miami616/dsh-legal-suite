@@ -147,7 +147,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
         id: taskIdToEdit,
         ownerId: sourceId,
         ownerType,
-        type: (existing?.type === 'event' || existing?.type === 'both' || existing?.type === 'keydate' ? existing.type : 'task'),
+        type: (existing?.type === 'event' || existing?.type === 'both' ? existing.type : 'task'),
         title: input.title === undefined ? (existing?.title ?? '新事项') : String(input.title),
         detail: input.detail === undefined ? existing?.detail : String(input.detail),
         date: input.deadline === undefined ? (existing?.date ?? undefined) : String(input.deadline),

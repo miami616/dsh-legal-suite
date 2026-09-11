@@ -122,12 +122,12 @@ try {
   // ── 2) 不丢数据 / 不覆盖既有 ──
   check('镜像独有任务已补入 items', byId.get('task-only')?.title === '镜像独有任务')
   check('镜像旧状态未覆盖 items 既有值', byId.get('task-dup')?.status === 'done', byId.get('task-dup')?.status)
-  check('keydate 落 items（type=keydate）', byId.get('kd-1')?.type === 'keydate')
+  check('关键日期落 items（0.2.13 起类型并入日程 event）', byId.get('kd-1')?.type === 'event')
   check('keydate 保留审计字段', byId.get('kd-1')?.ruleId === 'appeal-window' && byId.get('kd-1')?.baseDate === '2026-09-04' && byId.get('kd-1')?.cite === '民诉法第171条')
   check('已完成 keydate 状态保留', byId.get('kd-2')?.status === 'done')
   check('旧日程落 items（type=event）', byId.get('sch-1')?.type === 'event' && byId.get('sch-1')?.kind === 'execution')
   check('独立任务落 items（ownerType=standalone）', byId.get('task-sa-1')?.ownerType === 'standalone' && byId.get('task-sa-1')?.type === 'task')
-  check('项目关键日期落 items', byId.get('pkd-1')?.type === 'keydate' && byId.get('pkd-1')?.ownerType === 'nonlitigation')
+  check('项目关键日期落 items', byId.get('pkd-1')?.type === 'event' && byId.get('pkd-1')?.ownerType === 'nonlitigation')
 
   // ── 3) 盘上不再有第二份存储 ──
   const rawReg = await readJson(join(litDir, 'case-registry.json'))
@@ -142,7 +142,9 @@ try {
 
   // ── 4) 读侧装配（形状不变）──
   const hydrated = await caseStore.readCase('2026-900')
-  check('readCase 装配 keyDates', Array.isArray(hydrated.keyDates) && hydrated.keyDates.length === 2)
+  // 0.2.13：keydate 类型退役，case.keyDates 退化为兼容投影（= 该案全部日程），
+  // 因此不再断言条数，改为断言两条迁移来的期限仍在（按 id 找）。
+  check('readCase 装配 keyDates（兼容投影含迁移来的期限）', Array.isArray(hydrated.keyDates) && hydrated.keyDates.some((k) => k.id === 'kd-1') && hydrated.keyDates.some((k) => k.id === 'kd-2'))
   check('readCase keyDates 带 done 语义', hydrated.keyDates.find((k) => k.id === 'kd-2')?.done === true)
   const hydratedReg = await caseStore.readRegistry()
   check('readRegistry 装配 taskGroups', (hydratedReg.cases['2026-900'].taskGroups ?? []).some((g) => g.tasks.some((t) => t.id === 'task-only')))
@@ -154,7 +156,7 @@ try {
   const rawReg2 = await readJson(join(litDir, 'case-registry.json'))
   check('addKeyDate 不写 registry 字段', rawReg2.cases['2026-900'].keyDates === undefined)
   const after = await itemStore.listItems('2026-900')
-  check('addKeyDate 写 items', after.some((i) => i.type === 'keydate' && i.title === '举证期限届满' && i.ruleId === 'evidence'))
+  check('addKeyDate 写 items', after.some((i) => i.type === 'event' && i.title === '举证期限届满' && i.ruleId === 'evidence'))
   // 幂等：同 ruleId+baseDate 再登记一次不新增
   await caseStore.addKeyDate('2026-900', '举证期限届满', '2026-10-01', { ruleId: 'evidence', baseDate: '2026-09-16' })
   const after2 = await itemStore.listItems('2026-900')

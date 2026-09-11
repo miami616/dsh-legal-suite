@@ -12,6 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { RouteDeps } from './routes.ts'
 import { buildFolderTree, downloadFile, expandFolder, openPath, readPreviewFile } from './file-service.ts'
+import { isEventItem } from '../item/store/types.ts'
 
 /* ------------------------- response helpers ------------------------- */
 
@@ -336,7 +337,7 @@ export function registerLegacyCompatRoutes(ctx: Context, deps: RouteDeps): () =>
     const eventId = String(body.eventId ?? '')
     if (deps.itemStore !== undefined) {
       const existing = await deps.itemStore.readItem(eventId)
-      if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
+      if (existing !== undefined && isEventItem(existing)) {
         ok(res, await deps.itemStore.deleteItem(eventId))
         return
       }
@@ -348,7 +349,7 @@ export function registerLegacyCompatRoutes(ctx: Context, deps: RouteDeps): () =>
     const eventId = String(body.eventId ?? '')
     if (deps.itemStore !== undefined) {
       const existing = await deps.itemStore.readItem(eventId)
-      if (existing !== undefined && existing.type !== 'task' && existing.type !== 'keydate') {
+      if (existing !== undefined && isEventItem(existing)) {
         ok(res, await deps.itemStore.toggleItem(eventId))
         return
       }

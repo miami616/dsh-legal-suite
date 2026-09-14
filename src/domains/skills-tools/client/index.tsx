@@ -67,7 +67,7 @@ export function apply(ctx: ClientContext): void {
   // （面板组件内部的监听只在挂载后生效）。
   const onOpenPanel = (event: Event): void => {
     const detail = (event as CustomEvent<SkillsToolsTab>).detail
-    if (detail === 'tools' || detail === 'skills') pendingTab = detail
+    if (detail === 'tools' || detail === 'skills' || detail === 'calc') pendingTab = detail
     if (!state.isOpen()) {
       state.setOpen(true)
       applyActive?.()

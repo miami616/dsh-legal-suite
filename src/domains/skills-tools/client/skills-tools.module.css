@@ -1389,3 +1389,851 @@ body[data-ds-dark-theme] .mcpRow:hover {
   color: var(--lit-accent-strong, #7a5800);
   background: color-mix(in srgb, var(--lit-accent, #cf8f68) 10%, transparent);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   小工具 tab（律师常用测算集合）
+   设计要点：分组卡片网格 → 宽屏双栏（左参数 / 右结果粘性跟随）；
+   分段控件 + 带单位后缀的数字输入 + 失焦校验；结果英雄区 + 指标网格 +
+   明细表 + 折叠依据；焦点环、reduced-motion、深浅色对比度均已接线。
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.calcToolbarNote {
+  font-size: 12px;
+  color: var(--lit-ink-muted);
+}
+
+.calcGroupTitle {
+  cursor: default;
+}
+
+.calcGroupTitle:hover {
+  background: none;
+}
+
+/* ── 列表：工具卡片 ─────────────────────────────────────────────────────── */
+
+.calcGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  padding: 8px 32px 22px;
+}
+
+@media (max-width: 1400px) {
+  .calcGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
+  .calcGrid { grid-template-columns: 1fr; padding: 8px 16px 20px; }
+}
+
+.calcCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 122px;
+  padding: 15px 16px;
+  border-radius: var(--lit-radius-lg);
+  background: color-mix(in srgb, var(--lit-paper) 88%, var(--lit-paper-inset) 12%);
+  border: 1px solid var(--lit-line-strong);
+  box-shadow: var(--lit-shadow-card);
+  font-family: var(--lit-font);
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.calcCard:hover {
+  box-shadow: 0 6px 20px rgb(28 22 18 / 0.12), 0 2px 6px rgb(28 22 18 / 0.08);
+  border-color: var(--lit-accent);
+  transform: translateY(-2px);
+}
+
+.calcCard:active {
+  transform: translateY(0);
+}
+
+.calcCard:focus-visible {
+  outline: 2px solid var(--lit-accent);
+  outline-offset: 2px;
+}
+
+body[data-ds-dark-theme] .calcCard {
+  background: var(--lit-paper-elevated);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
+body[data-ds-dark-theme] .calcCard:hover {
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+}
+
+.calcCardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.calcCardName {
+  flex: 1;
+  min-width: 0;
+  font-size: 14.5px;
+  font-weight: 650;
+  color: var(--lit-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calcCardArrow {
+  display: inline-flex;
+  align-items: center;
+  color: var(--lit-ink-faint);
+  transition: color 0.18s ease, transform 0.18s ease;
+}
+
+.calcCard:hover .calcCardArrow {
+  color: var(--lit-accent-strong);
+  transform: translateX(2px);
+}
+
+.calcCardDesc {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--lit-ink-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.calcCardBasis {
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px dashed var(--lit-line-subtle);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--lit-ink-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── 详情：页眉 ────────────────────────────────────────────────────────── */
+
+.calcDetailHead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 32px 2px;
+}
+
+.calcBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  min-height: 28px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: var(--lit-font);
+  color: var(--lit-ink-muted);
+  background: var(--lit-paper-inset);
+  border: 1px solid var(--lit-line-subtle);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.calcBack:hover {
+  background: var(--lit-hover-bg);
+  border-color: var(--lit-accent);
+  color: var(--lit-accent-strong);
+}
+
+.calcBack:focus-visible {
+  outline: 2px solid var(--lit-accent);
+  outline-offset: 2px;
+}
+
+.calcDetailTitleRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.calcDetailIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--lit-radius-md);
+  background: var(--lit-accent-subtle);
+  color: var(--lit-accent-strong);
+}
+
+.calcDetailTitleCol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.calcDetailTitle {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 750;
+  letter-spacing: 0.005em;
+  color: var(--lit-ink);
+}
+
+.calcDetailDesc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--lit-ink-muted);
+}
+
+.calcDetailBasis {
+  margin: 0;
+  padding-left: 48px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--lit-ink-muted);
+}
+
+/* ── 详情：双栏布局 ────────────────────────────────────────────────────── */
+
+.calcLayout {
+  display: grid;
+  grid-template-columns: minmax(330px, 440px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  padding: 16px 32px 32px;
+}
+
+@media (max-width: 1180px) {
+  .calcLayout { grid-template-columns: 1fr; gap: 16px; }
+}
+
+@media (max-width: 900px) {
+  .calcLayout { padding: 14px 16px 28px; }
+  .calcDetailHead { padding: 12px 16px 2px; }
+  .calcDetailBasis { padding-left: 0; }
+}
+
+.calcFormCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--lit-radius-lg);
+  background: color-mix(in srgb, var(--lit-paper) 90%, var(--lit-paper-inset) 10%);
+  border: 1px solid var(--lit-line-strong);
+  box-shadow: var(--lit-shadow-card);
+}
+
+body[data-ds-dark-theme] .calcFormCard {
+  background: var(--lit-paper-elevated);
+}
+
+.calcFormCardHead {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lit-ink-subtle);
+}
+
+.calcForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.calcField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.calcFieldHint {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--lit-ink-muted);
+}
+
+.calcFieldError {
+  font-size: 11.5px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: var(--lit-error);
+}
+
+/* 输入：统一包装 + 单位后缀 */
+
+.calcInputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.calcInput {
+  width: 100%;
+  box-sizing: border-box;
+  height: 38px;
+  padding: 0 12px;
+  font-size: 13.5px;
+  font-family: var(--lit-font);
+  color: var(--lit-ink);
+  background: var(--lit-paper);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-sm);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+body[data-ds-dark-theme] .calcInput {
+  background: var(--lit-paper-inset);
+}
+
+.calcInput::placeholder {
+  color: var(--lit-ink-subtle);
+}
+
+.calcInput:hover {
+  border-color: var(--lit-line-strong);
+}
+
+.calcInput:focus-visible {
+  border-color: var(--lit-accent);
+  box-shadow: 0 0 0 3px var(--lit-accent-subtle);
+  outline: none;
+}
+
+.calcInput[aria-invalid='true'] {
+  border-color: var(--lit-error);
+}
+
+.calcInput[aria-invalid='true']:focus-visible {
+  box-shadow: 0 0 0 3px var(--lit-error-bg);
+}
+
+.calcInputNumeric {
+  padding-right: 40px;
+  text-align: right;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.calcUnit {
+  position: absolute;
+  right: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--lit-ink-subtle);
+  pointer-events: none;
+}
+
+.calcSelectWrap .calcInput {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  cursor: pointer;
+}
+
+.calcSelectChevron {
+  position: absolute;
+  right: 11px;
+  display: inline-flex;
+  color: var(--lit-ink-muted);
+  pointer-events: none;
+}
+
+.calcChipClear {
+  margin-left: auto;
+}
+
+/* 金额快捷值 */
+
+.calcQuick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.calcChip {
+  min-height: 26px;
+  padding: 3px 11px;
+  font-size: 11.5px;
+  font-family: var(--lit-font);
+  font-variant-numeric: tabular-nums;
+  color: var(--lit-ink-muted);
+  background: var(--lit-paper-inset);
+  border: 1px solid var(--lit-line-subtle);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.13s ease, color 0.13s ease, border-color 0.13s ease;
+}
+
+.calcChip:hover {
+  background: var(--lit-accent-subtle);
+  border-color: var(--lit-accent);
+  color: var(--lit-accent-strong);
+}
+
+.calcChip:focus-visible {
+  outline: 2px solid var(--lit-accent);
+  outline-offset: 1px;
+}
+
+.calcChipOn {
+  background: var(--lit-accent-subtle);
+  border-color: var(--lit-accent);
+  color: var(--lit-accent-strong);
+  font-weight: 650;
+}
+
+/* 开关（布尔参数） */
+
+.calcSwitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.calcSwitchInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.calcSwitchTrack {
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--lit-paper-inset);
+  border: 1px solid var(--lit-line-strong);
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.calcSwitchThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--lit-paper-elevated);
+  box-shadow: 0 1px 2px rgb(28 22 18 / 0.25);
+  transition: transform 0.16s ease;
+}
+
+.calcSwitchInput:checked + .calcSwitchTrack {
+  background: var(--lit-accent);
+  border-color: var(--lit-accent-strong);
+}
+
+.calcSwitchInput:checked + .calcSwitchTrack .calcSwitchThumb {
+  transform: translateX(16px);
+}
+
+.calcSwitchInput:focus-visible + .calcSwitchTrack {
+  outline: 2px solid var(--lit-accent);
+  outline-offset: 2px;
+}
+
+.calcSwitchLabel {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--lit-ink-secondary);
+}
+
+/* 分段控件（少量选项） */
+
+.calcSegment {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px;
+  border-radius: var(--lit-radius-md);
+  background: var(--lit-paper-inset);
+  border: 1px solid var(--lit-line-subtle);
+}
+
+.calcSegmentItem {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: var(--lit-radius-sm);
+  font-size: 12.5px;
+  color: var(--lit-ink-muted);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.calcSegmentItem:hover {
+  color: var(--lit-ink);
+}
+
+.calcSegmentItemOn {
+  background: var(--lit-paper-elevated);
+  color: var(--lit-accent-strong);
+  font-weight: 650;
+  box-shadow: 0 1px 3px rgb(28 22 18 / 0.14);
+}
+
+.calcSegmentInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.calcSegmentInput:focus-visible + span {
+  outline: 2px solid var(--lit-accent);
+  outline-offset: 2px;
+}
+
+/* ── 结果卡 ────────────────────────────────────────────────────────────── */
+
+.calcResult {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: calc(100dvh - 150px);
+  overflow-y: auto;
+  padding: 16px 18px 18px;
+  border-radius: var(--lit-radius-lg);
+  background: var(--lit-paper-elevated);
+  border: 1px solid var(--lit-line-strong);
+  box-shadow: var(--lit-shadow-card);
+}
+
+@media (max-width: 1180px) {
+  .calcResult {
+    position: static;
+    max-height: none;
+  }
+}
+
+body[data-ds-dark-theme] .calcResult {
+  background: var(--lit-paper-elevated);
+}
+
+.calcResultHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.calcResultTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--lit-ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calcCopy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  min-height: 30px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: var(--lit-font);
+  color: var(--lit-ink-secondary);
+  background: var(--lit-paper-inset);
+  border: 1px solid var(--lit-line-subtle);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.calcCopy:hover {
+  background: var(--lit-hover-bg);
+  border-color: var(--lit-accent);
+  color: var(--lit-accent-strong);
+}
+
+.calcCopy:focus-visible {
+  outline: 2px solid var(--lit-accent);
+  outline-offset: 2px;
+}
+
+.calcCopyDone {
+  color: var(--lit-success);
+  border-color: var(--lit-success);
+  background: var(--lit-success-bg);
+}
+
+.calcLive {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* 结果英雄区 */
+
+.calcHero {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  border-radius: var(--lit-radius-md);
+  background: var(--lit-accent-subtle);
+  border: 1px solid var(--lit-accent-muted);
+}
+
+.calcHeroLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lit-ink-muted);
+}
+
+.calcHeroValue {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(22px, 2.1vw, 30px);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--lit-ink);
+  overflow-wrap: anywhere;
+}
+
+.calcHeroHint {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--lit-ink-muted);
+}
+
+/* 指标网格 */
+
+.calcStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  border-radius: var(--lit-radius-md);
+  overflow: hidden;
+  background: var(--lit-line-subtle);
+  border: 1px solid var(--lit-line-subtle);
+}
+
+.calcStat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  background: var(--lit-paper);
+}
+
+body[data-ds-dark-theme] .calcStat {
+  background: var(--lit-paper-inset);
+}
+
+.calcStatLabel {
+  font-size: 11.5px;
+  color: var(--lit-ink-muted);
+}
+
+.calcStatValue {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--lit-ink);
+  overflow-wrap: anywhere;
+}
+
+.calcStatHint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--lit-ink-muted);
+}
+
+/* 明细表 */
+
+.calcTableWrap {
+  overflow-x: auto;
+  border-radius: var(--lit-radius-md);
+  border: 1px solid var(--lit-line-subtle);
+}
+
+.calcTableCaption {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--lit-ink-secondary);
+  background: var(--lit-paper-inset);
+  border-bottom: 1px solid var(--lit-line-subtle);
+}
+
+.calcTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.calcTable th,
+.calcTable td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--lit-line-subtle);
+  text-align: right;
+  white-space: nowrap;
+  color: var(--lit-ink-secondary);
+}
+
+.calcTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.calcTable tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--lit-paper-inset) 45%, transparent);
+}
+
+.calcTable th {
+  font-weight: 650;
+  color: var(--lit-ink-muted);
+  background: var(--lit-paper-inset);
+}
+
+.calcThLeft,
+.calcTdLeft {
+  text-align: left !important;
+  white-space: normal;
+  min-width: 130px;
+}
+
+/* 折叠的依据与口径 */
+
+.calcNotes {
+  border-top: 1px dashed var(--lit-line-subtle);
+  padding-top: 10px;
+}
+
+.calcNotesSummary {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lit-ink-muted);
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  border-radius: var(--lit-radius-sm);
+}
+
+.calcNotesSummary::-webkit-details-marker {
+  display: none;
+}
+
+.calcNotesSummary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.calcNotes[open] .calcNotesSummary::before {
+  transform: rotate(45deg);
+}
+
+.calcNotesSummary:hover {
+  color: var(--lit-accent-strong);
+}
+
+.calcNotesSummary:focus-visible {
+  outline: 2px solid var(--lit-accent);
+  outline-offset: 2px;
+}
+
+.calcNotesList {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.calcNotesList li {
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--lit-ink-muted);
+}
+
+.calcError {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--lit-error);
+}
+
+/* 动效偏好：关闭位移与过渡 */
+
+@media (prefers-reduced-motion: reduce) {
+  .calcCard,
+  .calcCardArrow,
+  .calcChip,
+  .calcSegmentItem,
+  .calcSwitchTrack,
+  .calcSwitchThumb,
+  .calcCopy,
+  .calcBack,
+  .calcNotesSummary::before {
+    transition: none !important;
+  }
+
+  .calcCard:hover,
+  .calcCard:active,
+  .calcCard:hover .calcCardArrow {
+    transform: none !important;
+  }
+}

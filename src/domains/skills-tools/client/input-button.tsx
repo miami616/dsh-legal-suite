@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSkillsToolsState } from './store.ts'
 import { openPanel } from './summon.ts'
 import type { McpServerEntry, SkillSummary } from '../types.ts'
-import { SkillIcon, PlusIcon, ServerIcon, GlobeIcon, ChevronDownIcon } from './icons.tsx'
+import { SkillIcon, PlusIcon, ServerIcon, GlobeIcon, ChevronDownIcon, CalcIcon } from './icons.tsx'
 // 输入框 DOM 桥：读当前草稿（官方 inputActions 只有 setDraft 整值写，没有读，
 // 直接 setDraft 会把用户已输入内容整个覆盖——先读现值再拼接保留）。
 import { chatInputBridge } from '../../workspace-sidebar/client/chat-input-bridge.ts'
@@ -65,7 +65,7 @@ export function SkillsToolsPicker(props: SkillsToolsPickerProps): React.JSX.Elem
     }
   }, [open])
 
-  const go = (tab: 'skills' | 'tools'): void => {
+  const go = (tab: 'skills' | 'tools' | 'calc'): void => {
     setOpen(false)
     openPanel(tab)
   }
@@ -159,6 +159,13 @@ export function SkillsToolsPicker(props: SkillsToolsPickerProps): React.JSX.Elem
               <span className={css.pickerItemHint}>{server.status === 'connected' ? '已连接' : server.status === 'connecting' ? '连接中' : server.enabled ? '异常' : '已停用'}</span>
             </button>
           ))}
+
+          <div className={css.pickerDivider} />
+          <div className={css.pickerGroupLabel}>小工具</div>
+          <button type="button" role="menuitem" className={css.pickerItem} onClick={() => go('calc')}>
+            <span className={css.pickerItemIcon}><CalcIcon size={14} /></span>
+            <span className={css.pickerItemName}>测算工具（诉讼费 / 律师费 / 利息 / 期限）</span>
+          </button>
 
           <div className={css.pickerDivider} />
           <div className={css.pickerGroupLabel}>管理</div>

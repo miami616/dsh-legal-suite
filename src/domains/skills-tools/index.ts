@@ -36,9 +36,10 @@ import {
   type NormalizedMcpConfig,
 } from './core.ts'
 import { makeServerId, type McpServerEntry, type SkillsToolsState, type SkillSummary } from './types.ts'
+import { registerCalcTool } from './tool.ts'
 
 export const name = 'dsh-legal-suite'
-export const inject = ['webServer']
+export const inject = ['webServer', 'tools']
 
 export interface Config {
   enabled?: boolean
@@ -79,6 +80,10 @@ function sleep(ms: number): Promise<void> {
 
 export function apply(ctx: Context, config: Config = {}): void {
   if (config.enabled === false) return
+  // 律师小工具（诉讼费/律师费/利息/违约金/期限…）：纯计算 agent 工具，
+  // 与浏览器端「小工具」选项卡共用 calc/ 引擎——会话里直接算，面板里直接点。
+  const disposeCalcTool = registerCalcTool(ctx)
+  ctx.effect(() => disposeCalcTool, 'agentlex-skills: legal_calc tool')
   ctx.inject(['webServer'], (scope) => {
     mount(scope).catch((error) => {
       scope.logger.warn(`agentlex-skills: setup failed: ${(error as Error)?.message ?? error}`)

@@ -25,6 +25,7 @@ export interface SkillTriggerContext {
 
 const SKILLS_ICON = 'data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="%23C26D3A" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M8 1.8 9.5 6.5 14.2 8 9.5 9.5 8 14.2 6.5 9.5 1.8 8 6.5 6.5z"/%3E%3Cpath d="M12.7 9.7l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z" opacity="0.55"/%3E%3C/svg%3E'
 const PLUS_ICON = 'data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="%23C26D3A" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M8 3v10M3 8h10"/%3E%3C/svg%3E'
+const CALC_ICON = 'data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="%23C26D3A" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"%3E%3Crect x="3" y="2.2" width="10" height="11.6" rx="1.4"/%3E%3Cpath d="M5.4 4.8h5.2"/%3E%3C/svg%3E'
 
 /** `/` 命令源：技能与工具命令组（仅面板操作项）。 */
 export function registerSlashSource(ctx: SkillTriggerContext): () => void {
@@ -38,7 +39,10 @@ export function registerSlashSource(ctx: SkillTriggerContext): () => void {
       const matches = (text: string): boolean => q === '' || text.toLowerCase().includes(q)
       const items: Array<{ name: string; icon?: string; hint?: string; value?: string; section?: string }> = []
       if (matches('打开') || matches('技能') || matches('工具') || matches('面板')) {
-        items.push({ name: '打开技能与工具面板', icon: SKILLS_ICON, hint: '技能 / 工具选项卡', value: 'panel:skills', section: '面板' })
+        items.push({ name: '打开技能与工具面板', icon: SKILLS_ICON, hint: '技能 / 工具 / 小工具选项卡', value: 'panel:skills', section: '面板' })
+      }
+      if (matches('小工具') || matches('测算') || matches('计算') || matches('诉讼费') || matches('律师费') || matches('工具')) {
+        items.push({ name: '打开律师小工具', icon: CALC_ICON, hint: '诉讼费 / 律师费 / 利息 / 违约金 / 期限', value: 'panel:calc', section: '面板' })
       }
       if (matches('添加') || matches('技能') || matches('mcp') || matches('工具')) {
         items.push({ name: '添加技能 / 添加 MCP', icon: PLUS_ICON, hint: '上传 zip / .skill / .md · 粘贴 JSON 配置', value: 'panel:skills-add', section: '面板' })
@@ -47,8 +51,8 @@ export function registerSlashSource(ctx: SkillTriggerContext): () => void {
     },
     onPick: (pick) => {
       const value = pick.candidate.value ?? ''
-      if (value === 'panel:skills' || value === 'panel:skills-add' || value === 'panel:tools' || value === 'panel:tools-add') {
-        openPanel(value === 'panel:tools' || value === 'panel:tools-add' ? 'tools' : 'skills')
+      if (value === 'panel:skills' || value === 'panel:skills-add' || value === 'panel:tools' || value === 'panel:tools-add' || value === 'panel:calc') {
+        openPanel(value === 'panel:calc' ? 'calc' : value === 'panel:tools' || value === 'panel:tools-add' ? 'tools' : 'skills')
       }
       return { text: '' }
     },

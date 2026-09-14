@@ -23,6 +23,7 @@ import {
   mcpSetGroup,
 } from './api.ts'
 import { OPEN_PANEL_EVENT, type SkillsToolsTab } from './summon.ts'
+import { CalculatorsSection } from './CalculatorsSection.tsx'
 import type { McpServerEntry, SkillSummary } from '../types.ts'
 import {
   SkillIcon,
@@ -55,7 +56,7 @@ export function SkillsToolsPanel({ initialTab, onClose }: SkillsToolsPanelProps)
   useEffect(() => {
     const onOpen = (event: Event): void => {
       const target = (event as CustomEvent<SkillsToolsTab>).detail
-      if (target === 'tools' || target === 'skills') setTab(target)
+      if (target === 'tools' || target === 'skills' || target === 'calc') setTab(target)
     }
     window.addEventListener(OPEN_PANEL_EVENT, onOpen)
     return () => window.removeEventListener(OPEN_PANEL_EVENT, onOpen)
@@ -124,7 +125,7 @@ export function SkillsToolsPanel({ initialTab, onClose }: SkillsToolsPanelProps)
     <div className={css.panel}>
       <header className={css.header}>
         <h1 className={css.title}>技能与工具</h1>
-        <span className={css.subtitle}>管理技能（Skill）与 MCP 工具，即加即用</span>
+        <span className={css.subtitle}>技能 Skill · MCP 工具 · 律师常用测算小工具</span>
         <button className={css.close} type="button" aria-label="关闭技能与工具" title="关闭" onClick={onClose}>
           <CloseIcon size={14} />
         </button>
@@ -149,6 +150,15 @@ export function SkillsToolsPanel({ initialTab, onClose }: SkillsToolsPanelProps)
           onClick={() => setTab('tools')}
         >
           工具 · MCP
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'calc'}
+          className={tab === 'calc' ? `${css.tab} ${css.tabActive}` : css.tab}
+          onClick={() => setTab('calc')}
+        >
+          小工具
         </button>
       </nav>
 
@@ -175,6 +185,7 @@ export function SkillsToolsPanel({ initialTab, onClose }: SkillsToolsPanelProps)
             onNotice={flash}
           />
         )}
+        {tab === 'calc' && <CalculatorsSection />}
       </div>
 
       {confirm !== null && (

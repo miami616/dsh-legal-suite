@@ -8,7 +8,7 @@
 /** 打开面板事件（携带目标选项卡）。 */
 export const OPEN_PANEL_EVENT = 'agentlex:skills-tools-open'
 
-export type SkillsToolsTab = 'skills' | 'tools'
+export type SkillsToolsTab = 'skills' | 'tools' | 'calc'
 
 export function openPanel(tab: SkillsToolsTab = 'skills'): void {
   window.dispatchEvent(new CustomEvent(OPEN_PANEL_EVENT, { detail: tab }))

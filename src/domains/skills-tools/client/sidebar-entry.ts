@@ -35,7 +35,7 @@ export function mountSkillsSidebarEntry(options: SkillsSidebarEntryOptions): () 
     icon: ICON,
     css: css as unknown as Record<string, string>,
     label: () => '技能与工具',
-    tooltip: () => '技能与工具 · 技能 / MCP 管理',
+    tooltip: () => '技能与工具 · 技能 / MCP / 律师小工具',
     onToggle: options.onToggle,
     position: 'after',
     familySelectors: ['[data-agentlex-group-items]', '[data-agentlex-group]'],

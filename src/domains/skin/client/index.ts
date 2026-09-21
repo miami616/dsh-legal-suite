@@ -28,6 +28,7 @@ import { setupTurnDataSource, emptyTurnDataSource, type TurnDataSource } from '.
 import { injectInlineCodeWbr } from './conversation-inline-code.ts'
 import { BUSINESS_MODULES_CSS } from './business-modules.ts'
 import { isDarkScheme } from '../../../shared/color-scheme.ts'
+import { resolveDirectoryPicker } from '../../../shared/dsh-services.ts'
 import { mountAgentLexSidebarGroup } from './sidebar-group.ts'
 import { buildThemesCss, findTheme, DEFAULT_THEME_KEY } from './themes.ts'
 import { getSkinConfig, guardStoredBrand, initThemeFromStorage, loadSkinConfig, restoreBrandFromStorage, setSkinConfig, subscribe as subscribeSkinConfig, type AgentLexSkinConfig } from './config.ts'
@@ -107,7 +108,10 @@ export function apply(ctx: ClientContext): void {
         nonlitigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-nonlitigation' }),
       })
       // 目录选择器（设置页「数据目录 → 选择目录…」按钮，走新架构的 uiWorkspace.pickDirectory()）。
-      bindWorkspaces(ctx.uiWorkspace)
+      // ⚠ 不能直接写 `ctx.uiWorkspace`：0.1.6 起客户端服务是严格代理，未在注入表声明时
+      // 属性访问会抛 `cannot get property "uiWorkspace" without inject`，异常被本段 catch
+      // 掉后目录选择就静默不绑定（实测 warning 正是它）。改走 root-first 解析器。
+      bindWorkspaces(resolveDirectoryPicker(ctx))
     } catch (error) {
       diag(`skin settingsScope/bind failed: ${error instanceof Error ? error.message : String(error)}`)
     }

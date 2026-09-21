@@ -11,6 +11,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import DirectoryPickerDialog from '../domains/workspace-sidebar/client/DirectoryPickerDialog.tsx'
+import { resolveDirectoryPicker } from './dsh-services.ts'
 
 type WorkspacesFace = { pickDirectory?: () => Promise<string | null> }
 
@@ -126,27 +127,13 @@ export async function pickDirectoryPath(initialPath = ''): Promise<string | null
  * 解析 workspaces 服务（点击时调用，绝不缓存）。
  *
  * 取用顺序：① `ctx.get('workspaces')` —— cordis 规范取法，可穿透父子 scope
- * （runtime 内部即用此式）；② `.workspaces` 属性 —— 官方类型对 Context 的
- * 模块增强声明，部分宿主版本在 root ctx 上以属性形式暴露。
+ * （runtime 内部即用此式）；② `ctx.get('uiWorkspace')` —— 0.1.3-alpha.2 起
+ * `pickDirectory` 迁到该服务；③ 同名属性兜底（**必须包 try**：0.1.6 起客户端
+ * 服务是严格代理，未在注入表声明时属性访问直接抛
+ * `cannot get property "uiWorkspace" without inject`）。
  */
 function resolveWorkspaces(): WorkspacesFace | undefined {
-  const ctx = ctxRef as unknown as
-    | { get?: (name: string) => unknown; workspaces?: WorkspacesFace; uiWorkspace?: WorkspacesFace }
-    | undefined
-  if (ctx === undefined) return undefined
-  try {
-    if (typeof ctx.get === 'function') {
-      const viaGet = ctx.get('workspaces') as WorkspacesFace | undefined
-      if (viaGet && typeof viaGet.pickDirectory === 'function') return viaGet
-      // 0.1.3-alpha.2 起 pickDirectory 迁至 uiWorkspace 服务；旧版 workspaces
-      // 不再带目录选择，回退到 uiWorkspace 保持目录选择能力。
-      const viaUi = ctx.get('uiWorkspace') as WorkspacesFace | undefined
-      if (viaUi && typeof viaUi.pickDirectory === 'function') return viaUi
-    }
-  } catch {
-    /* 服务未注册时 get 可能抛错——落回属性访问 */
-  }
-  return ctx.uiWorkspace ?? ctx.workspaces
+  return resolveDirectoryPicker(ctxRef) as WorkspacesFace | undefined
 }
 
 /**

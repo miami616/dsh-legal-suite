@@ -29,6 +29,7 @@ import { mountNativeTreeContextMenu } from './native-tree-menu.tsx'
 import { WorkspacePanel } from './WorkspacePanel.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { ThemeRuntimeProvider } from '@/theme'
+import { readCurrentSessionId, readSessionCwd } from '../../../shared/current-session.ts'
 
 /** 「案件卷宗」tab 类型在 tab 系统里的唯一身份，同时是正文注册用的 key。 */
 export const CASE_FILES_ID = 'dsh-legal-suite/case-files'
@@ -118,6 +119,9 @@ function useAppearanceMode(): 'light' | 'dark' {
  * 注：官方原生「文件」树的根 = **会话工作区**，DSH 没有给插件换根的接口
  * （会话工作区在建会话时写死）。所以案件卷宗只能在我们自己的这套里显示，
  * 绝不能去改会话工作区。
+ *
+ * ⚠ `current`（当前会话）在 0.1.6-alpha.2 已从该快照删除 —— 当前会话一律经
+ * `shared/current-session.ts` 读（`retainedBy.mainView`），这里只留 `byId` 读 cwd。
  */
 interface SessionsLike {
   list?: {
@@ -202,7 +206,7 @@ async function resolveRevealPath(ctx: ClientContext, raw: string): Promise<strin
   if (name === '') return raw
   let sessionId = ''
   try {
-    sessionId = (ctx.get('sessions') as SessionsLike | undefined)?.list?.getSnapshot?.()?.current ?? ''
+    sessionId = readCurrentSessionId(ctx)
   } catch {
     sessionId = ''
   }
@@ -213,7 +217,7 @@ async function resolveRevealPath(ctx: ClientContext, raw: string): Promise<strin
     if (binding?.folder != null && binding.folder !== '') roots.push(binding.folder)
   } catch { /* 无绑定 */ }
   try {
-    const cwd = (ctx.get('sessions') as SessionsLike | undefined)?.list?.getSnapshot?.()?.byId?.[sessionId]?.cwd ?? ''
+    const cwd = readSessionCwd(ctx, sessionId)
     if (cwd !== '') roots.push(cwd)
   } catch { /* 无 cwd */ }
   for (const root of roots) {
@@ -769,7 +773,7 @@ export function mountOfficialSidebarFiles(ctx: ClientContext, options: OfficialS
     if (!autoOpenCaseTab || revealInFlight) return
     let sessionId = ''
     try {
-      sessionId = sessions?.list?.getSnapshot?.()?.current ?? ''
+      sessionId = readCurrentSessionId(ctx)
     } catch {
       sessionId = ''
     }
@@ -863,7 +867,7 @@ export function mountOfficialSidebarFiles(ctx: ClientContext, options: OfficialS
       const isFileLike = /\.[A-Za-z0-9]{1,10}$/.test(resolved)
       let sessionId = ''
       try {
-        sessionId = (ctx.get('sessions') as SessionsLike | undefined)?.list?.getSnapshot?.()?.current ?? ''
+        sessionId = readCurrentSessionId(ctx)
       } catch {
         sessionId = ''
       }

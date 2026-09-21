@@ -15,7 +15,18 @@
  * RemoteResult { ok, value }); seeding uses the session face
  * (`sessions.binding(id)?.session.prompt`); the archived-session set rides
  * the `workspaces.list` snapshot.
+ *
+ * Harness contract note (v0.1.6-alpha.2, 2026-09-21): session **selection**
+ * moved out of the sessions service — `ISessions.open()/openSubagent()/clear()`
+ * and the `SessionListState.current` field are gone; navigation is now
+ * `ctx.uiWorkspace.openSession(id)` (dsh-client-ui-workspace). The old calls
+ * threw `sessions.open is not a function` *after* the session had been created,
+ * which made the launch-manager retry loop create a session per attempt
+ * (3 per click) and never fire `onLaunched` — the "管家按钮点了没反应" bug.
+ * {@link selectSession} prefers the new face and falls back to the legacy
+ * method for older harnesses; navigation failures are non-fatal everywhere.
  */
+import { serviceOf } from './dsh-services.ts'
 
 interface RpcResultLike<T = unknown> {
   ok?: boolean
@@ -51,6 +62,14 @@ interface RemoteLike {
   workspace?: WorkspaceRemoteLike
 }
 
+/**
+ * v0.1.6-alpha.2 起的会话选择入口（dsh-client-ui-workspace）。
+ * `openSession` 同步一步完成「保留会话 + 切主视图 + 显示对话」。
+ */
+interface UiWorkspaceLike {
+  openSession?(target: string): void
+}
+
 /** SessionFace prompt (no request id required at this level). */
 interface SessionFaceLike {
   prompt(content: Array<{ type: 'text'; text: string }>, mode: 'queue' | 'steer'): Promise<unknown>
@@ -61,7 +80,8 @@ interface SessionBindingLike {
 }
 
 interface SessionsManagerLike {
-  open(sessionId: string): void
+  /** 会话选择入口：≤ 0.1.5 由本服务承担；0.1.6 起已从服务面删除（见 UiWorkspaceLike）。 */
+  open?(sessionId: string): void
   /** The useSessions list feed — used to wait for a freshly created session to
    *  appear before open() (open throws on unknown ids). */
   list?: {
@@ -103,32 +123,22 @@ function unwrap<T>(response: RpcResultLike<T> | undefined): T | undefined {
 }
 
 /**
- * Resolve a cordis service by name, root-first.
+ * 通用管家会话标题（没有案件/项目归属时用）。
  *
- * gateway `remote`（及严格代理类服务）要求访问者 ctx 的注入表显式声明
- * （"cannot get property ... without inject"），而子 fiber 的 `export const
- * inject` 在打包合并后不一定被 cordis 读取。cordis 根 ctx 无注入限制，从
- * `ctx.root` 解析可绕开该检查，也兼容已注入的 fiber。
+ * 形如 `诉讼管家 · 09-21 16:50`：同一模块按钮点多次会产生多个会话，
+ * 只写模块名会让侧边栏里一排会话标题完全相同（用户 2026-09-21 反馈
+ * 「会话标题只显示一个诉讼管家」）。带分钟级时间戳即可区分。
+ * @param base - 模块显示名（诉讼管家 / 非诉管家）。
+ * @param now - 注入当前时间（测试用）。
  */
-function serviceOf<T>(ctx: SessionBridgeContext, name: string): T | undefined {
-  const anyCtx = ctx as unknown as { root?: unknown }
-  const candidates: unknown[] = [anyCtx.root, ctx]
-  for (const candidate of candidates) {
-    if (candidate === undefined || candidate === null) continue
-    const getter = (candidate as { get?: (n: string) => unknown }).get
-    if (typeof getter !== 'function') continue
-    try {
-      const value = getter.call(candidate, name)
-      if (value !== undefined) return value as T
-    } catch {
-      /* 该 ctx 不可解析时试下一个 */
-    }
-  }
-  return undefined
+export function managerSessionTitle(base: string, now: Date = new Date()): string {
+  const pad = (value: number): string => (value < 10 ? `0${value}` : `${value}`)
+  return `${base} · ${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
 }
 
 /**
- * Resolve the typert-gateway `remote` client, root-first (see {@link serviceOf}).
+ * Resolve the typert-gateway `remote` client, root-first (see {@link serviceOf}
+ * in shared/dsh-services.ts).
  */
 function remoteOf(ctx: SessionBridgeContext): RemoteLike | undefined {
   const root = (ctx as unknown as { root?: unknown }).root ?? ctx
@@ -144,42 +154,121 @@ function remoteOf(ctx: SessionBridgeContext): RemoteLike | undefined {
 /**
  * Create (or idempotently resolve) a DSH workspace for the module data
  * directory. Returns the workspace id, or undefined when unavailable.
+ *
+ * 优先 gateway `remote.workspace.create`（≤ 0.1.5 与 0.1.6 都在）；失败/不可用时
+ * 退回 `ctx.workspaces.create`（同一条 RPC 的服务面，0.1.6 起在 client 服务目录里
+ * 直接可读）。
  */
 export async function ensureWorkspace(
   ctx: SessionBridgeContext,
   path: string,
 ): Promise<string | undefined> {
   const workspace = remoteOf(ctx)?.workspace
-  if (!workspace?.create) return undefined
+  if (workspace?.create) {
+    try {
+      const response = await workspace.create({ path })
+      const workspaceId = unwrap(response)?.workspace?.workspaceId
+      if (workspaceId !== undefined && workspaceId !== '') return workspaceId
+    } catch (error) {
+      console.warn('[agentlex-session-bridge] remote.workspace.create failed, falling back:', error)
+    }
+  }
   try {
-    const response = await workspace.create({ path })
-    return unwrap(response)?.workspace?.workspaceId
+    const direct = serviceOf<{
+      create?(input: { path: string }): Promise<{ workspaceId?: string } | undefined>
+    }>(ctx, 'workspaces')
+    const view = await direct?.create?.({ path })
+    return view?.workspaceId
   } catch (error) {
-    console.warn('[agentlex-session-bridge] workspace.create failed:', error)
+    console.warn('[agentlex-session-bridge] workspaces.create failed:', error)
     return undefined
   }
 }
 
 /**
- * Open a DSH session for a business module.
- *
- * - Ensures a workspace over the module data directory (falls back to `cwd`).
- * - Creates a new session with the given agent preset.
- * - Renames it, seeds an optional initial prompt, and selects it in the UI.
- * - Returns the new session id (or undefined on failure).
+ * Give a workspace its Chinese display name (best-effort, two-generation
+ * dispatch: gateway remote first, `ctx.workspaces.rename(id, title)` second).
  */
+async function renameWorkspace(
+  ctx: SessionBridgeContext,
+  workspaceId: string,
+  title: string,
+): Promise<void> {
+  const remote = remoteOf(ctx)
+  if (remote?.workspace?.rename) {
+    try {
+      await remote.workspace.rename({ workspaceId, title })
+      return
+    } catch (error) {
+      console.warn('[agentlex-session-bridge] remote.workspace.rename failed, falling back:', error)
+    }
+  }
+  try {
+    const direct = serviceOf<{
+      rename?(id: string, name: string): Promise<unknown>
+    }>(ctx, 'workspaces')
+    await direct?.rename?.(workspaceId, title)
+  } catch (error) {
+    console.warn('[agentlex-session-bridge] workspaces.rename failed:', error)
+  }
+}
+
+/**
+ * Select a session through the v0.1.6 ui-workspace face (synchronous).
+ * @returns true when the new navigation entry accepted the call.
+ */
+function openViaUiWorkspace(ctx: SessionBridgeContext, sessionId: string): boolean {
+  const uiWorkspace = serviceOf<UiWorkspaceLike>(ctx, 'uiWorkspace')
+  if (typeof uiWorkspace?.openSession !== 'function') return false
+  try {
+    uiWorkspace.openSession(sessionId)
+    return true
+  } catch (error) {
+    console.warn('[agentlex-session-bridge] uiWorkspace.openSession failed:', error)
+    return false
+  }
+}
+
 /**
  * Open an existing DSH session (jump to a previously bound conversation).
- * @returns true when the sessions manager accepted the open.
+ *
+ * v0.1.6-alpha.2：先走 `uiWorkspace.openSession`；旧 harness（≤ 0.1.5）没有该
+ * 服务，退回异步等待列表收录后再 `sessions.open`。
+ * @returns true when some navigation entry accepted the request.
  */
 export function openExistingSession(
   ctx: SessionBridgeContext,
   sessionId: string,
 ): boolean {
+  if (openViaUiWorkspace(ctx, sessionId)) return true
   const sessions = serviceOf<SessionsManagerLike>(ctx, 'sessions')
-  if (!sessions) return false
-  sessions.open(sessionId)
+  if (typeof sessions?.open !== 'function') return false
+  void openWhenListed(sessions, sessionId)
   return true
+}
+
+/**
+ * Switch the DSH UI to a session (used right after creating one).
+ *
+ * Same two-generation dispatch as {@link openExistingSession}, awaited so the
+ * caller can log the outcome. **Never throws** — a navigation failure must not
+ * be mistaken for a creation failure (that is what made the launch managers
+ * retry and create duplicate sessions).
+ * @returns true when the selection was accepted.
+ */
+export async function selectSession(
+  ctx: SessionBridgeContext,
+  sessionId: string,
+): Promise<boolean> {
+  if (openViaUiWorkspace(ctx, sessionId)) return true
+  const sessions = serviceOf<SessionsManagerLike>(ctx, 'sessions')
+  if (typeof sessions?.open !== 'function') return false
+  try {
+    return await openWhenListed(sessions, sessionId)
+  } catch (error) {
+    console.warn('[agentlex-session-bridge] sessions.open failed:', error)
+    return false
+  }
 }
 
 /**
@@ -188,13 +277,14 @@ export function openExistingSession(
  * session may not be in the client's list snapshot yet (the list refreshes
  * asynchronously after the create RPC). Polling the list feed (with a
  * subscribe fallback) closes that gap so the UI reliably jumps to the new
- * session.
+ * session. Only used on harnesses that still expose `sessions.open`.
  * @returns true when the session was selected; false when it never appeared.
  */
 async function openWhenListed(
   sessions: SessionsManagerLike,
   sessionId: string,
 ): Promise<boolean> {
+  const select = (): void => { sessions.open?.(sessionId) }
   const list = sessions.list
   const listed = (): boolean => {
     const snap = list?.getSnapshot()
@@ -203,7 +293,7 @@ async function openWhenListed(
     return false
   }
   if (listed()) {
-    sessions.open(sessionId)
+    select()
     return true
   }
   // 列表尚未包含新会话：轮询等待（最多 ~5s），期间若订阅可用则优先订阅。
@@ -235,12 +325,12 @@ async function openWhenListed(
   })
   const ok = await wait()
   if (ok) {
-    sessions.open(sessionId)
+    select()
     return true
   }
   // 超时兜底：会话可能已在列表但快照未刷新，仍尝试 open（失败静默）。
   try {
-    sessions.open(sessionId)
+    select()
     return true
   } catch {
     return false
@@ -278,14 +368,10 @@ export async function createBusinessSession(
   }
 
   // 1. Create/ensure the module workspace, then give it a Chinese display name
-  //    (best-effort — remote 不可用时降级为 cwd 会话）。
+  //    (best-effort — remote 不可用时降级为 cwd 会话；显示名失败不影响建会话）。
   const workspaceId = await ensureWorkspace(ctx, options.workspacePath)
-  if (workspaceId && options.workspaceTitle && remote?.workspace?.rename) {
-    try {
-      await remote.workspace.rename({ workspaceId, title: options.workspaceTitle })
-    } catch (error) {
-      console.warn('[agentlex-session-bridge] workspace.rename failed:', error)
-    }
+  if (workspaceId !== undefined && workspaceId !== '' && options.workspaceTitle) {
+    await renameWorkspace(ctx, workspaceId, options.workspaceTitle)
   }
 
   // 2. Create the session. 优先 remote.session.create（带 agentPreset）；
@@ -352,21 +438,38 @@ export async function createBusinessSession(
     return undefined
   }
 
-  // 3. Rename for a human-readable title (best-effort).
+  // 3. Rename for a human-readable title (best-effort). 必须在 seed 之前：标题服务
+  //    以「user 来源」的最新标题为锚，先落标题就不会被自动标题（首条人消息的
+  //    fallback / provider）顶掉。
   try {
     if (remote?.session?.rename) {
       await remote.session.rename({ sessionId, title: options.title })
     } else {
       const face = sessions.binding?.(sessionId)?.session as unknown as
-        | { rename?(p: { title: string }): Promise<unknown> }
+        | { rename?(title: string): Promise<unknown> }
         | undefined
-      if (face?.rename) await face.rename({ title: options.title })
+      if (face?.rename) await face.rename(options.title)
     }
   } catch (error) {
     console.warn('[agentlex-session-bridge] rename failed:', error)
   }
 
-  // 4. Seed the first prompt (best-effort) through the session face.
+  // 4. Switch the DSH UI to this session. 这一步必须在 seed 之前：会话绑定
+  //    （`sessions.binding`）只有在该会话被保留之后才存在 —— 0.1.6 的
+  //    uiWorkspace.openSession 正是那个保留点，所以先切后喂。
+  //    ⚠ 导航失败绝不能让整个函数失败（否则调用方的重试会为一次点击反复建会话、
+  //    且 onLaunched 永不触发 → 按钮「点了没反应」）。
+  let selected = false
+  try {
+    selected = await selectSession(ctx, sessionId)
+  } catch (error) {
+    console.warn('[agentlex-session-bridge] session selection failed:', error)
+  }
+  if (!selected) {
+    console.warn('[agentlex-session-bridge] session created but not selected:', sessionId)
+  }
+
+  // 5. Seed the first prompt (best-effort) through the retained session face.
   if (options.context && options.context.trim() !== '') {
     try {
       const face = sessions.binding?.(sessionId)?.session
@@ -380,9 +483,5 @@ export async function createBusinessSession(
     }
   }
 
-  // 5. Switch the DSH UI to this session. Wait for the session to appear in
-  //    the list first (open throws on unknown ids; a just-created session may
-  //    not be in the client's list snapshot yet).
-  await openWhenListed(sessions, sessionId)
   return sessionId
 }

@@ -19,6 +19,7 @@ import type { CaseRegistry } from '../store/types.ts'
 import * as api from './api.ts'
 import { OriginalLitigationPanel } from './OriginalLitigationPanel.tsx'
 import { PendingExpandBar } from './PendingExpandBar.tsx'
+import { readCurrentSessionId } from '../../../shared/current-session.ts'
 
 /** The conversation.view entry id of this tab. */
 export const CASE_DETAIL_VIEW_ID = 'case-detail'
@@ -147,7 +148,10 @@ export function mountCaseDetailView(
 
   const sync = async (): Promise<void> => {
     if (disposed) return
-    const sessionId = sessions?.list.getSnapshot().current
+    // 0.1.6-alpha.2 起 `SessionListState.current` 已删除，当前会话改读
+    // `byId[*].retainedBy.mainView`（见 shared/current-session.ts）。选择变化时
+    // 会话列表快照会随 retainedBy 更新并通知订阅者，所以下面的 subscribe 仍然有效。
+    const sessionId = readCurrentSessionId(ctx) || undefined
     const requestedSession = sessionId
     currentSessionId = sessionId
     if (sessionId === undefined) {

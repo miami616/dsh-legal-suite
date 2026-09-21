@@ -11,6 +11,7 @@
  * 读取；这里只负责状态与指标。
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import { readCurrentSessionId } from '../../../shared/current-session.ts'
 
 /** 单个轮次的预览信息（供卡片元信息行使用）。 */
 export interface TurnPreviewData {
@@ -128,9 +129,10 @@ export function setupTurnDataSource(ctx: ClientContext): TurnDataSource {
     probeStats(sessionId)
   }
 
-  /** 响应 list.current 变化。 */
+  /** 响应当前会话变化（0.1.6 起选择态不再写在 list 快照的 `current` 上，
+   *  改读 `retainedBy.mainView`；见 shared/current-session.ts）。 */
   const onListChange = (): void => {
-    bindSession(list.getSnapshot?.()?.current)
+    bindSession(readCurrentSessionId(ctx) || undefined)
   }
   onListChange()
   const unsubList = list.subscribe?.(onListChange)

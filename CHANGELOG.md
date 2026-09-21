@@ -2,6 +2,50 @@
 
 ## 未发布（0.2.x 待定版号）
 
+## 0.2.15 — 适配 DSH 0.1.6-alpha.2：管家按钮失效 + 会话标题回归
+
+### 一、根因（实测 0.1.6-alpha.2 客户端契约变更）
+- `ISessions.open()/openSubagent()/clear()` 与 `SessionListState.current` **一并删除**：
+  会话选择（导航）搬到 `ctx.uiWorkspace.openSession(id)`（dsh-client-ui-workspace）。
+- 插件仍在调 `sessions.open(id)` → `TypeError: sessions.open is not a function`。
+  该异常发生在**会话已建好之后**的导航步骤，被 launch-manager 的重试循环误判成
+  「创建失败」：**一次点击连建 3 个会话**（实测 14:33 / 14:39 / 14:44 三批各 3 个），
+  且 `onLaunched` 永不触发 → 按钮「点了没反应」。侧边栏里随即堆出一串同名/重复会话
+  （caseless 批次标题就是「诉讼管家」×3），即用户看到的「会话标题只显示一个诉讼管家」。
+- `list.getSnapshot().current` 在 4 处被直接读取（右边栏当前会话、案件详情页 tab、
+  会话轮次指标、会话 cwd），0.1.6 起恒为 undefined。
+
+### 二、修复
+- 新增 `src/shared/current-session.ts`：当前会话的唯一跨版本读法 ——
+  ≤ 0.1.5 读快照 `current`，≥ 0.1.6 读 `byId[*].retainedBy.mainView > 0`
+  （官方 `mainSessionId` 口径；选择变化时列表快照仍会通知订阅者）。
+- `session-bridge`：新增 `selectSession()` —— 优先 `uiWorkspace.openSession`，
+  旧版退回 `sessions.open` 的「等列表收录再选」；`createBusinessSession` 改为
+  **创建→改名→切换→投喂**，切换与投喂全部 best-effort、**永不抛出**，拿到会话 id 就返回
+  （导航失败不再触发重建）；`ensureWorkspace`/工作区改名补 `ctx.workspaces` 服务面回退；
+  会话标题面 `face.rename(title)` 修成字符串重载（0.1.5/0.1.6 契约都是 string）。
+- 通用管家会话标题改为 `诉讼管家 · MM-DD HH:mm` / `非诉管家 · MM-DD HH:mm`
+  （同一按钮点多次时侧边栏可区分，不再一排同名）。
+- 4 处 `current` 读点全部改接新解析器：`workspace-sidebar/session-scope`、
+  `official-sidebar`（当前会话 cwd / 卷宗 tab 自动带出 / 文件链接会话地址）、
+  `litigation/case-detail-view`（案件详情页 tab 重新可注册）、
+  `skin/conversation-turn-data`（轮次指标恢复）。
+- 新增 `src/shared/dsh-services.ts`（root-first 服务解析，属性访问包 try）并统一
+  `session-bridge` / `session-snapshot` / `folder-picker` 的解析口径：
+  0.1.6 起客户端服务是**严格代理**，未在注入表声明时 `ctx.xxx` 属性访问直接抛
+  `cannot get property "xxx" without inject` —— 皮肤「数据目录 → 选择目录…」就
+  静默失效在这条上（`ctx.uiWorkspace`），现改走解析器。
+- 顺带清掉 `session-bridge` 里一段悬垂的 JSDoc（0.2.5 遗留）。
+
+### 三、验证（新端口测试 profile `agentlex-ls-test` / 3081，Playwright 实测）
+- 点「诉讼管家」按钮：**新建会话数 = 1**（修复前 3），`agentPreset=litigation-manager`，
+  标题 `诉讼管家 · 09-21 17:59`，面板自动关闭（`onLaunched` 触发），会话视图已切换。
+- 案件详情页「诉讼管家 (2) ▾」里点一条绑定会话：`localStorage['dsh.sessions.current']`
+  = 该绑定会话 id，**新建 0 个会话**，面板关闭。
+- 绑定案件的会话重新出现「案件详情页」第三个 tab（0.1.6 下曾整块消失）。
+- 控制台无 `sessions.open is not a function` / `without inject` 告警。
+- live 3080 未被触碰（本机 live profile 与测试 profile 各自独立）。
+
 ## 0.2.14 — 技能与工具新增「小工具」集合（律师常用测算）+ legal_calc 工具
 
 ### 一、8 个纯本地测算小工具（面板 + agent 双入口）

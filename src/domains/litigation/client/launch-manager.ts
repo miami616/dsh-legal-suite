@@ -8,7 +8,7 @@
  *   - renamed and optionally seeded with a first message
  *   - selected in the DSH UI (so the user lands in the conversation)
  */
-import { createBusinessSession, openExistingSession, fetchArchivedSessionIds, type SessionBridgeContext } from '../../../shared/session-bridge'
+import { createBusinessSession, openExistingSession, fetchArchivedSessionIds, managerSessionTitle, type SessionBridgeContext } from '../../../shared/session-bridge'
 
 /** The agent-preset id that mounts the litigation-manager composition. */
 export const LITIGATION_MANAGER_PRESET = 'litigation-manager'
@@ -59,6 +59,11 @@ export async function launchLitigationManager(
   // 首次点击常发生在 harness 刚启动、workspace/会话服务尚未就绪时——此时
   // createBusinessSession 会创建出「无工作区、无预设」的默认会话（第二次点击
   // 才正确）。失败自动重试（最多 3 次、间隔 500ms）把首次点击也收敛到正确结果。
+  //
+  // ⚠ 重试只针对「**没拿到会话 id**」：createBusinessSession 现在把创建后的
+  // 改名/切换/投喂都做成 best-effort 且永不抛出，拿到 id 就直接返回。否则
+  // 0.1.6 的 `sessions.open` 报错（导航失败）会被误判成创建失败，一次点击
+  // 连建 3 个会话且 onLaunched 永不触发（2026-09-21 实测事故）。
   let lastError: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
@@ -71,7 +76,7 @@ export async function launchLitigationManager(
         agentPreset: LITIGATION_MANAGER_PRESET,
         workspacePath,
         workspaceTitle: '诉讼管家',
-        title: options.caseName ? `案件: ${options.caseName}` : '诉讼管家',
+        title: options.caseName ? `案件: ${options.caseName}` : managerSessionTitle('诉讼管家'),
         context: options.context,
       })
       if (sessionId !== undefined) {

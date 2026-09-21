@@ -2,7 +2,7 @@
  * 非诉管家 launcher — opens a DSH session with the nonlitigation-manager agent
  * preset, in the non-litigation module workspace.
  */
-import { createBusinessSession, openExistingSession, fetchArchivedSessionIds, type SessionBridgeContext } from '../../../shared/session-bridge'
+import { createBusinessSession, openExistingSession, fetchArchivedSessionIds, managerSessionTitle, type SessionBridgeContext } from '../../../shared/session-bridge'
 
 /** Archived DSH session ids (hidden from grouping surfaces by 归档会话). */
 export { fetchArchivedSessionIds }
@@ -43,6 +43,9 @@ export async function launchNonLitigationManager(
   // 首次点击常发生在 harness 刚启动、workspace/会话服务尚未就绪时——此时
   // createBusinessSession 会创建出「无工作区、无预设」的默认会话（第二次点击
   // 才正确）。失败自动重试（最多 3 次、间隔 500ms）把首次点击也收敛到正确结果。
+  //
+  // ⚠ 重试只针对「**没拿到会话 id**」：createBusinessSession 把创建后的改名/
+  // 切换/投喂都做成 best-effort 且永不抛出，拿到 id 就直接返回（详见诉讼侧同款注释）。
   let lastError: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
@@ -55,7 +58,7 @@ export async function launchNonLitigationManager(
         agentPreset: NONLITIGATION_MANAGER_PRESET,
         workspacePath,
         workspaceTitle: '非诉管家',
-        title: options.projectName ? `项目: ${options.projectName}` : '非诉管家',
+        title: options.projectName ? `项目: ${options.projectName}` : managerSessionTitle('非诉管家'),
         context: options.context,
       })
       if (sessionId !== undefined) {

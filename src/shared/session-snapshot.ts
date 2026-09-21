@@ -8,6 +8,7 @@
  * 解析（与 session-bridge 一致），幂等安装。
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import { serviceOf } from './dsh-services.ts'
 
 declare global {
   interface Window {
@@ -18,24 +19,6 @@ declare global {
       lastActiveAt?: string
     }>>
   }
-}
-
-/** root-first 服务解析（gateway 严格代理对子 fiber 的注入限制）。 */
-function serviceOf<T>(ctx: unknown, name: string): T | undefined {
-  const anyCtx = ctx as { root?: unknown }
-  const candidates: unknown[] = [anyCtx.root, ctx]
-  for (const candidate of candidates) {
-    if (candidate === undefined || candidate === null) continue
-    const getter = (candidate as { get?: (n: string) => unknown }).get
-    if (typeof getter !== 'function') continue
-    try {
-      const value = getter.call(candidate, name)
-      if (value !== undefined) return value as T
-    } catch {
-      /* try next */
-    }
-  }
-  return undefined
 }
 
 /** 会话列表快照形状（SessionListState.byId 的最小投影）。 */

@@ -72,12 +72,14 @@ export async function launchLitigationManager(
     }
     try {
       const workspacePath = await fetchLitigationDataDir()
+      const neutralTitle = managerSessionTitle('诉讼管家')
       const sessionId = await createBusinessSession(ctx, {
         agentPreset: LITIGATION_MANAGER_PRESET,
         workspacePath,
         workspaceTitle: '诉讼管家',
-        title: options.caseName ? `案件: ${options.caseName}` : managerSessionTitle('诉讼管家'),
+        title: options.caseName ? `案件: ${options.caseName}` : neutralTitle,
         context: options.context,
+        neutralTitle,
       })
       if (sessionId !== undefined) {
         options.onLaunched?.(sessionId)

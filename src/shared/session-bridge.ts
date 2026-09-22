@@ -115,6 +115,11 @@ export interface CreateBusinessSessionOptions {
   workspaceTitle?: string
   /** Optional first message to seed the conversation. */
   context?: string
+  /**
+   * 通用管家标题（`诉讼管家 · MM-DD HH:mm`）。案件/项目会话 seed 失败时用它兜底，
+   * 避免空壳会话顶着案件名被 DSH 的新会话复用（见 createBusinessSession 第 6 步）。
+   */
+  neutralTitle?: string
 }
 
 function unwrap<T>(response: RpcResultLike<T> | undefined): T | undefined {
@@ -441,18 +446,7 @@ export async function createBusinessSession(
   // 3. Rename for a human-readable title (best-effort). 必须在 seed 之前：标题服务
   //    以「user 来源」的最新标题为锚，先落标题就不会被自动标题（首条人消息的
   //    fallback / provider）顶掉。
-  try {
-    if (remote?.session?.rename) {
-      await remote.session.rename({ sessionId, title: options.title })
-    } else {
-      const face = sessions.binding?.(sessionId)?.session as unknown as
-        | { rename?(title: string): Promise<unknown> }
-        | undefined
-      if (face?.rename) await face.rename(options.title)
-    }
-  } catch (error) {
-    console.warn('[agentlex-session-bridge] rename failed:', error)
-  }
+  await renameBusinessSession(ctx, sessionId, options.title)
 
   // 4. Switch the DSH UI to this session. 这一步必须在 seed 之前：会话绑定
   //    （`sessions.binding`）只有在该会话被保留之后才存在 —— 0.1.6 的
@@ -470,11 +464,14 @@ export async function createBusinessSession(
   }
 
   // 5. Seed the first prompt (best-effort) through the retained session face.
-  if (options.context && options.context.trim() !== '') {
+  const wantsSeed = options.context !== undefined && options.context.trim() !== ''
+  let seeded = false
+  if (wantsSeed) {
     try {
       const face = sessions.binding?.(sessionId)?.session
       if (face !== undefined) {
-        await face.prompt([{ type: 'text', text: options.context }], 'queue')
+        await face.prompt([{ type: 'text', text: options.context as string }], 'queue')
+        seeded = true
       } else {
         console.warn('[agentlex-session-bridge] session binding unavailable; seed skipped')
       }
@@ -483,5 +480,55 @@ export async function createBusinessSession(
     }
   }
 
+  // 6. 兜底改名：案件/项目会话一旦 seed 失败，就会留下一个**空会话**却顶着
+  //    「案件: X」的标题。DSH 0.1.6 的「在工作区开新会话」会**复用空会话**
+  //    （dsh-client-ui-workspace 的 connectWorkspace），于是复用它的新会话就
+  //    顶着别人的案件名出现——用户 2026-09-22 反馈的「全新会话标题是别的案子」
+  //    正是这么来的（事故期 4 个空壳被复用）。seed 失败时把标题退成中性名，
+  //    空壳就不会再伪装成某个案件的会话。
+  if (wantsSeed && !seeded && options.neutralTitle !== undefined && options.neutralTitle !== '') {
+    console.warn('[agentlex-session-bridge] seed failed; falling back to neutral title:', options.neutralTitle)
+    await renameBusinessSession(ctx, sessionId, options.neutralTitle)
+  }
+
   return sessionId
+}
+
+/**
+ * Rename one session through the gateway `remote.session.rename` RPC, falling
+ * back to the retained session face (`ISession.rename(title)` — a **string**
+ * overload on both 0.1.5 and 0.1.6). Never throws: callers treat a title as
+ * best-effort metadata.
+ * @param ctx - plugin client context.
+ * @param sessionId - target session.
+ * @param title - new display title.
+ * @returns true when a rename call was accepted.
+ */
+export async function renameBusinessSession(
+  ctx: SessionBridgeContext,
+  sessionId: string,
+  title: string,
+): Promise<boolean> {
+  const remote = remoteOf(ctx)
+  try {
+    if (remote?.session?.rename) {
+      const result = await remote.session.rename({ sessionId, title })
+      if (result?.ok === false) {
+        console.warn('[agentlex-session-bridge] rename rejected:', result.error)
+        return false
+      }
+      return result?.ok === true
+    }
+    const sessions = serviceOf<SessionsManagerLike>(ctx, 'sessions')
+    const face = sessions?.binding?.(sessionId)?.session as unknown as
+      | { rename?(value: string): Promise<unknown> }
+      | undefined
+    if (typeof face?.rename === 'function') {
+      await face.rename(title)
+      return true
+    }
+  } catch (error) {
+    console.warn('[agentlex-session-bridge] rename failed:', error)
+  }
+  return false
 }

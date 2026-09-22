@@ -54,12 +54,14 @@ export async function launchNonLitigationManager(
     }
     try {
       const workspacePath = await fetchNonLitigationDataDir()
+      const neutralTitle = managerSessionTitle('非诉管家')
       const sessionId = await createBusinessSession(ctx, {
         agentPreset: NONLITIGATION_MANAGER_PRESET,
         workspacePath,
         workspaceTitle: '非诉管家',
-        title: options.projectName ? `项目: ${options.projectName}` : managerSessionTitle('非诉管家'),
+        title: options.projectName ? `项目: ${options.projectName}` : neutralTitle,
         context: options.context,
+        neutralTitle,
       })
       if (sessionId !== undefined) {
         options.onLaunched?.(sessionId)

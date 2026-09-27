@@ -1,5 +1,5 @@
 // @ts-nocheck
-import z from 'schemastery';
+import z from '@deepseek-ai/schemastery';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -193,8 +193,15 @@ export function apply(ctx, config = {}) {
         kind: 'exact',
         path: '/api/agentlex-suite/config',
         handler: async (_req, res) => {
-            const value = (ctx.settings.get(AGENTLEX_SUITE_SETTINGS_NS) || {});
-            const v = (typeof value === 'object' && value !== null) ? value : {};
+            // 0.1.7-alpha.1 起 harness 删除了 ctx.settings.get（改为 SettingsForms），
+            // 直接调用会 TypeError 让本路由 500。改成能力探测：有 get 才读命名空间，
+            // 否则回退到本条目 Config（品牌/称呼已由聚合层下发）。
+            let v = {};
+            try {
+                const settings = ctx.get('settings');
+                const value = (typeof settings?.get === 'function') ? settings.get(AGENTLEX_SUITE_SETTINGS_NS) : undefined;
+                if (typeof value === 'object' && value !== null) v = value;
+            } catch { /* 无 get / 命名空间未注册：用 Config */ }
             sendJson(res, { success: true, data: {
                 enabled: v.enabled ?? config.enabled ?? true,
                 userName: v.userName ?? config.userName ?? 'User',

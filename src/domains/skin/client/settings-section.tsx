@@ -505,6 +505,23 @@ export function AgentLexSettingsSection(props: {
         <Toggle label="非诉项目" description="项目管理 / 合同审查 / 法律研究 / 常法服务" checked={config.nonlitigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('nonlitigationEnabled', v)} />
         <Toggle label="任务管理" description="独立任务 + 跨插件统一任务视图" checked={config.taskEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('taskEnabled', v)} />
         <Toggle label="备忘录" description="随手记 + 会话 #编号 引用备忘" checked={config.memoEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('memoEnabled', v)} />
+        <Toggle label="模拟法庭（实验性）" description="实验性功能，默认关闭。开启后侧边栏出现「模拟法庭」：开庭前压力测试、攻击面报告与模拟判决书；产物独立存放，不写入卷宗" checked={config.mootCourtEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('mootCourtEnabled', v)} />
+        {config.mootCourtEnabled ? (
+          <div style={{ paddingLeft: 22, marginBottom: 6 }}>
+            <Field
+              label="模拟法庭 · 裁判者模型"
+              description="形如 provider/model；留空用部署默认路由。对方代理人建议另配一个模型，避免同源互搏失真"
+              value={config.mootCourtJudgeModel}
+              onCommit={(v) => commitSetting('mootCourtJudgeModel', v)}
+            />
+            <Field
+              label="模拟法庭 · 对方代理人模型"
+              description="形如 provider/model；留空则与裁判者同路由"
+              value={config.mootCourtOpponentModel}
+              onCommit={(v) => commitSetting('mootCourtOpponentModel', v)}
+            />
+          </div>
+        ) : null}
         <Toggle label="技能与工具" description="技能 / MCP 面板与输入框选择" checked={config.skillsToolsEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('skillsToolsEnabled', v)} />
         <Toggle
           label="右侧文件栏"

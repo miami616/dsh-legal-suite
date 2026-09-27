@@ -5,7 +5,7 @@
  * half's file service and search client.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import { makeRoutes, type AppContext } from './routes.ts'
 
 export const name = 'dsh-legal-suite/workspace-sidebar'

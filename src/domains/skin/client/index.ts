@@ -29,6 +29,7 @@ import { injectInlineCodeWbr } from './conversation-inline-code.ts'
 import { BUSINESS_MODULES_CSS } from './business-modules.ts'
 import { isDarkScheme } from '../../../shared/color-scheme.ts'
 import { resolveDirectoryPicker } from '../../../shared/dsh-services.ts'
+import { resolveClientSettings, aliasSettingsScope } from '../../../shared/client-settings.ts'
 import { mountAgentLexSidebarGroup } from './sidebar-group.ts'
 import { buildThemesCss, findTheme, DEFAULT_THEME_KEY } from './themes.ts'
 import { getSkinConfig, guardStoredBrand, initThemeFromStorage, loadSkinConfig, restoreBrandFromStorage, setSkinConfig, subscribe as subscribeSkinConfig, type AgentLexSkinConfig } from './config.ts'
@@ -40,7 +41,12 @@ import {
   bindWorkspaces,
 } from './settings-section.tsx'
 
-export const inject = ['slots', 'locale', 'theme', 'settingsScope', 'workspaces', 'sessions']
+/**
+ * 必需注入并集。设置服务（0.1.6 `settingsScope` / 0.1.7 `configForms`）刻意不列：
+ * 声明的服务在另一代不存在时，cordis 会让整个 client 插件 pending 不加载。
+ * 设置作用域改由 `resolveClientSettings` 运行时解析。
+ */
+export const inject = ['slots', 'locale', 'theme', 'workspaces', 'sessions']
 
 /** Inject a style tag once. */
 function injectStyle(id: string, css: string): () => void {
@@ -83,9 +89,11 @@ export function apply(ctx: ClientContext): void {
   let bindSettingsScopes: (() => void) | null = null
   const doBindSettingsScopes = (): void => {
     try {
-      const settingsScope = (ctx as unknown as { settingsScope?: { bind<T>(spec: { namespace: string }): SettingsScope<T> } }).settingsScope
-      const agentlexScope = settingsScope?.bind<AgentLexSkinConfig>({ namespace: 'agentlex-legal-suite' })
-      bindAgentLexSettingsScope(agentlexScope)
+      // 0.1.6：settingsScope.bind(ns)；0.1.7：configForms.get('agentlex')。
+      // 两代取名不同、字段承载不同，统一交给 resolveClientSettings。
+      const agentlexBinding = resolveClientSettings<AgentLexSkinConfig>(ctx, 'agentlex-legal-suite')
+      const agentlexScope = agentlexBinding?.scope
+      bindAgentLexSettingsScope(agentlexScope as SettingsScope<AgentLexSkinConfig> | undefined)
       if (agentlexScope) {
         const syncFromScope = (): void => {
           const value = agentlexScope.getSnapshot().value
@@ -103,9 +111,18 @@ export function apply(ctx: ClientContext): void {
         disposers.push(agentlexScope.subscribe(syncFromScope))
       }
       // Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change).
+      // 0.1.7 起两个域的配置并进聚合条目，字段带前缀（litigationDataDir / …），
+      // aliasSettingsScope 把它们折回逻辑名 dataDir，设置页两代共用同一套字段。
+      type ModuleScope<T> = SettingsScope<T> | undefined
+      const litigationBinding = resolveClientSettings<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }>(ctx, 'agentlex-litigation', 'litigation')
+      const nonlitigationBinding = resolveClientSettings<{ dataDir?: string }>(ctx, 'agentlex-nonlitigation', 'nonlitigation')
       bindModuleDataDirScopes({
-        litigation: settingsScope?.bind<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }>({ namespace: 'agentlex-litigation' }),
-        nonlitigation: settingsScope?.bind<{ dataDir?: string }>({ namespace: 'agentlex-nonlitigation' }),
+        litigation: (litigationBinding === undefined
+          ? undefined
+          : aliasSettingsScope(litigationBinding.scope, litigationBinding.field)) as ModuleScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }>,
+        nonlitigation: (nonlitigationBinding === undefined
+          ? undefined
+          : aliasSettingsScope(nonlitigationBinding.scope, nonlitigationBinding.field)) as ModuleScope<{ dataDir?: string }>,
       })
       // 目录选择器（设置页「数据目录 → 选择目录…」按钮，走新架构的 uiWorkspace.pickDirectory()）。
       // ⚠ 不能直接写 `ctx.uiWorkspace`：0.1.6 起客户端服务是严格代理，未在注入表声明时
@@ -113,7 +130,7 @@ export function apply(ctx: ClientContext): void {
       // 掉后目录选择就静默不绑定（实测 warning 正是它）。改走 root-first 解析器。
       bindWorkspaces(resolveDirectoryPicker(ctx))
     } catch (error) {
-      diag(`skin settingsScope/bind failed: ${error instanceof Error ? error.message : String(error)}`)
+      diag(`skin settings bind failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
   bindSettingsScopes = doBindSettingsScopes

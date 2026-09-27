@@ -18,7 +18,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-settings'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import { homedir } from 'node:os'
 import { installSettingsSection } from '../../shared/settings-adapter.ts'
 import { createPushStore, parsePushTime } from './store/push-config.ts'

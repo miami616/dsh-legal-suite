@@ -1,6 +1,92 @@
 # Changelog
 
-## 未发布（0.2.x 待定版号）
+## 0.2.18 — 模拟法庭（实验性，默认关闭）+ 适配 DSH 0.1.7-rc.2
+
+### 新功能（实验性，默认关闭）：模拟法庭（moot-court）
+
+> **实验性开关**：`mootCourtEnabled` 默认 **false** —— 关闭时 host 不注册路由/工具/播报，
+> 客户端不挂侧边栏入口与面板。开启方式：①「AgentLex 设置 → 功能模块 → 模拟法庭（实验性）」
+> 勾选（立即生效）；②给 `agentlex` 条目加 `config: { mootCourtEnabled: true }` 后重启。
+> 界面标识：设置项标题「（实验性）」、面板标题旁徽标 + 顶部常驻提示（含关闭指引）、
+> 工具描述前缀「实验性功能」。验收覆盖见 `scripts/verify-moot-experimental.mjs`。
+
+开庭前的「照妖镜」：把案卷材料喂给「裁判者 + 对方代理人」两个对抗视角，产出争点评分、
+攻击线路、材料缺口、改进建议与一份模拟判决书/裁决书。方案见
+`docs/模拟法庭-设计方案.md`（唯一设计基准）。
+
+**范围与模式**
+- 四类程序：民事一审、民事二审、劳动仲裁、商事仲裁（**刑事不做**）。程序骨架按现行法
+  （《民事诉讼法》一审普通程序 / 第二审程序、《劳动争议调解仲裁法》、《仲裁法》及各仲裁委规则口径）
+  写成 playbook：`src/domains/moot-court/playbook/`。劳动仲裁的**调解环节为必走步骤**（辩论后
+  先调解、调解不成才裁决）；二审强制要求一审裁判文书与上诉理由（缺失即阻断建会话，错误码
+  `MISSING_FIRST_INSTANCE_JUDGMENT` / `MISSING_APPEAL_GROUNDS`）。
+- 三种模式：文书压力测试（不开庭，直接出攻击面报告）、全自动演练（模型演双方 + 裁判者，
+  出完整判决书）、单方预演（律师本人实时输入我方发言）。
+
+**架构（host 侧确定性状态机）**
+- 引擎 `engine/orchestrator.ts`：阶段/节点驱动，程序性话术硬编码不进模型；每条发言落盘即断点，
+  支持暂停/继续/中止/快进与**按已完成阶段断点续跑**；token 预算硬控（超限收束进评议并标注截断）。
+- 模型调用走 `ctx.llm.stream(...)`，复用部署模型路由（裁判者/对方可按角色分别路由），
+  **零额外 API key**；对方模型可单独配置并提高温度以增强攻击性（治同模型互搏失真）。
+- 检索锚定 `engine/retrieval.ts`：从 host 平面直接调用元典 MCP 工具（法条 + 类案），
+  **不硬编码工具名**（按语义关键词评分发现）、**按工具真实 schema 构造参数**（字段名族映射 +
+  递归嵌套过滤对象）；PII 剥离（当事人姓名替换为甲/乙）；失败/欠费时降级不阻塞——
+  报告写 `retrieval.degraded`、判决书末尾追加「锚定说明」。
+- 金额测算 `engine/calc.ts`：判决金额一律由 `legal_calc` 回填，测算输入与结果落进报告
+  `calculations` 留痕，禁止模型口算；材料金额不足时 `calculationSkipped` 写明原因。
+- 引用合规：判决书生成后校验引用是否落在 citation pool 内，越界引用记入 transcript 提示复核。
+
+**产物隔离（硬性）**
+- 一切产物只落 `$DSH_HOME/agentlex/moot-court/sessions/<id>/`（session.json / dossier.json /
+  transcript.jsonl / issues.json / judgment.md / report.json），**绝不写入案件卷宗**；
+  案件输入只做一次性快照复制，之后与卷宗完全解耦。
+- 唯一回流案件的「改进建议 → 任务树」只写任务记录（新增任务组「模拟法庭改进建议」，按标题幂等），
+  **不产生任何卷宗文件**（验收脚本断言卷宗目录文件清单前后完全一致）。
+
+**界面与工具**
+- 侧边栏「模拟法庭」入口 + 中栏面板四视图（列表 / 4 步新建向导 / 庭审直播 / 报告）；
+  直播视图按角色分色、引用可展开、支持暂停/继续/中止/快进与预演发言输入。
+- agent 工具 `moot_court`：`list / status / prepare / create / start / control / intervene /
+  transcript / report / writeback / delete`。工具与 HTTP 面共用同一实现
+  （`executeMootAction`），另提供内部执行面 `POST /api/agentlex-moot/tool`，供面板与
+  其它插件在无 agent 会话时复用，并让工具路径可被验收脚本覆盖。
+- 设置并入聚合条目（0.1.7 volatile 口径）：`mootCourtEnabled / mootCourtDataDir /
+  mootCourtLitigationDir / mootCourtJudgeModel / mootCourtOpponentModel / mootCourtRetrievalEnabled /
+  mootCourtMaxRounds / mootCourtTokenBudget / mootCourtMaxTokensPerTurn`。
+- 诉讼管家 persona 新增「十、模拟法庭」一节（使用口径 + 硬口径：不得向当事人承诺裁判结果）。
+- 新增域 `src/domains/moot-court/`（host + client），由聚合插件 `src/index.ts` 挂载；
+  客户端由 `src/client/index.ts` 聚合。
+
+**验收脚本（测试实例 3081；`DSH_TEST_PORT` 可换端口，脚本拒绝在 3080 运行）**
+- `scripts/verify-moot-basics.mjs`（全链路四件产物）、`-interrupt.mjs`（暂停/续跑）、
+  `-citations.mjs`（引用合规或降级标注）、`-money.mjs`（金额来自 legal_calc）、
+  `-writeback.mjs`（回写幂等 + 产出隔离）、`-appellate.mjs`（二审强制输入）、
+  `-labor.mjs`（调解必经 + 45 日）、`-arbitration.mjs`（管辖确认 + 一裁终局）、
+  `-rehearsal.mjs`（单方预演：挂起等待我方发言、原话进入记录、跑完出判决）、
+  `-tool.mjs`（工具面：注册可见性、只读动作、缺料阻断码、主链路）、
+  `-experimental.mjs`（实验性开关：`--expect=off/on` 断言表面挂载与否）；共用库
+  `scripts/moot-verify-lib.mjs`。十一个用例在 3081 全绿（开启态）。
+
+### 修复（本轮新增）
+- **模型调用失败被静默吞掉**：dsh 的 llm 流把失败编码成结构化 reason
+  （`{kind:'error', failure:{message,code}}`；成功时同样也是对象 `{kind:'stop'}`），
+  早期实现按字符串比较终止原因，导致失败被当成「成功但空回复」——整场庭审静默产出空发言、
+  空判决，会话状态仍是 done。现按四种形态判定并响亮抛错（会话转 failed 并带原因）。
+  实测触发：测试实例默认路由首个模型 `deepseek-v4-flash:0731` 已于 2026-09-25 下线（410）。
+- 新增排障面 `GET /api/agentlex-moot/llm-selftest[?model=…]`：真发一次极短模型调用，
+  回报路由/正文/token/原始终止原因；设置页在开关下方补「裁判者模型 / 对方代理人模型」输入。
+
+### 工具链
+- 新增 `scripts/verify-moot-all.mjs`：一键并行跑完全部 11 个验收用例（`--concurrency=4`，
+  实测约 3 分钟；串行需 1–2 小时）。
+- 新增 `scripts/verify-client-load.mjs`：客户端产物静态校验——V8 编译、加载器契约
+  （`__ModuleLoader__.load` + `return module.exports`）、聚合域标记齐备（新增域漏挂即失败）。
+  已知边界写在脚本头：不执行 factory，故覆盖不到「模块顶层 throw」，那类问题需在浏览器复验。
+
+### 修复
+- `scripts/deploy-test-instance.sh`：`step "...（$PROFILE）"` / `（$PORT）` 两处变量未加花括号，
+  bash 在 UTF-8 locale 下把全角右括号吞进变量名，`set -u` 下报 `unbound variable` 导致部署中断。
+  已改为 `${VAR}`。
 
 ## 0.2.17 — 修「新会话顶着别人案件名」：空壳会话复用 + seed 失败兜底
 

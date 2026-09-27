@@ -21,6 +21,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type z from '@deepseek-ai/schemastery'
+import { domainConfigReader, onLiveConfigChange } from './live-config.ts'
 
 /** 与历史 installSection 相同的 owner-side 生命周期钩子。 */
 export interface SettingsSectionHooks<T> {
@@ -84,7 +85,27 @@ export function installSettingsSection<T>(
     }
   }
 
-  // 3) 兜底：无 settings 服务或两者皆不可用，仅以 composition entry 作为源。
+  // 3) 0.1.7-alpha.1 起：harness 用 SettingsForms 取代命名空间注册
+  //    （register/installSection/get 全部下线），配置取自「loader 条目自己的
+  //    cordis Config」，且只有 `.volatile()` 字段可编辑。合包后各域不是独立条目，
+  //    聚合层把它们的字段并到 agentlex 条目上，并在此登记「按命名空间读取当前值」
+  //    的读取器；条目配置经 loader/volatile-update 就地更新（不 remount），
+  //    所以这里既读镜像也要在事件后触发 onChange。
+  if (typeof (settings as unknown as { configure?: unknown } | undefined)?.configure === 'function') {
+    const reader = domainConfigReader(ns)
+    hooks.setSource(() => {
+      if (reader === undefined) return entry
+      const value = reader()
+      return (value === undefined || value === null ? entry : value) as T
+    })
+    // ⚠ 不能在这里监听 `loader/volatile-update`：该事件由 loader 带 fiber 过滤发出
+    // （只投递给条目自身 fiber 的 ctx），子域是嵌套 fiber，收不到。改订阅聚合层的
+    // 进程内镜像变化——聚合层持有条目引用并转发事件。
+    const off = onLiveConfigChange(() => { hooks.onChange() })
+    return () => { off() }
+  }
+
+  // 4) 兜底：无 settings 服务或两代接口皆不可用，仅以 composition entry 作为源。
   if (typeof settings === 'undefined' || (typeof settings.register !== 'function' && typeof settings.installSection !== 'function')) {
     console.warn(`[agentlex-suite] settings service unavailable for "${ns}" — using composition defaults`)
   }

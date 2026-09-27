@@ -7,7 +7,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type {} from '@deepseek-ai/dsh-settings'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { installSettingsSection } from '../../shared/settings-adapter.ts'
 
@@ -133,6 +133,10 @@ export function apply(ctx: Context, config: Config = {}): void {
     const value = current()
     resolved = {
       enabled: value.enabled ?? true,
+      // 套件总开关：client 的 AgentLexSkinConfig 读的是 agentlexEnabled，而这里原先
+      // 漏了它 —— /api/agentlex-skin/config 的返回缺该字段，client 只能靠本地缓存
+      // 判断（刷新/换端后读不到 host 真值）。补齐后 host 侧一改即可见。
+      agentlexEnabled: value.agentlexEnabled ?? true,
       userName: value.userName ?? 'User',
       brandEn: value.brandEn ?? 'AgentLex',
       brandZh: value.brandZh ?? '超级律师助理',

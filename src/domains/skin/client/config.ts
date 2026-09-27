@@ -28,6 +28,12 @@ export interface AgentLexSkinConfig {
   autoOpenCaseTab: boolean
   /** 备忘录（memo）开关。 */
   memoEnabled: boolean
+  /** 模拟法庭（moot-court）开关：侧边栏入口 + 中栏庭审面板。 */
+  mootCourtEnabled: boolean
+  /** 模拟法庭默认裁判者模型（provider/model；留空用部署默认路由）。 */
+  mootCourtJudgeModel: string
+  /** 模拟法庭默认对方代理人模型（provider/model；留空同裁判者路由）。 */
+  mootCourtOpponentModel: string
   /** 外观主题 key：见 themes.ts AGENTLEX_THEMES（warm/pure/jade/ink/wisteria/orange/codex/cinnabar/indigo/celadon/onyx） */
   theme: string
   /** 会话排版：AI 输出与用户消息两端对齐显示。 */
@@ -57,6 +63,10 @@ const DEFAULT_CONFIG: AgentLexSkinConfig = {
   workspaceSidebarEnabled: true,
   autoOpenCaseTab: true,
   memoEnabled: true,
+  // 实验性功能默认关闭，需在设置里开启。
+  mootCourtEnabled: false,
+  mootCourtJudgeModel: '',
+  mootCourtOpponentModel: '',
   theme: DEFAULT_THEME_KEY,
   conversationJustify: true,
   conversationEnhance: true,
@@ -146,6 +156,7 @@ export function setSkinConfig(next: Partial<AgentLexSkinConfig>): void {
     workspaceSidebarEnabled: effective(config.workspaceSidebarEnabled),
     autoOpenCaseTab: effective(config.autoOpenCaseTab),
     memoEnabled: effective(config.memoEnabled),
+    mootCourtEnabled: effective(config.mootCourtEnabled),
   })
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('agentlex:toggles-changed', {
@@ -159,6 +170,7 @@ export function setSkinConfig(next: Partial<AgentLexSkinConfig>): void {
         workspaceSidebarEnabled: effective(config.workspaceSidebarEnabled),
         autoOpenCaseTab: effective(config.autoOpenCaseTab),
         memoEnabled: effective(config.memoEnabled),
+        mootCourtEnabled: effective(config.mootCourtEnabled),
         conversationJustify: config.conversationJustify,
         conversationEnhance: config.conversationEnhance,
       },

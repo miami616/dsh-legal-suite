@@ -19,8 +19,12 @@ export interface ModuleToggles {
   workspaceSidebarEnabled: boolean
   /** 会话内文件/链接点击用侧边栏打开。 */
   openReferencesInSidebar: boolean
+  /** 会话绑定案件/项目时，右边栏自动带上「案件卷宗」面板。 */
+  autoOpenCaseTab: boolean
   /** 备忘录（memo）开关。 */
   memoEnabled: boolean
+  /** 模拟法庭（moot-court）开关。 */
+  mootCourtEnabled: boolean
 }
 
 const DEFAULT_TOGGLES: ModuleToggles = {
@@ -31,7 +35,10 @@ const DEFAULT_TOGGLES: ModuleToggles = {
   skillsToolsEnabled: true,
   workspaceSidebarEnabled: true,
   openReferencesInSidebar: true,
+  autoOpenCaseTab: true,
   memoEnabled: true,
+  // 实验性功能默认关闭，需在设置里开启。
+  mootCourtEnabled: false,
 }
 
 let toggles: ModuleToggles = DEFAULT_TOGGLES

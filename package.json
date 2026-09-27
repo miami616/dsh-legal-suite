@@ -1,6 +1,6 @@
 {
   "name": "dsh-legal-suite",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "description": "AI 驱动的法律行业案件管理与 Agent 工具：诉讼案件 / 非诉项目 / 任务中心 / 期限引擎 / 技能与 MCP，Agent 预设直接办案，运行于 DeepSeek Harness。",
   "type": "module",
   "license": "GPL-3.0",
@@ -20,7 +20,7 @@
   ],
   "dependencies": {
     "js-yaml": "^4.1.1",
-    "schemastery": "^3.18.0"
+    "@deepseek-ai/schemastery": "^3.18.3"
   },
   "dsh": {
     "bundle": {
@@ -73,7 +73,6 @@
     "lightningcss": "1.32.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "schemastery": "^3.18.0",
     "tsdown": "0.22.14",
     "typescript": "5.9.3",
     "lucide-react": "0.554.0",
@@ -278,7 +277,7 @@
     "zrender": "6.1.0",
     "zwitch": "2.0.4",
     "undici": "8.10.0",
-    "@deepseek-ai/schemastery": "3.18.1",
+    "@deepseek-ai/schemastery": "^3.18.3",
     "@deepseek-ai/dsh-api-session-controller": "0.1.5-alpha.1",
     "@deepseek-ai/dsh-api-workspace-controller": "0.1.5-alpha.1",
     "@deepseek-ai/dsh-util-values": "0.1.5-alpha.1",
@@ -517,7 +516,7 @@
     "react-dom": "19.2.8",
     "@types/node": "24.13.3",
     "undici": "8.10.0",
-    "@deepseek-ai/schemastery": "3.18.1"
+    "@deepseek-ai/schemastery": "^3.18.3"
   },
   "packageManager": "pnpm@11.22.0"
 }

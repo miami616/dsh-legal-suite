@@ -204,6 +204,35 @@
       4. 提取出的关键事实（当事人、案由、标的、期限、证据）用 litigation 工具登记进案件，并按上述命名规范命名任务。
       5. 需要产出文书时，用文件工具写入沙箱白名单内的路径（通常是用户工作目录）；写白名单外位置（如桌面）需用户显式授权，被拒时改写到工作目录并说明。
 
+      ## 十、模拟法庭（开庭前的照妖镜）
+      本机装有 moot-court 域，用 `moot_court` 工具驱动。定位是**压力测试与推演**，不是表演：
+      它把案卷材料喂给「裁判者 + 对方代理人」两个对抗视角，产出争点评分、攻击线路、材料缺口、
+      改进建议与一份模拟判决书/裁决书。用途：开庭前找漏洞、接案评估、客户预期管理、助理练庭审。
+
+      三种模式按场景选：
+      - `stress` 文书压力测试：不开庭，只审阅书面材料，直接给《攻击面报告》。日常、便宜，先跑这个。
+      - `auto` 全自动演练：模型演双方与裁判者走完整庭审，产出判决书 + 争点评分 + 建议。接案评估用。
+      - `rehearsal` 单方预演：律师本人实时输入我方发言，模型演对方与裁判者。开庭前 1-3 天用。
+
+      支持的程序：民事一审（civil_first）、民事二审（civil_second）、劳动仲裁（labor_arb）、
+      商事仲裁（commercial_arb）。**刑事不在范围**。二审必须提供一审裁判文书与上诉理由，
+      否则 create 会以 MISSING_FIRST_INSTANCE_JUDGMENT / MISSING_APPEAL_GROUNDS 拒绝。
+
+      标准用法（不要跳步）：
+      1. `moot_court action=prepare caseId=2026-0xx procedure=civil_first` 先看材料缺口与警告；
+      2. 补齐后 `action=create`（可带 brief 写我方策略简报，显著提升预演针对性）；返回 sessionId；
+      3. `action=start sessionId=...` 开庭——**庭审在后台推进，不占用本会话**，可继续做别的事；
+      4. `action=status` / `action=transcript` 汇报进度；单方预演等待我方发言时用 `action=intervene text=...`；
+      5. `action=report` 取报告与模拟判决书；`action=writeback` 把改进建议落进案件任务树。
+
+      硬口径（必须向用户交代）：
+      - 模拟结果**仅供参考，不构成对裁判结果的预测或承诺**，绝不可据此向当事人承诺胜诉或判决结果；
+      - 产物**只存放在 $DSH_HOME/agentlex/moot-court/**，**绝不写入案件卷宗目录**，也不与正式案件文件混放；
+      - `writeback` 只写任务记录，不产生任何文件；
+      - 判决引用来自元典法条/类案检索；检索不可用（如账号欠费）时会降级并在报告里标注「未锚定」，
+        此时要明确告诉用户结论的锚定强度不足，建议充值后重跑。
+      用户说「模拟法庭 / 开庭预演 / 庭审推演 / 攻击面 / 模拟判决 / 预演一下」时即指本能力。
+
 # ── shell (document extraction capability) ─────────────────────────────────
 # 读取 Word/PDF/Excel 等二进制文档需要执行转换/提取命令（pandoc、unzip、python 等）。
 # 与 DSH standard 预设一致：bash 仅在非 Windows 启用，Windows 用 PowerShell

@@ -33,6 +33,8 @@ export const REGISTRY_CHANGED_EVENT = 'agentlex:registry-changed'
 /** Which domain a change touched (clients refresh the relevant surface). */
 export type ChangeDomain =
   | 'cases' | 'case' | 'tasks' | 'timeline' | 'schedules' | 'import' | 'memos'
+  /** 模拟法庭（moot-court）域的会话级变更。 */
+  | 'moot'
 
 export interface RegistryChangedPayload {
   domain: ChangeDomain

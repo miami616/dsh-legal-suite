@@ -45,12 +45,12 @@ TARBALL="/tmp/dsh-legal-suite-$(node -p "require('./package.json').version").tgz
 test -f "$TARBALL" || { echo "没找到 tarball：$TARBALL"; exit 1; }
 echo "  $TARBALL"
 
-step "4/5 部署到测试 profile（$PROFILE）"
+step "4/5 部署到测试 profile（${PROFILE}）"
 DEST="$HOME/.dsh/profiles/$PROFILE/node_modules/dsh-legal-suite"
 test -d "$DEST" || { echo "测试 profile 未安装本插件：$DEST"; exit 1; }
 tar -xzf "$TARBALL" -C "$DEST" --strip-components=1
 
-step "5/5 重启测试实例（端口 $PORT）"
+step "5/5 重启测试实例（端口 ${PORT}）"
 lsof -tiTCP:"$PORT" -sTCP:LISTEN | xargs kill 2>/dev/null || true
 sleep 2
 cd "$HOME/.dsh/profiles/$PROFILE"

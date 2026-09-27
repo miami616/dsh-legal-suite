@@ -1,0 +1,1191 @@
+/**
+ * moot-court 面板样式。
+ *
+ * 跟随 DSH 主题变量（--dsw-alias-*），并给出 AgentLex 暖纸配色的本地回退值
+ * （--moot-*），在 DSH 深浅两套配色下都保持可读。面板是「中栏整列接管」：
+ * 打开时隐藏会话视图、面板铺满整列（属性作用域的全局规则必须留在本文件，
+ * 由 mount.tsx import，保证样式随插件加载）。
+ */
+
+/* --- 本地回退 token（DSH 变量缺席时生效） ---------------------------------- */
+
+:root {
+  --moot-ink: #1c1612;
+  --moot-ink-muted: #6f6156;
+  --moot-paper: #f9f5ee;
+  --moot-paper-elevated: #fffcf7;
+  --moot-paper-inset: #f1e9dd;
+  --moot-line: rgb(28 22 18 / 0.16);
+  --moot-line-strong: rgb(28 22 18 / 0.3);
+  --moot-accent: #c26d3a;
+  --moot-accent-subtle: rgba(194, 109, 58, 0.1);
+  --moot-hover: rgba(194, 109, 58, 0.08);
+  --moot-on-accent: #ffffff;
+  --moot-success: #2d8a5e;
+  --moot-success-bg: #e2f0e8;
+  --moot-error: #dc2626;
+  --moot-error-bg: #fee2e2;
+  --moot-warning: #b45309;
+  --moot-warning-bg: #fef3c7;
+  --moot-info: #4a7ab5;
+  --moot-info-bg: #e4ecf4;
+  --moot-actor-clerk: #6b7280;
+  --moot-actor-judge: #2f6fb0;
+  --moot-actor-opponent: #c0392b;
+  --moot-actor-self: #2d8a5e;
+  --moot-radius: 10px;
+  --moot-font: 'Microsoft YaHei', 'Microsoft YaHei UI', 'PingFang SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --moot-font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, Menlo, monospace;
+}
+
+body[data-ds-dark-theme] {
+  --moot-ink: #e4dcd4;
+  --moot-ink-muted: #9a8e82;
+  --moot-paper: #1a1614;
+  --moot-paper-elevated: #242018;
+  --moot-paper-inset: #12100e;
+  --moot-line: rgb(228 220 212 / 0.12);
+  --moot-line-strong: rgb(228 220 212 / 0.22);
+  --moot-accent: #d4803f;
+  --moot-accent-subtle: rgba(212, 128, 63, 0.14);
+  --moot-hover: rgba(212, 128, 63, 0.14);
+  --moot-success: #4aad7a;
+  --moot-success-bg: rgba(74, 173, 122, 0.15);
+  --moot-error: #ef4444;
+  --moot-error-bg: rgba(239, 68, 68, 0.15);
+  --moot-warning: #f59e0b;
+  --moot-warning-bg: rgba(245, 158, 11, 0.15);
+  --moot-info: #6b9fd4;
+  --moot-info-bg: rgba(107, 159, 212, 0.15);
+  --moot-actor-clerk: #9ca3af;
+  --moot-actor-judge: #6b9fd4;
+  --moot-actor-opponent: #ef5350;
+  --moot-actor-self: #4aad7a;
+}
+
+/* --- 中栏接管（全局规则，属性作用域） --------------------------------------- */
+
+[data-pane='conversation'],
+[class*='centerCol'] {
+  position: relative;
+}
+
+[data-dsh-moot-view] {
+  position: absolute;
+  inset: 0;
+  display: none;
+  z-index: 60;
+  background: var(--dsw-alias-bg-base, var(--moot-paper));
+}
+
+html[data-dsh-moot-active]:not([data-dsh-litigation-active]):not([data-dsh-nonlitigation-active]):not([data-dsh-task-active]):not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-moot-view] {
+  display: block;
+}
+
+/* 面板打开时隐藏会话视图，面板成为整列覆盖（与诉讼/非诉/任务面板一致）。 */
+html[data-dsh-moot-active]:not([data-dsh-litigation-active]):not([data-dsh-nonlitigation-active]):not([data-dsh-task-active]):not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'] > :not([data-dsh-moot-view]),
+html[data-dsh-moot-active]:not([data-dsh-litigation-active]):not([data-dsh-nonlitigation-active]):not([data-dsh-task-active]):not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [class*='centerCol'] > :not([data-dsh-moot-view]) {
+  display: none !important;
+}
+
+.view {
+  position: absolute;
+  inset: 0;
+  display: none;
+  z-index: 60;
+  background: var(--dsw-alias-bg-base, var(--moot-paper));
+}
+
+.host {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 面板左缘的关闭按钮与拖拽改宽手柄。 */
+.closeFab {
+  position: absolute;
+  top: 12px;
+  left: -34px;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--moot-line);
+  border-radius: 8px 0 0 8px;
+  background: var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated));
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.closeFab:hover {
+  background: var(--moot-hover);
+  color: var(--dsw-alias-label-primary, var(--moot-ink));
+}
+
+.resizeHandle {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 70;
+}
+
+/* --- 侧边栏入口行（sidebar-entry-core 约定：entry / entryIcon / entryLabel） --- */
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 14px;
+  background: transparent;
+  border: none;
+  border-radius: 9px;
+  color: var(--dsw-alias-label-secondary, var(--moot-ink-muted));
+  font: inherit;
+  font-family: var(--moot-font);
+  font-size: 15px;
+  font-weight: 550;
+  line-height: 24px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+
+.entry:hover {
+  background: var(--moot-hover);
+}
+
+.entry[data-active='true'] {
+  background: var(--moot-accent-subtle);
+  color: var(--moot-accent);
+}
+
+.entryIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.entryLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- 面板骨架 ---------------------------------------------------------------- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, var(--moot-panel-width, 1160px));
+  height: 100%;
+  margin: 0 auto;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary, var(--moot-ink));
+  background: var(--dsw-alias-bg-base, var(--moot-paper));
+  font-family: var(--moot-font);
+}
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--moot-line);
+}
+
+.headerMain {
+  min-width: 0;
+  flex: 1;
+}
+
+.headerTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.headerSub {
+  margin: 2px 0 0;
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.tabs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 18px 0;
+  border-bottom: 1px solid var(--moot-line);
+}
+
+.tab {
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, var(--moot-ink-muted));
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tab:hover:not(:disabled) {
+  background: var(--moot-hover);
+}
+
+.tabActive {
+  background: var(--moot-accent-subtle);
+  border-color: var(--moot-line);
+  color: var(--moot-accent);
+  font-weight: 600;
+}
+
+.tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 免责口径横幅：所有模拟产物区域都常驻可见。 */
+.disclaimer {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 18px;
+  background: var(--moot-warning-bg);
+  color: var(--moot-warning);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.disclaimerLabel {
+  font-weight: 700;
+  flex: none;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 28px;
+}
+
+/* --- 通用控件 ---------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--moot-line-strong);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated));
+  color: var(--dsw-alias-label-primary, var(--moot-ink));
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--moot-hover);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  border-color: transparent;
+  background: var(--moot-accent);
+  color: var(--moot-on-accent);
+  font-weight: 600;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: var(--moot-accent);
+  filter: brightness(1.06);
+}
+
+.btnDanger {
+  border-color: transparent;
+  background: var(--moot-error-bg);
+  color: var(--moot-error);
+}
+
+.btnSm {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+.btnRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.actionsRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.errorBox {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--moot-error-bg);
+  color: var(--moot-error);
+  font-size: 13px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.warnBox {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--moot-warning-bg);
+  color: var(--moot-warning);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.okBox {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--moot-success-bg);
+  color: var(--moot-success);
+  font-size: 13px;
+}
+
+.hint {
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.loading {
+  padding: 24px 0;
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 13px;
+  text-align: center;
+}
+
+/* --- 列表视图 ---------------------------------------------------------------- */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 48px 20px;
+  text-align: center;
+}
+
+.emptyTitle {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--moot-line);
+  border-radius: var(--moot-radius);
+  background: var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated));
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowMeta {
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.rowSub {
+  margin-top: 5px;
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 12px;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2, var(--moot-paper-inset));
+  color: var(--dsw-alias-label-secondary, var(--moot-ink-muted));
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.badgeAccent {
+  background: var(--moot-accent-subtle);
+  color: var(--moot-accent);
+}
+
+.badgeOk {
+  background: var(--moot-success-bg);
+  color: var(--moot-success);
+}
+
+.badgeWarn {
+  background: var(--moot-warning-bg);
+  color: var(--moot-warning);
+}
+
+.badgeErr {
+  background: var(--moot-error-bg);
+  color: var(--moot-error);
+}
+
+.badgeInfo {
+  background: var(--moot-info-bg);
+  color: var(--moot-info);
+}
+
+/* --- 向导 -------------------------------------------------------------------- */
+
+.wizard {
+  display: flex;
+  flex-direction: column;
+}
+
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2, var(--moot-paper-inset));
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 12px;
+}
+
+.stepDot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--moot-line);
+  color: var(--moot-on-accent);
+  font-size: 11px;
+}
+
+.stepActive {
+  background: var(--moot-accent-subtle);
+  color: var(--moot-accent);
+  font-weight: 600;
+}
+
+.stepDone .stepDot {
+  background: var(--moot-success);
+}
+
+.stepActive .stepDot {
+  background: var(--moot-accent);
+}
+
+.section {
+  margin-bottom: 18px;
+}
+
+.sectionTitle {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.field {
+  margin-bottom: 12px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--dsw-alias-label-secondary, var(--moot-ink-muted));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 9px;
+  border: 1px solid var(--moot-line-strong);
+  border-radius: 8px;
+  background: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated)));
+  color: var(--dsw-alias-label-primary, var(--moot-ink));
+  font: inherit;
+  font-size: 13px;
+}
+
+.textarea {
+  min-height: 84px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.input:focus,
+.textarea:focus,
+.select:focus {
+  outline: 2px solid var(--moot-accent-subtle);
+  border-color: var(--moot-accent);
+}
+
+.slider {
+  width: 100%;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.choiceList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--moot-line);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated));
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.choice:hover {
+  background: var(--moot-hover);
+}
+
+.choiceActive {
+  border-color: var(--moot-accent);
+  background: var(--moot-accent-subtle);
+}
+
+.choiceBody {
+  min-width: 0;
+}
+
+.choiceHint {
+  display: block;
+  margin-top: 2px;
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 12px;
+}
+
+.cases {
+  max-height: 260px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--moot-line);
+  border-radius: var(--moot-radius);
+  background: var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated));
+}
+
+.caseItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.caseItem:hover {
+  background: var(--moot-hover);
+}
+
+.caseItemActive {
+  border-color: var(--moot-accent);
+  background: var(--moot-accent-subtle);
+}
+
+.caseName {
+  font-weight: 600;
+}
+
+.caseMeta {
+  margin-top: 2px;
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 12px;
+}
+
+.evidenceRow {
+  display: grid;
+  grid-template-columns: 70px 1fr 1.4fr 32px;
+  gap: 6px;
+  align-items: start;
+  margin-bottom: 6px;
+}
+
+.materialList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.missingList {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.missingItem {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.missingBlocking {
+  background: var(--moot-error-bg);
+  color: var(--moot-error);
+}
+
+.missingWarn {
+  background: var(--moot-warning-bg);
+  color: var(--moot-warning);
+}
+
+/* --- 直播视图 ---------------------------------------------------------------- */
+
+.live {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.phaseBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--moot-line);
+  border-radius: var(--moot-radius);
+  background: var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated));
+}
+
+.phaseItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2, var(--moot-paper-inset));
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.phaseItemDone {
+  color: var(--moot-success);
+}
+
+.phaseActive {
+  background: var(--moot-accent);
+  color: var(--moot-on-accent);
+  font-weight: 600;
+}
+
+.stream {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.entryItem {
+  padding: 10px 12px;
+  border: 1px solid var(--moot-line);
+  border-left-width: 3px;
+  border-radius: var(--moot-radius);
+  background: var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated));
+}
+
+.actorClerk { border-left-color: var(--moot-actor-clerk); }
+.actorJudge { border-left-color: var(--moot-actor-judge); }
+.actorOpponent { border-left-color: var(--moot-actor-opponent); }
+.actorSelf { border-left-color: var(--moot-actor-self); }
+
+.entryHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  flex-wrap: wrap;
+}
+
+.roleLabel {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.actorClerk .roleLabel { color: var(--moot-actor-clerk); }
+.actorJudge .roleLabel { color: var(--moot-actor-judge); }
+.actorOpponent .roleLabel { color: var(--moot-actor-opponent); }
+.actorSelf .roleLabel { color: var(--moot-actor-self); }
+
+.entryPhase {
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 11.5px;
+}
+
+.entryText {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.citations {
+  margin-top: 7px;
+  font-size: 12px;
+}
+
+.citations > summary {
+  cursor: pointer;
+  color: var(--moot-info);
+  list-style: none;
+}
+
+.citations > summary::-webkit-details-marker {
+  display: none;
+}
+
+.citationList {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.citationItem {
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--moot-info-bg);
+  color: var(--dsw-alias-label-primary, var(--moot-ink));
+  line-height: 1.55;
+}
+
+.citationKind {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--moot-info);
+  color: #fff;
+  font-size: 11px;
+}
+
+.citationRef {
+  font-weight: 650;
+  margin-right: 6px;
+}
+
+.citationSummary {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-label-secondary, var(--moot-ink-muted));
+}
+
+.controlBar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--moot-line);
+  border-radius: var(--moot-radius);
+  background: var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated));
+}
+
+.controlSpacer {
+  flex: 1;
+}
+
+.intervene {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--moot-line);
+  border-radius: var(--moot-radius);
+  background: var(--moot-success-bg);
+}
+
+.interveneHint {
+  margin: 0 0 6px;
+  color: var(--moot-success);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* --- 报告视图 ---------------------------------------------------------------- */
+
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card {
+  padding: 13px 15px;
+  border: 1px solid var(--moot-line);
+  border-radius: var(--moot-radius);
+  background: var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated));
+}
+
+.cardTitle {
+  margin: 0 0 9px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.verdict {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.statValue {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.statLabel {
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 11.5px;
+}
+
+.verdictSummary {
+  flex: 1;
+  min-width: 220px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.issueCard {
+  padding: 11px 13px;
+  border: 1px solid var(--moot-line);
+  border-radius: var(--moot-radius);
+  background: var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated));
+}
+
+.issueCard + .issueCard {
+  margin-top: 9px;
+}
+
+.issueHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.issueTitle {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.proCon {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.sideBox {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2, var(--moot-paper-inset));
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.sideTitle {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sideUs {
+  color: var(--moot-success);
+}
+
+.sideThem {
+  color: var(--moot-actor-opponent);
+}
+
+.bullets {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.bullets li {
+  margin: 2px 0;
+}
+
+.anchorGroup {
+  margin-top: 8px;
+}
+
+.anchorTitle {
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.weakList {
+  margin: 7px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--moot-warning-bg);
+  color: var(--moot-warning);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.attackItem,
+.gapItem,
+.suggestionItem,
+.noteItem {
+  padding: 9px 11px;
+  border: 1px solid var(--moot-line);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1, var(--moot-paper-elevated));
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.attackItem + .attackItem,
+.gapItem + .gapItem,
+.suggestionItem + .suggestionItem,
+.noteItem + .noteItem {
+  margin-top: 7px;
+}
+
+.attackHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.severityHigh { background: var(--moot-error); color: #fff; }
+.severityMedium { background: var(--moot-warning); color: #fff; }
+.severityLow { background: var(--dsw-alias-bg-layer-2, var(--moot-paper-inset)); color: var(--dsw-alias-label-secondary, var(--moot-ink-muted)); }
+
+.sourceOpponent { background: var(--moot-actor-opponent); color: #fff; }
+.sourceJudge { background: var(--moot-actor-judge); color: #fff; }
+
+.priorityHigh { background: var(--moot-error); color: #fff; }
+.priorityMedium { background: var(--moot-warning); color: #fff; }
+.priorityLow { background: var(--dsw-alias-bg-layer-2, var(--moot-paper-inset)); color: var(--dsw-alias-label-secondary, var(--moot-ink-muted)); }
+
+.gapMissing {
+  font-weight: 650;
+}
+
+.gapReason {
+  margin: 3px 0 0;
+  color: var(--dsw-alias-label-secondary, var(--moot-ink-muted));
+}
+
+.metaLine {
+  margin-top: 9px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 12px;
+}
+
+.judgment {
+  margin: 0;
+  padding: 13px 15px;
+  border: 1px solid var(--moot-line);
+  border-radius: var(--moot-radius);
+  background: var(--dsw-alias-bg-layer-2, var(--moot-paper-inset));
+  color: var(--dsw-alias-label-primary, var(--moot-ink));
+  font-family: var(--dsw-alias-font-mono, var(--moot-font-mono));
+  font-size: 12.5px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+.writeback {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.writebackHint {
+  color: var(--dsw-alias-label-tertiary, var(--moot-ink-muted));
+  font-size: 12px;
+}
+
+.taskList {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.plainList {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+/* --- 实验性功能标记（标题旁徽标 + 顶部提示条） ----------------------------- */
+
+.experimentalBadge {
+  margin-left: 8px;
+  vertical-align: middle;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.experimentalNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 16px 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--moot-warning);
+  border-radius: var(--moot-radius);
+  background: var(--moot-warning-bg);
+  color: var(--moot-ink);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.experimentalNotice > .badge {
+  flex: none;
+  margin-top: 1px;
+}

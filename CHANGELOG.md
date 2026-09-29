@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.2.19 — 会话轨迹导航回归修复 + 适配 DSH 0.2.0-rc.1
+
+### 修复：会话轨迹导航美化失效（DSH 0.1.7-rc.2 起）
+
+0.1.7-rc.2 把轮次导航重写为虚拟化结构：标记本身就是 button（父级不再有 markPosition 包装层），
+长度改用 `transform: scaleX()` 表达，轨道槽自带 padding-inline。旧选择器全部失配，表现为
+「悬停不变宽、分级波动消失、轨道被推出视口裁掉、预览卡恒显示第 1 条」。
+
+- 悬停/波动改挂 button：`> div > button:hover` + `button:has(+ button:hover)`；未加载回合 6px 区分；
+- 重置 `::before` 的 `transform: translateY(-50%) scaleX(1)`（只改 width 会被原生缩放）；
+- 轨道盒 28px → 52px，避免 scroller 的 `overflow-y:auto`（连带 overflow-x 计算为 auto）裁掉 39px 长横；
+- 左右定位改 `right/left: 12px`（旧公式重复减了一次槽位 padding，实测把轨道推到视口外）；
+- 预览卡回合定位改用 `closest('button')`（原来上溯取容器内首个按钮，恒显示「第 1 条」）。
+
+Playwright 实测（0.1.7-rc.2 与 0.2.0-rc.1）：悬停宽度 39px，邻近 30/21/15，预览卡显示「第 N / 总数 条」。
+
+### 适配：DSH 0.2.0-rc.1 插件兼容门禁
+
+0.2.0 起 harness 在挂载前按 `peerDependencies` 校验插件与运行时版本，不匹配即**整包跳过**
+（日志 `skipping profile bundle "dsh-legal-suite"`）。
+
+- `@deepseek-ai/dsh-mcp-client` 的 peer 范围由 `^0.1.5-alpha.1` 放宽为
+  `^0.1.5-alpha.1 || ^0.2.0-rc.1`，一条范围同时覆盖 0.1.6-alpha.2 / 0.1.7-rc.2 / 0.2.0-rc.1 / 0.2.0。
+
+### 修复：模拟法庭 SSE 无条件订阅
+
+客户端原先无条件订阅 `/api/agentlex-moot/events-stream`，而 `mootCourtEnabled=false` 时 host
+不注册该路由 → 每个页面都发一次 404 并反复重连。改为随开关订阅（挂载时订阅，关闭/卸载时断开）。
+
+### 验证（DSH 0.2.0-rc.1 本地源码构建，隔离 DSH_HOME）
+
+- 插件正常挂载，无 `skipping` / `disabling`；
+- `/api/agentlex-suite/config`、`/api/agentlex-skin/config` 均 200；
+- 皮肤与排版正常；会话导航悬停波动 39/30/21/15，预览卡回合号正确；
+- 预设下拉 7 项：标准 / PTC / 极简 / 创造 + 诉讼管家 / 非诉管家 / 广电合同审查；
+- 页面 0 报错（moot 的 404 已消失）。
+
 ## 0.2.18 — 模拟法庭（实验性，默认关闭）+ 适配 DSH 0.1.7-rc.2
 
 ### 新功能（实验性，默认关闭）：模拟法庭（moot-court）

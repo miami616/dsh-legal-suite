@@ -60,6 +60,10 @@ export function apply(ctx: ClientContext): void {
     try {
       uiDisposers.push(mountSidebarEntry(controller))
       uiDisposers.push(mountPanel(controller))
+      // 实时刷新：host 在会话/记录写入后经 SSE 广播，本域转成页面事件
+      // `agentlex:moot-changed`（列表、直播、报告视图都监听）。只在开关打开时订阅——
+      // 关闭时 host 根本不注册该路由，无条件订阅会让每个页面都发一次 404 并反复重连。
+      uiDisposers.push(subscribeMootEvents())
     } catch (error) {
       console.warn('[agentlex-moot-court] mount failed:', error)
     }
@@ -94,8 +98,4 @@ export function apply(ctx: ClientContext): void {
     window.removeEventListener('agentlex:toggles-changed', onTogglesChanged)
     unmount()
   }, 'agentlex-moot-court: ui mounts')
-
-  // 实时刷新：host 在会话/记录写入后经 SSE 广播，本域转成页面事件
-  // `agentlex:moot-changed`（列表、直播、报告视图都监听）。
-  ctx.effect(() => subscribeMootEvents(), 'agentlex-moot-court: live-refresh sse')
 }

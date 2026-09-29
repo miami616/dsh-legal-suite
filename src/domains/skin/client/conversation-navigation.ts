@@ -27,8 +27,15 @@
  *   原生 TurnNavigator 的类名是 CSS Modules 哈希（如 eGxaPq_*），升级 DSH 会变化，
  *   不能依赖。但它的 `nav` 元素带 `aria-label`（英文 "Turn navigation" / 中文
  *   "轮次导航"），这是稳定的 DOM 锚点。注意会话区还有面包屑 nav[aria-label=
- *   "Session hierarchy"]，必须精确匹配。内部元素（scroller/marks/mark/preview）
- *   用结构选择器定位（:first-child、> div 等），不依赖哈希类名。
+ *   "Session hierarchy"]，必须精确匹配。内部元素用结构选择器定位，不依赖哈希类名。
+ *
+ * 结构版本（升级 DSH 后此处必须跟着改）：
+ *   - 0.1.7-rc.2 起：nav > div.scroller > div.marks > button（标记即按钮，可悬停可点击，
+ *     原生 ::before 用 transform:scaleX() 表达长度，轨道槽 slot 自带 padding-inline）；
+ *   - 0.1.6 及以前：nav > div.scroller > div.marks > div.markPosition > button
+ *     （标记按钮 pointer-events:none，悬停落在 markPosition 包装层上）。
+ *   只按旧结构写 `div:hover button` 这类选择器，在新结构下会命中整个 marks 容器里的
+ *   所有按钮，且悬停/波动全部失效。
  *
  * 开关：由设置项 conversationNavEnabled 控制（true 启用美化 / false 恢复原生），
  * 位置由 conversationNavPosition 控制（'right' | 'left'）。
@@ -40,17 +47,23 @@ import { statusLabel } from './conversation-turn-data.ts'
 /** 轨迹导航美化 + 左右切换规则。 */
 export const CONVERSATION_NAV_CSS = `
 /* ============ 轨道（nav.frame）：透明，去掉背景块/圆角/阴影 ============ */
+/* DSH 0.1.7-rc.2 起内部改为虚拟化结构：nav > div.scroller > div.marks > button
+ * （旧版是 nav > div.scroller > div.marks > div.markPosition > button，已失效）。
+ * 轨道盒加宽到 52px：scroller 的 overflow-y:auto 会让 overflow-x 计算为 auto，
+ * 28px 的盒子会把悬停伸出的 39px 短横裁掉，只有盒内宽度才画得完整。 */
 :is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"],
 :is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] {
   background: transparent !important;
   border-radius: 0 !important;
   box-shadow: none !important;
-  width: 28px;
+  width: 52px;
 }
 
 /* ============ 标记（mark）：细短横，低对比，悬停变宽 ============ */
-/* 原生 mark 按钮 pointer-events:none，悬停落在父级 markPosition 上，
- * 因此悬停/波动选择器都挂在 markPosition（结构选择器，哈希无关）。 */
+/* 0.1.7 起每个标记就是 button 本身（可悬停、可点击，pointer-events 默认 auto），
+ * 父级不再有 markPosition 包装层，悬停/波动选择器因此挂在 button 上。
+ * 原生 ::before 用 transform:scaleX(.4/.6/.9/1) 表达长度，只改 width 会被缩放
+ * （9px 实际只剩 5.4px），所以这里统一把 transform 重置为 scaleX(1)，用 width 精确控制。 */
 :is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] button::before,
 :is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] button::before {
   width: 9px;
@@ -58,35 +71,42 @@ export const CONVERSATION_NAV_CSS = `
   background: var(--dsw-alias-label-tertiary, #aeb3bf);
   opacity: 0.32;
   border-radius: 2px;
+  transform: translateY(-50%) scaleX(1);
   transition: opacity 0.12s, width 0.12s, background-color 0.12s;
 }
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:hover button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:hover button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:focus-within button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:focus-within button::before {
+/* 未加载回合（点击会先分页加载历史）：更短更淡 */
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] button[class$="_markUnloaded"]::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] button[class$="_markUnloaded"]::before {
+  width: 6px;
+  opacity: 0.22;
+}
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > button:hover::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > button:hover::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > button:focus-visible::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > button:focus-visible::before {
   opacity: 0.9;
   width: 39px;
   background: var(--dsw-alias-label-primary, #191b1f);
 }
 
 /* ============ 分级波动（codex 风格）：悬停标记 39px，邻近 30/21/15px ============ */
-/* 原生 markPosition 是 DOM 兄弟，用 :has() 做相邻波动（与哈希无关）。 */
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:has(+ div:hover) button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:has(+ div:hover) button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:hover + div button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:hover + div button::before {
+/* 标记在 marks 里是 DOM 兄弟，用 :has() + 相邻兄弟做波动（与哈希类名无关）。 */
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > button:has(+ button:hover)::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > button:has(+ button:hover)::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > button:hover + button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > button:hover + button::before {
   width: 30px;
 }
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:has(+ div + div:hover) button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:has(+ div + div:hover) button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:hover + div + div button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:hover + div + div button::before {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > button:has(+ button + button:hover)::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > button:has(+ button + button:hover)::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > button:hover + button + button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > button:hover + button + button::before {
   width: 21px;
 }
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:has(+ div + div + div:hover) button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:has(+ div + div + div:hover) button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > div:hover + div + div + div button::before,
-:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > div:hover + div + div + div button::before {
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > button:has(+ button + button + button:hover)::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > button:has(+ button + button + button:hover)::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"] > div:first-child > div > button:hover + button + button + button::before,
+:is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"] > div:first-child > div > button:hover + button + button + button::before {
   width: 15px;
 }
 
@@ -101,6 +121,7 @@ export const CONVERSATION_NAV_CSS = `
   opacity: 0.55;
   width: 9px;
   height: 3px;
+  transform: translateY(-50%) scaleX(1);
 }
 
 /* ============ 预览卡：沿用原生样式（原生已是 10px 圆角/边框/阴影/内边距），
@@ -163,15 +184,18 @@ export const CONVERSATION_NAV_CSS = `
 }
 
 /* ============ 左右切换：原生用 right 定位，覆盖为 left 即切到左侧 ============ */
+/* 0.1.7 的轨道槽（slot）自带 padding-inline: calc(--dsh-composer-side-clearance + 16px)，
+ * 绝对定位的包含块就是该槽，right:12px 已经落在正文列外的留白里。旧公式再减一次
+ * padding（12 - 32 = -20px）会把轨道推出容器：实测 nav 右缘超出视口被裁掉，导航看不见。 */
 :is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"][data-agentlex-nav="left"],
 :is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"][data-agentlex-nav="left"] {
   right: auto;
-  left: calc(12px - (var(--dsh-composer-side-clearance, 16px) + 16px));
+  left: 12px;
 }
 :is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="Turn navigation"][data-agentlex-nav="right"],
 :is([data-slot="conversation"], [data-slot="main.conversation"]) nav[aria-label="轮次导航"][data-agentlex-nav="right"] {
   left: auto;
-  right: calc(12px - (var(--dsh-composer-side-clearance, 16px) + 16px));
+  right: 12px;
 }
 
 /* ============ 预览卡方向适配：右侧轨道→预览卡在左；左侧轨道→预览卡在右 ============ */
@@ -375,8 +399,9 @@ export function mountConversationNav(
 
   /**
    * 监听轨迹导航的 hover/focus，记录当前悬停/聚焦的回合号。
-   * 原生 mark 按钮 pointer-events:none，无法直接收 pointerenter；改为在 nav 上监听
-   * pointermove，用 elementFromPoint 找到指针下的 markPosition，再读其按钮 aria-label。
+   * 在 nav 上监听 pointermove，用 elementFromPoint 找到指针下的标记按钮，再读其
+   * aria-label。0.1.7-rc.2 起标记本身就是 button（closest 一步命中）；0.1.6 及以前
+   * 标记按钮 pointer-events:none、悬停落在 markPosition 包装层上（closest 上溯命中）。
    */
   const bindMarkHover = (): void => {
     const nav = findNav()
@@ -384,18 +409,13 @@ export function mountConversationNav(
     if (nav.dataset.agentlexNavHoverBound === '1') return
     nav.dataset.agentlexNavHoverBound = '1'
     nav.addEventListener('pointermove', (event) => {
-      const x = event.clientX
-      const y = event.clientY
-      const target = document.elementFromPoint(x, y)
-      // 向上找最近的 markPosition（含 button 的 div）。
-      let el: Element | null = target
-      for (let i = 0; el && i < 6; i++) {
-        const btn = el.querySelector('button')
-        if (btn) {
-          hoveredTurn = parseTurnFromLabel(btn.getAttribute('aria-label') ?? '')
-          break
-        }
-        el = el.parentElement
+      const target = document.elementFromPoint(event.clientX, event.clientY)
+      // 0.1.7 起标记就是 button 本身，closest 直接命中；旧版则是 markPosition > button。
+      // 注意不能用 el.querySelector('button') 向上找：命中 marks 容器时会拿到第一个
+      // 按钮，导致悬停任何一轮都显示「第 1 条」。
+      const mark = target?.closest('button') ?? target?.querySelector('button')
+      if (mark != null && nav.contains(mark)) {
+        hoveredTurn = parseTurnFromLabel(mark.getAttribute('aria-label') ?? '')
       }
     })
     nav.addEventListener('pointerleave', () => {

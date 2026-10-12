@@ -115,17 +115,17 @@ export function apply(ctx: ClientContext): void {
       }
       // Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change).
       // 0.1.7 起两个域的配置并进聚合条目，字段带前缀（litigationDataDir / …），
-      // aliasSettingsScope 把它们折回逻辑名 dataDir，设置页两代共用同一套字段。
+      // aliasSettingsScope 读快照时折回逻辑名、写入时再按前缀搬回去，设置页两代共用同一套字段。
       type ModuleScope<T> = ClientSettingsScope<T> | undefined
       const litigationBinding = resolveClientSettings<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }>(ctx, 'agentlex-litigation', 'litigation')
       const nonlitigationBinding = resolveClientSettings<{ dataDir?: string }>(ctx, 'agentlex-nonlitigation', 'nonlitigation')
       bindModuleDataDirScopes({
         litigation: (litigationBinding === undefined
           ? undefined
-          : aliasSettingsScope(litigationBinding.scope, litigationBinding.field)) as ModuleScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }>,
+          : aliasSettingsScope(litigationBinding.scope, litigationBinding.field, litigationBinding.logicalOf)) as ModuleScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }>,
         nonlitigation: (nonlitigationBinding === undefined
           ? undefined
-          : aliasSettingsScope(nonlitigationBinding.scope, nonlitigationBinding.field)) as ModuleScope<{ dataDir?: string }>,
+          : aliasSettingsScope(nonlitigationBinding.scope, nonlitigationBinding.field, nonlitigationBinding.logicalOf)) as ModuleScope<{ dataDir?: string }>,
       })
       // 目录选择器（设置页「数据目录 → 选择目录…」按钮，走新架构的 uiWorkspace.pickDirectory()）。
       // ⚠ 不能直接写 `ctx.uiWorkspace`：0.1.6 起客户端服务是严格代理，未在注入表声明时

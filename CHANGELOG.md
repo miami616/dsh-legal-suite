@@ -176,6 +176,26 @@ DSH 0.1.7 起 agent 预设不再从 `$DSH_HOME/.agent-presets/` 目录自动发�
 - 回归：皮肤/排版正常，会话导航悬停 15/21/30/39/30/21/15、预览卡「第 4 / 14 条」，
   `/api/agentlex-suite|skin|task` 均 200，页面 0 报错。
 
+### 四、修复：设置页「日程同步 Apple 日历」整块点不上（0.2.18 起的投影方向错误）
+
+用户 2026-10-12 报「日历功能怎么没法用了，点选框点不上」。根因在 `src/shared/client-settings.ts`
+的 `aliasSettingsScope`：读快照做投影时把**承载字段名**（`litigationCalendarSyncEnabled`）
+当成了逻辑名再去算前缀，得到不存在的 `litigationLitigationCalendarSyncEnabled`，
+于是整个投影被清成 `{}`（node 复现：宿主 `{litigationDataDir, litigationCalendarSyncEnabled:true, …}` → `{}`）。
+设置页所有读取因此退回默认值——宿主里日历同步明明是 `true`，界面显示为关，
+下面「同步日程 / 同步带日期任务 / 同步到日历 / 手动同步」整块 `pointer-events:none`、透明度 0.5，
+怎么点都没反应（0.2.18 引入该包装函数起就坏了）。
+
+- 修复：投影改为按「快照的键（承载名）→ 逻辑名」单向折叠；新增 `unprefixedField()`
+  （`litigationCalendarSyncEnabled → calendarSyncEnabled`；不含前缀、或前缀后非大写开头则原样返回），
+  `ResolvedClientSettings` 增加 `logicalOf`，skin client 两处 `aliasSettingsScope` 传入双向映射。
+  写入方向本来就是对的（`set` 一直按 `prefixedField` 走），未改。
+- 顺带修好：设置页两个「数据目录」输入框此前同样读不到宿主值（同一投影问题）。
+- 回归自测：新增 `pnpm check:settings`（19 项断言：双向映射、读投影、写入映射、恒等映射、未就绪快照）。
+- 实机验证（测试实例 `agentlex-ls-test`:3081，0.2.20 构建）：主开关读到宿主 `true` 并显示为开；
+  子块 `pointer-events:auto`；勾「同步带日期任务」能勾上、能取消；主开关关掉后子块按设计变灰不可点、
+  开回来即恢复；`console.error` / `pageerror` 均为 0。
+
 ## 0.2.19 — 会话轨迹导航回归修复 + 适配 DSH 0.2.0-rc.1
 
 ### 修复：会话轨迹导航美化失效（DSH 0.1.7-rc.2 起）

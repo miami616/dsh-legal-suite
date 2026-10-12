@@ -313,7 +313,8 @@
     "watch": "tsdown --watch",
     "typecheck": "tsc --noEmit",
     "check:redact": "tsc -p tsconfig.build.json && node scripts/check-redact.mjs",
-    "prepack": "node scripts/verify-client-bundle.mjs"
+    "prepack": "node scripts/verify-client-bundle.mjs",
+    "check:settings": "tsc -p tsconfig.build.json && node scripts/check-client-settings.mjs"
   },
   "publishConfig": {
     "access": "public"

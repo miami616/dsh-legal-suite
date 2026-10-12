@@ -33,11 +33,13 @@ export interface ClientSettingsScope<T> {
   unset(field: string): unknown
 }
 
-/** 解析结果：作用域 + 「逻辑字段名 → 当前 harness 实际字段名」映射。 */
+/** 解析结果：作用域 + 「逻辑字段名 ↔ 当前 harness 实际字段名」双向映射。 */
 export interface ResolvedClientSettings<T> {
   scope: ClientSettingsScope<T>
   /** 把域内逻辑字段名映射成本代 harness 的承载字段名（0.1.6 恒等）。 */
   field(logical: string): string
+  /** 反向映射：承载字段名 → 逻辑字段名（读快照做投影用；0.1.6 恒等）。 */
+  logicalOf(actual: string): string
 }
 
 /** 合包后 host 侧只有一个 loader 条目，其 id 由 cordis.patch.yml 固定为 `agentlex`。 */
@@ -46,6 +48,19 @@ export const AGENTLEX_ENTRY_ID = 'agentlex'
 /** 0.1.7 起配置并到单条目上，各域字段用该前缀区分（如 dataDir → litigationDataDir）。 */
 export function prefixedField(prefix: string, logical: string): string {
   return `${prefix}${logical.charAt(0).toUpperCase()}${logical.slice(1)}`
+}
+
+/**
+ * `prefixedField` 的逆：承载字段名折回逻辑字段名（litigationDataDir → dataDir）。
+ *
+ * 只认「前缀 + 首字母大写」这一形态，其余（不含该前缀、或前缀后不是大写开头）
+ * 原样返回，避免把恰好像 `litigationLog` 这样的字段误折。
+ */
+export function unprefixedField(prefix: string, actual: string): string {
+  if (!actual.startsWith(prefix)) return actual
+  const rest = actual.slice(prefix.length)
+  if (rest === '' || rest[0] !== rest[0].toUpperCase()) return actual
+  return rest[0].toLowerCase() + rest.slice(1)
 }
 
 /**
@@ -64,7 +79,7 @@ export function resolveClientSettings<T>(
   if (typeof legacy?.bind === 'function') {
     try {
       const scope = legacy.bind({ namespace })
-      if (scope !== undefined && scope !== null) return { scope, field: (logical) => logical }
+      if (scope !== undefined && scope !== null) return { scope, field: (logical) => logical, logicalOf: (actual) => actual }
     } catch {
       /* 落到新版取法 */
     }
@@ -77,6 +92,7 @@ export function resolveClientSettings<T>(
         return {
           scope,
           field: (logical) => (modernPrefix === undefined ? logical : prefixedField(modernPrefix, logical)),
+          logicalOf: (actual) => (modernPrefix === undefined ? actual : unprefixedField(modernPrefix, actual)),
         }
       }
     } catch {
@@ -87,28 +103,31 @@ export function resolveClientSettings<T>(
 }
 
 /**
- * 把一个「字段名已改」的作用域包成逻辑字段名的视图：读快照时把实际字段搬回逻辑名，
+ * 把一个「字段名已改」的作用域包成逻辑字段名的视图：读快照时把承载字段名折回逻辑名，
  * 写 set/unset 时再搬回去。调用方（设置页 UI）因此两代共用同一套字段名。
- * @param scope - 原始作用域（其 value 用本代 harness 的字段名）。
- * @param resolveField - 逻辑字段名 → 本代实际字段名。
+ *
+ * ⚠ 投影方向必须按「快照里实际叫什么 → 逻辑名」走：快照的键是**承载字段名**
+ * （`litigationCalendarSyncEnabled`），UI 要的是**逻辑名**（`calendarSyncEnabled`）。
+ * 早期版本把快照的键当逻辑名去算前缀，得到 `litigationLitigation…` 这种不存在的
+ * 键，于是整个投影被清成 `{}`，设置页所有读取都退回默认值（2026-10-12 修：
+ * 表现为「日程同步 Apple 日历」显示为关、下面的同步范围选项整块 pointer-events:none
+ * 点不动，而宿主里开关其实是 true）。
+ *
+ * @param scope - 原始作用域（其 value 用本代 harness 的承载字段名）。
+ * @param resolveField - 逻辑字段名 → 本代承载字段名（写入用）。
+ * @param resolveLogical - 本代承载字段名 → 逻辑字段名（读取投影用，默认恒等）。
  */
 export function aliasSettingsScope<T>(
   scope: ClientSettingsScope<Record<string, unknown>>,
   resolveField: (logical: string) => string,
+  resolveLogical: (actual: string) => string = (actual) => actual,
 ): ClientSettingsScope<T> {
   const project = (value: unknown): T | undefined => {
     if (value === undefined || value === null || typeof value !== 'object') return value as T | undefined
     const source = value as Record<string, unknown>
-    const mapped: Record<string, unknown> = { ...source }
-    for (const logical of Object.keys(source)) {
-      const actual = resolveField(logical)
-      if (actual === logical) continue
-      if (actual in source) mapped[logical] = source[actual]
-      else delete mapped[logical]
-    }
-    for (const logical of Object.keys(source)) {
-      const actual = resolveField(logical)
-      if (actual !== logical) delete mapped[actual]
+    const mapped: Record<string, unknown> = {}
+    for (const actual of Object.keys(source)) {
+      mapped[resolveLogical(actual)] = source[actual]
     }
     return mapped as T
   }

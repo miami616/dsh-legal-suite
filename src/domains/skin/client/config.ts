@@ -30,6 +30,8 @@ export interface AgentLexSkinConfig {
   memoEnabled: boolean
   /** 模拟法庭（moot-court）开关：侧边栏入口 + 中栏庭审面板。 */
   mootCourtEnabled: boolean
+  /** 本地脱敏面板开关。 */
+  redactEnabled: boolean
   /** 模拟法庭默认裁判者模型（provider/model；留空用部署默认路由）。 */
   mootCourtJudgeModel: string
   /** 模拟法庭默认对方代理人模型（provider/model；留空同裁判者路由）。 */
@@ -65,6 +67,7 @@ const DEFAULT_CONFIG: AgentLexSkinConfig = {
   memoEnabled: true,
   // 实验性功能默认关闭，需在设置里开启。
   mootCourtEnabled: false,
+  redactEnabled: true,
   mootCourtJudgeModel: '',
   mootCourtOpponentModel: '',
   theme: DEFAULT_THEME_KEY,
@@ -157,6 +160,7 @@ export function setSkinConfig(next: Partial<AgentLexSkinConfig>): void {
     autoOpenCaseTab: effective(config.autoOpenCaseTab),
     memoEnabled: effective(config.memoEnabled),
     mootCourtEnabled: effective(config.mootCourtEnabled),
+    redactEnabled: effective(config.redactEnabled),
   })
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('agentlex:toggles-changed', {
@@ -171,6 +175,7 @@ export function setSkinConfig(next: Partial<AgentLexSkinConfig>): void {
         autoOpenCaseTab: effective(config.autoOpenCaseTab),
         memoEnabled: effective(config.memoEnabled),
         mootCourtEnabled: effective(config.mootCourtEnabled),
+        redactEnabled: effective(config.redactEnabled),
         conversationJustify: config.conversationJustify,
         conversationEnhance: config.conversationEnhance,
       },

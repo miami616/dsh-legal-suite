@@ -28,6 +28,7 @@ import * as memo from './domains/memo/index.ts'
 import * as push from './domains/push/index.ts'
 import * as item from './domains/item/index.ts'
 import * as mootCourt from './domains/moot-court/index.ts'
+import * as redact from './domains/redact/index.ts'
 
 export const name = 'dsh-legal-suite'
 
@@ -58,7 +59,7 @@ export interface Config {
    * Agent-preset 模式：只挂载指定业务域的 scoped tool（agent 会话内使用），
    * 不挂任何 host 路由/stores/皮肤。取值 'litigation' | 'nonlitigation'。
    */
-  agentPreset?: 'litigation' | 'nonlitigation'
+  agentPreset?: 'litigation' | 'nonlitigation' | 'redact'
   // —— 皮肤 / 套件（字段名与 0.1.6 的 agentlex-legal-suite 分区一致）——
   agentlexEnabled?: boolean
   userName?: string
@@ -108,6 +109,11 @@ export interface Config {
   mootCourtMaxRounds?: number
   mootCourtTokenBudget?: number
   mootCourtMaxTokensPerTurn?: number
+  // —— 脱敏域（本地脱敏：规则 + 案件词典，纯本地无网络）——
+  redactEnabled?: boolean
+  redactDataDir?: string
+  redactLitigationDir?: string
+  redactNonlitigationDir?: string
 }
 
 /**
@@ -146,7 +152,7 @@ const optionalPath = () => z.string().required(false)
  */
 export const Config: Schemastery<Schemastery.ObjectS<Config>, Config> = z.object({
   enabled: z.boolean().default(true),
-  agentPreset: z.union(['litigation', 'nonlitigation']).required(false),
+  agentPreset: z.union(['litigation', 'nonlitigation', 'redact']).required(false),
   agentlexEnabled: v(z.boolean().default(true)),
   userName: v(z.string().default('User')),
   brandEn: v(z.string().default('AgentLex')),
@@ -188,6 +194,11 @@ export const Config: Schemastery<Schemastery.ObjectS<Config>, Config> = z.object
   mootCourtMaxRounds: v(z.number().default(2)),
   mootCourtTokenBudget: v(z.number().default(120000)),
   mootCourtMaxTokensPerTurn: v(z.number().default(2400)),
+  // —— 脱敏域（本地）——
+  redactEnabled: v(z.boolean().default(true)),
+  redactDataDir: v(optionalPath()),
+  redactLitigationDir: v(optionalPath()),
+  redactNonlitigationDir: v(optionalPath()),
 })
 
 /**
@@ -250,6 +261,16 @@ function mootCourtConfigOf(config: Config): mootCourt.Config {
   }
 }
 
+/** 聚合字段 → 脱敏域 Config（去掉 redact 前缀）。 */
+function redactConfigOf(config: Config): redact.Config {
+  return {
+    enabled: config.redactEnabled,
+    dataDir: config.redactDataDir,
+    litigationDir: config.redactLitigationDir,
+    nonlitigationDir: config.redactNonlitigationDir,
+  }
+}
+
 /**
  * 关掉 harness 的「自动生成配置页」。0.1.7 起每个 loader 条目会按 cordis Config
  * 自动渲染一页配置；本套件自带「AgentLex 设置」页（settings.section 槽），自动页
@@ -284,10 +305,13 @@ export function apply(ctx: Context, config: Config = {}): void {
   // Agent-preset 平面：只挂载指定域的 scoped tool（不注册 host 表面）。
   if (config.agentPreset === 'litigation') {
     ctx.plugin(litigation, { agentPreset: true })
+    // 脱敏工具随办案 preset 一起进入会话（scoped，走宿主 HTTP 路由）。
+    ctx.plugin(redact, { agentPreset: true })
     return
   }
   if (config.agentPreset === 'nonlitigation') {
     ctx.plugin(nonlitigation, { agentPreset: true })
+    ctx.plugin(redact, { agentPreset: true })
     return
   }
 
@@ -336,6 +360,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     () => ({ dataDir: (getLiveConfig() as unknown as Config).pushDataDir }))
   registerDomainConfig(mootCourt.MOOT_SETTINGS_NAMESPACE,
     () => mootCourtConfigOf(getLiveConfig() as unknown as Config))
+  registerDomainConfig(redact.REDACT_SETTINGS_NAMESPACE,
+    () => redactConfigOf(getLiveConfig() as unknown as Config))
 
   // 套件自身（/api/agentlex-suite/config、/api/agentlex/read 聚合、preset 安装）。
   // 0.1.7 起 settings 命名空间读不到，品牌/称呼改从本条目 Config 下发。
@@ -370,4 +396,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.plugin(item, {})
   // 模拟法庭域（四类程序 × 三种模式的庭审推演；产物独立存储，不写卷宗）。
   ctx.plugin(mootCourt, mootCourtConfigOf(live))
+  // 本地脱敏域（规则 + 案件词典白名单；映射表本机 0600，禁外发）。
+  ctx.plugin(redact, redactConfigOf(live))
 }

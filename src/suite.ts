@@ -1,9 +1,8 @@
 // @ts-nocheck
 import z from '@deepseek-ai/schemastery';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { createRequire } from 'node:module';
-import { syncShippedPreset } from './shared/preset-sync.ts';
+import { join } from 'node:path';
+import { installShippedPresets, profilePatchPath } from './shared/preset-sync.ts';
 import { buildOwnerTaskGroups } from './domains/item/shape.ts';
 export const name = 'dsh-legal-suite';
 export const inject = ['webServer', 'settings'];
@@ -141,43 +140,16 @@ function toLegacyStandaloneTask(task) {
         checklist: Array.isArray(task.checklist) ? task.checklist : [],
     };
 }
-const require = createRequire(import.meta.url);
-// 合包版：presets 已并入本包（presets/ 目录），不再从 dsh-legal-suite/litigation 等子包读取。
-const PRESET_SOURCES = [
-    { pkg: 'dsh-legal-suite', presets: ['litigation-manager'] },
-    { pkg: 'dsh-legal-suite', presets: ['nonlitigation-manager'] },
-];
-async function ensureAgentPresets() {
-    const home = process.env.DSH_HOME ?? join(homedir(), '.dsh');
-    const userPresetRoot = join(home, '.agent-presets');
-    let count = 0;
-    for (const { pkg, presets } of PRESET_SOURCES) {
-        let pkgRoot;
-        try {
-            pkgRoot = dirname(require.resolve(`${pkg}/package.json`));
-        }
-        catch {
-            console.warn(`[agentlex-suite] ${pkg} not installed — skipping its presets`);
-            continue;
-        }
-        for (const preset of presets) {
-            const src = join(pkgRoot, 'presets', preset);
-            const dst = join(userPresetRoot, preset);
-            try {
-                // 先清空旧目录再整目录复制（同步时把预设的 name 裸包名改写为本包
-                // 绝对入口 URL，见 src/shared/preset-sync.ts）：避免历史残留（如
-                // Finder 生成的 .DS_Store、半同步状态）导致 cp 叠加出损坏预设或
-                // rmdir ENOTEMPTY（issue:「非诉管家 agent 预设提示错误」），同时
-                // 修复「预设无法挂载：Cannot find package 'dsh-legal-suite'」。
-                await syncShippedPreset(src, dst);
-                count++;
-            }
-            catch (error) {
-                console.warn(`[agentlex-suite] preset ${preset} install failed: ${error instanceof Error ? error.message : String(error)}`);
-            }
-        }
-    }
-    if (count > 0) console.log(`[agentlex-suite] ${count} agent preset(s) ready in ${userPresetRoot}`);
+/**
+ * 安装随包 agent 预设。
+ *
+ * DSH 0.1.7 起 `.agent-presets/` 目录不再被读取 —— 预设必须在 profile 组合里用
+ * `@deepseek-ai/dsh-agent-preset` 行声明，所以这里直接维护当前 profile 的
+ * `cordis.patch.yml` 标记区块（0.1.6 及更早由 shared 模块回退到旧目录）。
+ * 区块首次写入后需要重启（或 patch 热重载）才会出现在模式列表里。
+ */
+async function ensureAgentPresets(ctx) {
+    await installShippedPresets(profilePatchPath(ctx), 'agentlex-suite');
 }
 export function apply(ctx, config = {}) {
     // The full AgentLex 配置 lives under one settings namespace
@@ -317,6 +289,6 @@ export function apply(ctx, config = {}) {
         },
     });
     ctx.effect(() => () => disposeReadRoute(), 'dsh-legal-suite: legacy /read aggregate');
-    void ensureAgentPresets().catch((error) => console.warn('[agentlex-suite] preset install failed', error));
+    void ensureAgentPresets(ctx).catch((error) => console.warn('[agentlex-suite] preset install failed', error));
 }
 //# sourceMappingURL=index.js.map

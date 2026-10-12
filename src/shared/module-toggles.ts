@@ -25,6 +25,8 @@ export interface ModuleToggles {
   memoEnabled: boolean
   /** 模拟法庭（moot-court）开关。 */
   mootCourtEnabled: boolean
+  /** 本地脱敏（redact）开关：面板 + 工具可见性。 */
+  redactEnabled: boolean
 }
 
 const DEFAULT_TOGGLES: ModuleToggles = {
@@ -39,6 +41,7 @@ const DEFAULT_TOGGLES: ModuleToggles = {
   memoEnabled: true,
   // 实验性功能默认关闭，需在设置里开启。
   mootCourtEnabled: false,
+  redactEnabled: true,
 }
 
 let toggles: ModuleToggles = DEFAULT_TOGGLES

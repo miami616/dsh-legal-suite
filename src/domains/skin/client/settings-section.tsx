@@ -7,7 +7,8 @@
  * 相关实现（DesktopSettingsSection / DesktopNotificationSettings）一并删除。
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+// 宿主 0.2.x 不再导出 `SettingsScope`；改用本套件的结构等价类型（见 shared/client-settings.ts）。
+import type { ClientSettingsScope } from '../../../shared/client-settings.ts'
 // Type-only: pulls the slots contract merge (agentlex.workbench.item declared below).
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { getSkinConfig, setSkinConfig, useSkinConfig, type AgentLexSkinConfig } from './config.ts'
@@ -41,14 +42,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-let scope: SettingsScope<AgentLexSkinConfig> | undefined
+let scope: ClientSettingsScope<AgentLexSkinConfig> | undefined
 
 /** 远程端（如 dsh-bridge 远程登录）下 settingsScope 可能晚于本页就绪；
  * 设置页检测到 scope 未绑定时调用该回调，让 skin client 重试 bind。 */
 let retryBindScope: (() => void) | null = null
 
 /** 设置页暴露给 skin client：登记 scope 绑定结果（scope 仅在写入时需要；渲染用本地 config）。 */
-export function bindAgentLexSettingsScope(next: SettingsScope<AgentLexSkinConfig> | undefined): void {
+export function bindAgentLexSettingsScope(next: ClientSettingsScope<AgentLexSkinConfig> | undefined): void {
   scope = next
 }
 
@@ -58,13 +59,13 @@ export function bindScopeRetryHooks(retry: () => void): void {
 }
 
 /** Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change). */
-let litigationScope: SettingsScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }> | undefined
-let nonlitigationScope: SettingsScope<{ dataDir?: string }> | undefined
+let litigationScope: ClientSettingsScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }> | undefined
+let nonlitigationScope: ClientSettingsScope<{ dataDir?: string }> | undefined
 
 export function bindModuleDataDirScopes(
   next: {
-    litigation: SettingsScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }> | undefined
-    nonlitigation: SettingsScope<{ dataDir?: string }> | undefined
+    litigation: ClientSettingsScope<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }> | undefined
+    nonlitigation: ClientSettingsScope<{ dataDir?: string }> | undefined
   },
 ): void {
   litigationScope = next.litigation
@@ -104,7 +105,7 @@ function commitSetting<K extends keyof AgentLexSkinConfig>(key: K, value: AgentL
 }
 
 /** Subscribe a module data-dir scope (value key: dataDir)。URL 形态异常值按空处理。 */
-function useDataDirValue(subject: SettingsScope<{ dataDir?: string }> | undefined): string {
+function useDataDirValue(subject: ClientSettingsScope<{ dataDir?: string }> | undefined): string {
   const raw = useSyncExternalStore(
     (listener) => (subject ? subject.subscribe(listener) : () => {}),
     () => subject?.getSnapshot().value?.dataDir ?? '',
@@ -303,7 +304,7 @@ export function AgentLexSettingsSection(props: {
   /** 数据目录存储值被异常数据（URL 等）污染时自愈并提示。 */
   const [dataDirHealMsg, setDataDirHealMsg] = useState('')
   useEffect(() => {
-    const scan = (name: string, subject: SettingsScope<{ dataDir?: string }> | undefined): void => {
+    const scan = (name: string, subject: ClientSettingsScope<{ dataDir?: string }> | undefined): void => {
       const raw = subject?.getSnapshot().value?.dataDir ?? ''
       if (URLISH_PATH.test(raw.trim())) {
         console.warn(`[agentlex-skin] ${name} 数据目录存储值异常（非路径，疑似 URL），自动清除`, raw)
@@ -505,6 +506,7 @@ export function AgentLexSettingsSection(props: {
         <Toggle label="非诉项目" description="项目管理 / 合同审查 / 法律研究 / 常法服务" checked={config.nonlitigationEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('nonlitigationEnabled', v)} />
         <Toggle label="任务管理" description="独立任务 + 跨插件统一任务视图" checked={config.taskEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('taskEnabled', v)} />
         <Toggle label="备忘录" description="随手记 + 会话 #编号 引用备忘" checked={config.memoEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('memoEnabled', v)} />
+        <Toggle label="文书脱敏" description="本地脱敏：诉讼/非诉材料外发前，把当事人、身份证号、手机号、案号、法官法院等身份信息在本机替换掉（规则 + 案件库词典，不联网、不上传）" checked={config.redactEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('redactEnabled', v)} />
         <Toggle label="模拟法庭（实验性）" description="实验性功能，默认关闭。开启后侧边栏出现「模拟法庭」：开庭前压力测试、攻击面报告与模拟判决书；产物独立存放，不写入卷宗" checked={config.mootCourtEnabled} disabled={!config.agentlexEnabled} onChange={(v) => commitSetting('mootCourtEnabled', v)} />
         {config.mootCourtEnabled ? (
           <div style={{ paddingLeft: 22, marginBottom: 6 }}>

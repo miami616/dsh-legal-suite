@@ -19,10 +19,10 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { cp, mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join, resolve } from 'node:path'
 import type { Events } from '@deepseek-ai/cordis'
-import { syncShippedPreset } from '../../shared/preset-sync.ts'
+import { installShippedPresets, profilePatchPath } from '../../shared/preset-sync.ts'
+import { copyDataDirForBackup } from '../../shared/data-backup.ts'
 import { seedLitigationSample } from '../../shared/seed/index.ts'
 import { createCaseStore } from './store/case-store.ts'
 import { createScheduleStore } from './store/schedule-store.ts'
@@ -185,26 +185,22 @@ export function extractTimeFromDetail(detail: string | undefined): string | unde
  * concurrent runs can never interleave rm/cp into a half-written preset.
  * Failures are logged, never fatal.
  */
-let presetSyncQueue: Promise<void> = Promise.resolve()
-
-/** Copy the shipped presets once; serialized behind the shared queue. */
-async function syncPresetsOnce(presetIds: string[]): Promise<void> {
-  const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
-  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
-  for (const presetId of presetIds) {
-    const source = join(packageRoot, 'presets', presetId)
-    const target = join(home, '.agent-presets', presetId)
-    try {
-      await syncShippedPreset(source, target)
-    } catch (error) {
-      console.warn(`[agentlex-litigation] preset sync failed (${presetId}):`, error)
-    }
-  }
-}
-
-export function syncShippedPresets(presetIds: string[]): Promise<void> {
-  presetSyncQueue = presetSyncQueue.then(() => syncPresetsOnce(presetIds), () => syncPresetsOnce(presetIds))
-  return presetSyncQueue
+/**
+ * 安装随包 agent 预设（litigation-manager）。
+ *
+ * DSH 0.1.7 起 `.agent-presets/` 目录不再被读取：预设必须在 profile 组合里声明，
+ * 由 shared 的 installShippedPresets 直接维护当前 profile 的 cordis.patch.yml
+ * （0.1.6 及更早自动回退旧目录）。并发与幂等控制统一收敛在 shared 模块内。
+ * @param ctx - 宿主上下文，用于读取 profileContext.patchPath。
+ * @returns 完成；失败只记日志，不抛出。
+ */
+export function syncShippedPresets(ctx: Context): Promise<void> {
+  return installShippedPresets(profilePatchPath(ctx), 'agentlex-litigation').then(
+    () => undefined,
+    (error: unknown) => {
+      console.warn('[agentlex-litigation] preset sync failed:', error)
+    },
+  )
 }
 
 /* ─────────────────────── data backup + dataDir migration ─────────────────── */
@@ -235,7 +231,8 @@ async function snapshotOnce(module: string, dataDir: string, home: string): Prom
   const target = join(root, String(now))
   try {
     await mkdir(target, { recursive: true })
-    await cp(dataDir, target, { recursive: true })
+    // 中间态（.tmp-*/.lock）不入备份，撞上竞态自动重试——见 shared/data-backup.ts。
+    await copyDataDirForBackup(dataDir, target)
     const dirs = (await readdir(root, { withFileTypes: true }))
       .filter((e) => e.isDirectory())
       .map((e) => e.name)
@@ -360,8 +357,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (hostSurface !== undefined) { hostSurface.dispose(); hostSurface = undefined }
     }
     // Keep the harness preset roster in sync with the shipped preset(s).
-    // Async, best-effort; the preset picker reads $DSH_HOME/.agent-presets/.
-    if (!isPreset) void syncShippedPresets([PRESET_ID])
+    // Async, best-effort; shared 模块把声明写进当前 profile 的 cordis.patch.yml。
+    if (!isPreset) void syncShippedPresets(ctx)
     if (!value.enabled) return
 
     // Agent-preset plane: mounted as a row of an agent preset's

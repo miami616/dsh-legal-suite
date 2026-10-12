@@ -1,6 +1,6 @@
 {
   "name": "dsh-legal-suite",
-  "version": "0.2.19",
+  "version": "0.2.20",
   "description": "AI 驱动的法律行业案件管理与 Agent 工具：诉讼案件 / 非诉项目 / 任务中心 / 期限引擎 / 技能与 MCP，Agent 预设直接办案，运行于 DeepSeek Harness。",
   "type": "module",
   "license": "GPL-3.0",
@@ -51,22 +51,30 @@
     "CHANGELOG.md"
   ],
   "peerDependencies": {
-    "cordis": ">=4.0.0-rc <5",
-    "@deepseek-ai/dsh-mcp-client": "^0.1.5-alpha.1 || ^0.2.0-rc.1"
+    "cordis": ">=4.0.0-rc <5 || >=4.0.5-alpha.1 <5",
+    "@deepseek-ai/dsh-mcp-client": "^0.1.5-alpha.1 || ^0.2.0-rc.1 || ^0.2.1-alpha.1"
+  },
+  "peerDependenciesMeta": {
+    "cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-mcp-client": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-client-connection": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-client-locale": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-client-ui-conversation": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-client-ui-settings": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-client-ui-sidebar": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-host-webserver": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-mcp-client": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-settings": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-system-prompt": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-tools": "0.1.5-alpha.1",
+    "@deepseek-ai/cordis": "^4.0.1 || ^4.0.5-alpha.1",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-locale": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-host-webserver": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-mcp-client": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-settings": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-system-prompt": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
     "@types/node": "24.13.3",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
@@ -278,12 +286,12 @@
     "zwitch": "2.0.4",
     "undici": "8.10.0",
     "@deepseek-ai/schemastery": "^3.18.3",
-    "@deepseek-ai/dsh-api-session-controller": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-api-workspace-controller": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-util-values": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-client-ui-renderer": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-client-ui-workspace": "0.1.5-alpha.1",
-    "@deepseek-ai/dsh-client-ui-session": "0.1.5-alpha.1"
+    "@deepseek-ai/dsh-api-session-controller": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-api-workspace-controller": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-util-values": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-session": "0.2.1-alpha.1"
   },
   "main": "./lib/index.js",
   "exports": {
@@ -304,6 +312,7 @@
     "bundle": "tsdown",
     "watch": "tsdown --watch",
     "typecheck": "tsc --noEmit",
+    "check:redact": "tsc -p tsconfig.build.json && node scripts/check-redact.mjs",
     "prepack": "node scripts/verify-client-bundle.mjs"
   },
   "publishConfig": {

@@ -2237,3 +2237,10 @@ body[data-ds-dark-theme] .calcStat {
     transform: none !important;
   }
 }
+
+/* 「文书脱敏」工具视图宿主：redact 域自带样式，这里只保证不撑破面板。 */
+.redactHost {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}

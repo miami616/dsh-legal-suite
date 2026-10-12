@@ -1,5 +1,181 @@
 # Changelog
 
+## 0.2.20 — 适配 DSH 0.2.1-alpha.2 + 本地化脱敏
+
+本次发布三块内容：**DSH 0.2.1-alpha.2 适配**（alpha.1 全量比对 + alpha.2 逐包复核 + 三方实机核对）、
+**本地化脱敏**（新域：文本 / docx / PDF / 目录批量 + 命令行，含还原闭环）、
+**agent 预设改为写进 profile 组合**（修好「新 profile 第二次启动必崩」）。
+
+### 一、适配 DSH 0.2.1-alpha.2
+
+#### 适配结论
+
+DSH `0.2.0-rc.2 → 0.2.1-alpha.1` 全量比对（288 个 `@deepseek-ai/*` 包：93 个有代码改动、5 个新增、2 个移除），
+与本插件相关的接口面**只有一处类型断裂**，运行时接口（`ctx.slots`/`locale`/`sessions`/`theme`/
+`inputTriggers`/`workspaces`/`connection`、槽位契约、DOM 锚点）**未变**。
+
+#### 改动
+
+- **`SettingsScope` 类型断裂修复**：宿主不再导出 `@deepseek-ai/dsh-client-ui-settings/client` 的
+  `SettingsScope`（`0.1.5-alpha.1` 时代尚有，rc.2 起全树已无此符号）。皮肤域两处类型标注改用本套件
+  自己的结构等价类型 `ClientSettingsScope`（`getSnapshot`/`subscribe`/`set`/`unset`），只依赖行为、
+  不依赖宿主符号，日后宿主类型再搬家也不会断编译。
+- **依赖版本对齐 0.2.1-alpha.1**：17 个 harness devDependency（`dsh-client-*`、`dsh-tools`、
+  `dsh-settings`、`dsh-system-prompt`、`dsh-mcp-client`、`dsh-host-webserver`、控制器与
+  `dsh-util-values`）从 `0.1.5-alpha.1` 升至 `0.2.1-alpha.1`；`@deepseek-ai/cordis` devDependency
+  追加 `^4.0.5-alpha.1`。
+- **peer 范围放宽 + 标 optional**：`cordis: >=4.0.0-rc <5 || >=4.0.5-alpha.1 <5`、
+  `dsh-mcp-client: ^0.1.5-alpha.1 || ^0.2.0-rc.1 || ^0.2.1-alpha.1`（semver 预发布规则：旧范围在
+  alpha 宿主下判为 unmet）；两者均由 dsh 宿主提供、随 profile 安装永远「缺」，按生态惯例
+  （dsh-genui / dsh-mnemon）在 `peerDependenciesMeta` 标 `optional`，装插件不再刷无关 peer 告警。
+- **新 profile 第二次启动必崩修复（严重）**：dsh 新建 profile 的 `cordis.patch.yml` 模板正文是一行
+  空数组 `[]`。本插件写入预设区块时直接追加块序列，得到「第一个文档已结束、又来了一个没有 `---`
+  的第二个文档」→ profile 组合期 YAML 解析抛错、**整个 dsh 起不来**（实测：新 profile 首启正常，
+  我们写入预设后第二次启动即失败）。现按 dsh 既有约定把占位 `[]` 注释为 `# []` 再追加；托管区块被
+  整块摘除后若文件只剩注释，补回 `[]` 占位。
+- **数据备份在活目录上必然失败修复**：备份对数据目录递归拷贝时，原子写的中间态
+  （`<file>.tmp-<pid>-<rand>` 与 `mkdir <file>.lock`）会在目录扫描与拷贝之间消失，`lstat ENOENT`
+  让整次备份中断（冷启动播种时必现，日志一串 `backup failed`、备份目录缺失）。新增
+  `src/shared/data-backup.ts`：排除中间态 + 撞上竞态短暂重试（最多 3 次），litigation /
+  nonlitigation 共用。备份失败不再打断启动，也不再一直失败。
+
+#### 验证
+
+- 环境：隔离 `DSH_HOME=/tmp/dshhome` + `dsh@0.2.1-alpha.1` + 全新 profile `agentlex-alpha` + 端口 3100；
+  对照环境 `dsh@0.2.0-rc.2` + 同构 profile + 端口 3101。两处均从零构建安装本 tarball。
+- 端到端一致（浏览器实测，Chrome + Playwright）：4 个侧边栏入口、9 个皮肤 `style`、面板挂载与内容渲染、
+  `data-dsh-litigation-active` 生效，`console.error` / `pageerror` 均为 0；`/api/agentlex-suite|skin|redact/*`
+  全 200。
+- 冷启动（清空数据目录重跑）：无 `backup failed`，两份备份快照正常生成；新 profile 的
+  `cordis.patch.yml` 首启后被写成合法 `# []` + 块序列，再次启动正常。
+- `pnpm peers check`：本包自身无 peer 问题。唯一提示来自 workspace 里的 harness devDependency
+  `dsh-settings@0.2.1-alpha.1` 想要 `@deepseek-ai/schemastery ~3.18.5-alpha.1`，而本包自带 `^3.18.3`
+  （工作区实装 3.18.3、live profile 实装 3.18.4）；该包由宿主在运行期提供、本包自带副本供自测，
+  不影响安装与运行。
+
+#### alpha.1 → alpha.2 复核（2026-10-12）
+
+`0.2.1-alpha.2`（2026-10-09 发布）比本次适配目标又新一版，逐包复核并实机跑通：
+
+- **逐包比对**：本插件 import 的 18 个 `@deepseek-ai/*` 包中，8 个字节完全一致（`dsh-client-locale`、
+  `dsh-settings`、`dsh-client-ui-slots`、`dsh-client-ui-session`、`dsh-mcp-client`、`dsh-util-values`、
+  `dsh-api-workspace-controller` 等），其余仅增量或文档级改动，**公开符号零删除**（只新增
+  `isRemoteAuthority`、`TlsConfig` 等）。
+- **实际依赖面**：本插件只 import 四个具名符号 —— `defineTool`（签名逐字相同）、`ISessions`（仅新增
+  `allowMigration?`）、`ConvViewProps`（仍是 `PropsRuntime<'conversation.view'>`）、`JsonValue`（包字节
+  一致）。唯一破坏性类型变更是 `dsh-tools` 的 `ToolPresentationMode` 去掉 `'both'`；本插件未使用 ptc
+  模式，无影响。
+- **三方实机核对**（同一 0.2.20 tarball，各自隔离 `DSH_HOME` + 独立 profile）：`:3101` rc.2、`:3100`
+  alpha.1、`:3102` alpha.2 三个实例结果逐项一致 —— composer 锚点在、4 个侧边栏入口、9 个皮肤
+  `style`、右侧面板挂载并渲染真实案件数据、`console.error` / `pageerror` 均为 0、
+  `/api/agentlex-suite|skin/config` 全 200。
+
+### 二、本地脱敏（Local Redaction）
+
+#### 背景
+
+案件材料要发往云端大模型或对外提供时，当事人姓名、身份证号、手机号、案号、法官/法院
+等身份信息会随文本一起出去。通用脱敏工具两条路都不可行：调云 API 脱敏等于「脱敏前先泄密」，
+本地 NER 又依赖模型运行环境、且律师无法逐条审计。用户的定调是「无论诉讼还是非诉，重点是
+**本地化**脱敏」。
+
+#### 改动
+
+- 新增 `src/domains/redact/` 域（host 半自包含），引擎为**纯函数**（不 import cordis、不碰
+  I/O），识别三层全部本地运行、零网络、零模型：
+  - **层① 规则**：身份证（GB 11643 校验位 + 出生日期真实性）、统一社会信用代码（GB 32100
+    校验位）、手机号、银行账号（**需「账号/卡号/开户」上下文窗口**）、邮箱、护照号；金额默认
+    不打码（多为案件要素）可配置。校验位过滤把随机数字串误报压到≈0。
+  - **层② 案件词典**：直接读诉讼 `case-registry.json`、非诉 `project-registry.json` /
+    `services/registry.json`，把当事人/法定代表人/案号/案名/法官/法院/代理机构/地址/电话
+    编成白名单做**全词精确匹配**（独门优势：比通用 NER 准）。长词优先、被覆盖短词不留幽灵
+    映射；`masked` 模式不留掩码类原文。
+  - **层③ 锚点启发**：识别词典未覆盖的人名候选（对方律师、证人等），**只报告不替换**；
+    确认后经 `terms_add` 入自定义词典，下次由层②精确命中——误报永不污染正文。
+- 假名体系：自然人「姓+某」（张某，冲突加序号）、机构/项目/案件名/案号/地址为「前缀+字母」
+  （机构A、案号B…）。同 scope 重复脱敏**假名稳定**（既有映射优先，只追加）。
+- 两种模式：`reversible`（默认，映射表落本机，可 `restore` 还原原文）；`masked`（对外提供，
+  **单向不可还原**——`restorable` 单调收缩，一经 masked 永久拒绝 restore）。
+- 映射表 `$DSH_HOME/agentlex/redact/mappings/<scope>.json`：写入后补 **0600** 权限，提示词与
+  工具文档明确「含原文，绝不外发/推送/贴会话」。
+- 接口：agent 工具 `redact`（scan 预检 / redact / restore / terms_add|list|remove /
+  mappings_list / config_get|set）+ REST `/api/agentlex-redact/*`（health/scan/redact/restore/
+  terms/mappings/config），两条入口共用同一 `service.ts` 与存储实例。
+- 文件输入只写副本（`<原名>.redacted<ext>`），**原件不动**；二进制/扫描件（PDF/docx）明确
+  拒绝并提示先走 OCR 取文链路。
+- **界面**：**并入「技能与工具 → 小工具」**（不单独做图标）——新增分组「隐私与脱敏」+
+  卡片「文书脱敏」，点开即工具视图（`src/domains/redact/client/`），三个 tab：
+  - 脱敏：粘贴材料 → 预检命中 / 脱敏（假名 + 掩码）/ 还原 → 一键复制结果；底部是行为开关
+    （金额打码、启发层、跨案词条）。
+  - 词条：按归属（全局 / 案件）增删自定义词条；启发层报告里的候选有「加入词条」按钮。
+  - 映射：按归属查看「原名 → 假名」对照（含原文，仅本机查看，页面有醒目告警）。
+  设置页「功能模块」新增「文书脱敏」总开关（与其它模块开关同款，写入 `redactEnabled`；
+  关闭后小工具里的卡片一并消失）。
+  安全口径：候选**原文**只随本机界面响应返回（`reveal: true`），agent 工具不传该参数，
+  模型上下文里永远只有打码展示（`王**`）。
+- 自测：`pnpm check:redact`（引擎）+ `node scripts/check-redact-e2e.mjs`（打运行中宿主的端到端，21 项）（脚本 `scripts/check-redact.mjs`，38 项断言：校验位、掩码、
+  词典/长词优先、跨次稳定、还原往返、masked 拒还原、启发只报告、文件 I/O）。fixtures 全部
+  为合成数据，可入 git。
+
+#### 文件级重做（同日，用户裁定「按实际来重做」）
+
+第一版只有粘贴框，接不上「工作围绕 Word 文件」的实际。本次改为**文件进 / 文件出**：
+
+- **docx 保格式脱敏**：本机 `unzip → 改 word/document.xml（含页眉/脚注/批注）→ zip`，
+  出 `<原名>.redacted.docx`（版式、表格、批注一字不动）+ `<原名>.redacted.txt`。
+  关键实现约束：一个 `<w:t>` run 只能产出一条编辑（否则同 run 多命中会啃掉标签），
+  跨 run 命中在首 run 落替换文本、后续 run 删覆盖段；zip 用 `-D` 保持条目集合一致。
+- **PDF / 文本 / 图片**：pdftotext 取文（无文字层自动回退本地 vision-ocr OCR）；PDF 只出
+  脱敏文本，不假装能保版式。
+- **还原闭环**：文本与 docx 都能还原（同一套 run 位置图），出 `.restored.docx` / `.restored.txt`
+  并列出「未还原清单」；caseNumber 假名改为【案号A】形态，减少模型改写导致还原失败。
+- **批量目录**：`batch` 动作 / `/api/agentlex-redact/batch`，整卷一次性脱敏，同一 scope 共用映射表。
+- **命令行** `scripts/redact-file.mjs`：`node scripts/redact-file.mjs <文件|目录> [--scope …]
+  [--mode masked] [--restore] [--text] [--json]`，不依赖界面即可用。
+- **界面**：小工具「文书脱敏」新增 输入方式（文本 / 文件 / 目录）+ 产物路径与说明展示。
+- 自测扩到 **55 项**（新增 docx 跨 run、同 run 多命中、标签完整性、写回后可再解析等断言）。
+
+#### 验证要点
+
+- `pnpm check:redact` 全绿；
+- 新端口 profile（agentlex-ls-test:3081）实测：域挂载无报错、`/api/agentlex-redact/health`
+  200、工具注册可见、scan/redact/restore 链路通；
+- live（web:3080）未受影响。
+
+
+### 三、agent 预设改为写进 profile 组合（DSH 0.1.7+ 的正确姿势）
+
+#### 背景
+
+DSH 0.1.7 起 agent 预设不再从 `$DSH_HOME/.agent-presets/` 目录自动发现 —— 预设必须在 profile
+组合（`cordis.patch.yml`）里用 `@deepseek-ai/dsh-agent-preset` 行声明。插件此前一直往那个废弃
+目录写，于是升级后「诉讼管家 / 非诉管家」在选择器里消失；手工补 patch 又只能覆盖单个 profile
+（web 补了、desktop 没有），每装一个 profile 都要再补一次。
+
+#### 改动
+
+- 新增 `installShippedPresets()`：宿主 apply 时把随包预设声明直接写进**当前 profile** 的
+  `cordis.patch.yml`，用首尾标记圈出托管区块，**区块外内容一字不动**。
+  - 内容按 `presets/` **全集**渲染：suite 与 litigation / nonlitigation 三处并发调用也得到同一
+    结果（此前实测过「各写各的」会把 patch 写成两个残缺区块）；写入路径串行化，临时文件带进程内
+    序号，rename 原子替换。
+  - 托管区块之外已经声明过的 preset **不再重复声明**（重复 id 会被 preset registry 拒绝）；若随包
+    预设都已被 profile 自己声明，托管区块自动移除 —— 0.2.19 手工补过的 patch 会在首次启动时自愈。
+  - 生成内容与现有文件逐字相同时**不写盘**：patch 变动会触发 Loader 重载，无脑重写会变成重启循环。
+  - 没有 `profileContext` 服务时（0.1.6 及以前）回退旧的 `.agent-presets` 目录，旧行为不变。
+- 预设的子插件行统一改写成**本包在当前 profile 里的绝对 `file://` 入口 URL**（沿用既有 rewrite），
+  避免「Cannot find package 'dsh-legal-suite'」。
+- 首次写入需要重启一次（或 patch 热重载）预设才会出现在模式列表。
+
+#### 验证（DSH 0.2.1-alpha.1 本地构建，隔离 DSH_HOME）
+
+- 干净 profile（desktop 组合，无任何预设声明）：装插件启动 → patch 自动出现 1 个托管区块 +
+  2 条 preset 声明；重启后模式列表 = 4 内置 + 诉讼管家 + 非诉管家。
+- 已有手工声明的 profile（web，5 条重复声明）：启动后托管区块自动移除（不与手工声明重复），
+  模式列表仍是 7 项、无 Duplicate 报错。
+- 回归：皮肤/排版正常，会话导航悬停 15/21/30/39/30/21/15、预览卡「第 4 / 14 条」，
+  `/api/agentlex-suite|skin|task` 均 200，页面 0 报错。
+
 ## 0.2.19 — 会话轨迹导航回归修复 + 适配 DSH 0.2.0-rc.1
 
 ### 修复：会话轨迹导航美化失效（DSH 0.1.7-rc.2 起）

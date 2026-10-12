@@ -30,6 +30,7 @@ import { apply as applyWorkspaceSidebar } from '../domains/workspace-sidebar/cli
 import { apply as applySkillsTools } from '../domains/skills-tools/client/index.tsx'
 import { apply as applyMemo } from '../domains/memo/client/index.tsx'
 import { apply as applyMootCourt } from '../domains/moot-court/client/index.tsx'
+import { apply as applyRedact } from '../domains/redact/client/index.tsx'
 
 export const name = 'dsh-legal-suite'
 
@@ -50,4 +51,5 @@ export function apply(ctx: ClientContext): void {
   applySkillsTools(ctx)
   applyMemo(ctx)
   applyMootCourt(ctx)
+  applyRedact(ctx)
 }

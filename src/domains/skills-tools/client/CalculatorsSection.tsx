@@ -14,7 +14,7 @@
  *   • 依据与口径折叠展示（详情按需展开），主结论单独成「结果英雄区」；
  *   • 所有可点元素有 :focus-visible 焦点环，hover 位移在 prefers-reduced-motion 下关闭。
  */
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import { CALC_GROUPS, CALC_TOOLS, findCalcTool, renderResultText, runCalculator } from '../calc/registry.ts'
 import type { CalcParam, CalcResult, CalcToolMeta } from '../calc/types.ts'
 import { PERIOD_PRESETS } from '../calc/period.ts'
@@ -25,6 +25,8 @@ import {
   CopyIcon, HandshakeIcon, HourglassIcon, PercentIcon, RangeIcon, ScaleIcon, SearchIcon, TrendIcon,
 } from './icons.tsx'
 import css from './skills-tools.module.css'
+import { getModuleToggles, subscribe as subscribeToggles } from '../../../shared/module-toggles'
+import { RedactPanel } from '../../redact/client/RedactPanel.tsx'
 
 type FieldValue = string | boolean
 
@@ -47,6 +49,30 @@ const TOOL_ICON: Record<string, (props: { size?: number }) => React.JSX.Element>
 }
 
 const QUICK_AMOUNTS = ['1万', '10万', '50万', '100万', '500万', '1000万']
+
+/**
+ * 「隐私与脱敏」分组：文书脱敏（redact 域），与测算类小工具并列。
+ * 它不是计算器，而是本地处理工具——参数/结果两栏不适用，故详情视图单独渲染。
+ */
+const REDACT_ID = 'redact'
+const REDACT_META = {
+  id: REDACT_ID,
+  group: '隐私与脱敏',
+  name: '文书脱敏',
+  desc: '材料外发前，在本机把当事人、法定代表人、案号、法官法院、身份证号、手机号等身份信息替换掉；可还原、可复制结果',
+  basis: '本地正则（校验位）+ 案件库白名单词典 + 锚点启发（只报告）· 不联网、不上传',
+  keywords: '脱敏 隐私 匿名 打码 敏感 身份信息 redact',
+}
+
+/** 盾牌 + 勾：防护语义。 */
+function PrivacyIcon({ size = 15 }: { size?: number }): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  )
+}
 /** 校验用：这些参数为空时提示必填（仅在整体测算报错时兜底提示，避免误报）。 */
 const REQUIRED_KEYS = new Set(['amount', 'principal', 'base', 'debt', 'targetFee'])
 
@@ -116,7 +142,11 @@ const PRESET_LOOKUP: Record<string, { count: number; unit: string }> = (() => {
 export function CalculatorsSection(): React.JSX.Element {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  // 设置页「功能模块 → 文书脱敏」关掉后，本卡片一并消失。
+  const toggles = useSyncExternalStore(subscribeToggles, getModuleToggles, getModuleToggles)
+  const showRedact = toggles.redactEnabled !== false
 
+  if (activeId === REDACT_ID) return <RedactDetail onBack={() => setActiveId(null)} />
   if (activeId !== null) {
     const tool = findCalcTool(activeId)
     if (tool !== undefined) {
@@ -131,6 +161,7 @@ export function CalculatorsSection(): React.JSX.Element {
       tool.name.toLowerCase().includes(q) ||
       tool.desc.toLowerCase().includes(q) ||
       tool.group.toLowerCase().includes(q))
+  const redactVisible = showRedact && (q === '' || REDACT_META.keywords.includes(q))
 
   return (
     <section className={css.section}>
@@ -149,7 +180,7 @@ export function CalculatorsSection(): React.JSX.Element {
           )}
         </div>
         <div className={css.toolbarActions}>
-          <span className={css.calcToolbarNote}>{CALC_TOOLS.length} 个工具 · 纯本地计算 · 即输即得</span>
+          <span className={css.calcToolbarNote}>{CALC_TOOLS.length + (showRedact ? 1 : 0)} 个工具 · 纯本地 · 即输即得 · 不联网</span>
         </div>
       </div>
 
@@ -189,12 +220,57 @@ export function CalculatorsSection(): React.JSX.Element {
           </div>
         )
       })}
-      {visible.length === 0 && <p className={css.emptyHint}>没有匹配的小工具。</p>}
+      {redactVisible ? (
+        <div>
+          <div className={`${css.groupTitle} ${css.calcGroupTitle}`}>
+            <span className={css.groupName}>{REDACT_META.group}</span>
+            <span className={css.groupCount}>1</span>
+          </div>
+          <div className={css.calcGrid}>
+            <button type="button" className={css.calcCard} onClick={() => setActiveId(REDACT_ID)}>
+              <span className={css.calcCardHead}>
+                <span className={css.cardIcon}><PrivacyIcon size={15} /></span>
+                <span className={css.calcCardName}>{REDACT_META.name}</span>
+                <span className={css.calcCardArrow} aria-hidden="true">
+                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6.2 3.4 4.6 4.6-4.6 4.6" /></svg>
+                </span>
+              </span>
+              <span className={css.calcCardDesc}>{REDACT_META.desc}</span>
+              <span className={css.calcCardBasis} title={`依据：${REDACT_META.basis}`}>依据：{REDACT_META.basis}</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {visible.length === 0 && !redactVisible && <p className={css.emptyHint}>没有匹配的小工具。</p>}
     </section>
   )
 }
 
 /* ────────────────────────────── 详情视图 ────────────────────────────── */
+
+/** 文书脱敏详情：复用测算详情的头部骨架，主体换成 redact 域的工具视图。 */
+function RedactDetail({ onBack }: { onBack: () => void }): React.JSX.Element {
+  return (
+    <section className={css.section}>
+      <div className={css.calcDetailHead}>
+        <button className={css.calcBack} type="button" onClick={onBack}>
+          <BackIcon size={13} /> 全部小工具
+        </button>
+        <div className={css.calcDetailTitleRow}>
+          <span className={css.calcDetailIcon}><PrivacyIcon size={18} /></span>
+          <div className={css.calcDetailTitleCol}>
+            <h3 className={css.calcDetailTitle}>{REDACT_META.name}</h3>
+            <p className={css.calcDetailDesc}>{REDACT_META.desc}</p>
+          </div>
+        </div>
+        <p className={css.calcDetailBasis}>依据：{REDACT_META.basis}</p>
+      </div>
+      <div className={css.redactHost}>
+        <RedactPanel embedded />
+      </div>
+    </section>
+  )
+}
 
 /** 单个小工具的测算面板（左侧参数 / 右侧结果）。 */
 function CalcDetail({ tool, onBack }: { tool: CalcToolMeta; onBack: () => void }): React.JSX.Element {

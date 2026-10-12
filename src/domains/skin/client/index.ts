@@ -7,7 +7,10 @@
  *   - 注入 CSS 让诉讼/非诉/任务三个侧边栏入口贴近原版风格
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+// 设置作用域面：宿主 0.2.x 起不再导出 `SettingsScope`（该类型已随客户端运行时拆分消失），
+// 改用本套件自己的结构等价类型 ClientSettingsScope（getSnapshot/subscribe/set/unset），
+// 只依赖行为不依赖符号，跨 harness 版本都不会再因宿主类型搬家而断编译。
+import type { ClientSettingsScope } from '../../../shared/client-settings.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 // Client-surface imports: the slot contracts (sidebar.brand.mark/name,
 // conversation.hero.brand.mark, settings.section) are declared by the kits'
@@ -93,7 +96,7 @@ export function apply(ctx: ClientContext): void {
       // 两代取名不同、字段承载不同，统一交给 resolveClientSettings。
       const agentlexBinding = resolveClientSettings<AgentLexSkinConfig>(ctx, 'agentlex-legal-suite')
       const agentlexScope = agentlexBinding?.scope
-      bindAgentLexSettingsScope(agentlexScope as SettingsScope<AgentLexSkinConfig> | undefined)
+      bindAgentLexSettingsScope(agentlexScope)
       if (agentlexScope) {
         const syncFromScope = (): void => {
           const value = agentlexScope.getSnapshot().value
@@ -113,7 +116,7 @@ export function apply(ctx: ClientContext): void {
       // Module data-dir scopes (settings UI: 数据目录 fields, host migrates on change).
       // 0.1.7 起两个域的配置并进聚合条目，字段带前缀（litigationDataDir / …），
       // aliasSettingsScope 把它们折回逻辑名 dataDir，设置页两代共用同一套字段。
-      type ModuleScope<T> = SettingsScope<T> | undefined
+      type ModuleScope<T> = ClientSettingsScope<T> | undefined
       const litigationBinding = resolveClientSettings<{ dataDir?: string; calendarSyncEnabled?: boolean; calendarName?: string; calendarSyncEvents?: boolean; calendarSyncTasks?: boolean }>(ctx, 'agentlex-litigation', 'litigation')
       const nonlitigationBinding = resolveClientSettings<{ dataDir?: string }>(ctx, 'agentlex-nonlitigation', 'nonlitigation')
       bindModuleDataDirScopes({

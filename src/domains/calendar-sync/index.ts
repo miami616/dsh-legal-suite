@@ -63,6 +63,17 @@ function esc(s: string): string {
  *  无超时会让整个手动同步永久 pending——超时后 kill 子进程按失败返回。 */
 const OSASCRIPT_TIMEOUT_MS = 20_000
 
+/**
+ * 当前的 osascript 执行器。生产用真实 spawn，测试用 `setOsascriptRunner()` 注入假日历，
+ * 这样「日历切换/失败回滚」这类路径不必真的去动用户的 Apple 日历就能钉死。
+ */
+let osascriptRunner: (script: string) => Promise<string | null> = (script) => runOsascript(script)
+
+/** 仅测试用：替换 osascript 执行器（传 null 恢复真实实现）。 */
+export function setOsascriptRunner(runner: ((script: string) => Promise<string | null>) | null): void {
+  osascriptRunner = runner ?? ((script) => runOsascript(script))
+}
+
 /** 执行 osascript，返回 stdout 首行（去空白）；失败返回 null。 */
 function runOsascript(script: string): Promise<string | null> {
   return new Promise((resolve) => {
@@ -133,6 +144,35 @@ function runOsascript(script: string): Promise<string | null> {
   })
 }
 
+/**
+ * 在指定日历里新建一条事件，返回 uid；失败（日历不存在/权限/超时）返回 null。
+ *
+ * 单独抽出来的理由：切日历要先建后删，见 syncEventToAppleCalendar 里的 2026-10-13 注。
+ */
+async function createAppleEvent(input: CalendarSyncInput, cal: string): Promise<string | null> {
+  // 结束时间：有 time 则 +1 小时；无 time 全天事件（end 必须用当天 23:59:59，
+  // 用次日 00:00:00 时 Apple 带 description 会显示成跨两天——用户反馈 2026-09-09）。
+  const startDate = input.time ? `${input.date} ${input.time}:00` : `${input.date} 00:00:00`
+  const endDate = input.time ? endTimeOf(input.date, input.time) : `${input.date} 23:59:59`
+  // 显式设置 allday：有 time 时 false（更新分支必须显式清除，否则事件从全天更新为
+  // 带时间后 allday 状态残留，仍显示全天——用户反馈 2026-09-09）。
+  const props = [
+    `summary:"${esc(input.title)}"`,
+    `start date:date "${startDate}"`,
+    `end date:date "${endDate}"`,
+    `description:"${esc(input.detail ?? '')}"`,
+    `allday event:${input.time ? 'false' : 'true'}`,
+  ]
+  const script = `
+tell application "Calendar"
+  set targetCal to first calendar whose name is "${esc(cal)}"
+  set newEvent to make new event at end of events of targetCal with properties {${props.join(', ')}}
+  return uid of newEvent
+end tell`
+  const uid = await osascriptRunner(script)
+  return uid === null || uid === 'NOT_FOUND' ? null : uid
+}
+
 export interface CalendarSyncInput {
   /** 业务条目 id（itemId / eventId / taskId），用于幂等映射。 */
   itemId: string
@@ -157,14 +197,20 @@ export async function syncEventToAppleCalendar(input: CalendarSyncInput): Promis
   const map = readMap()
   const existing = map[input.itemId]
 
-  // 目标日历切换（用户反馈 2026-09-09：同步到哪个日历应可选）：既有事件若在别的
-  // 日历，先删旧再按新日历重建（并清 map 条目走新建分支），避免事件留在旧日历、
-  // map 却指向新日历导致错位。
+  // 目标日历切换（用户反馈 2026-09-09：同步到哪个日历应可选）：既有事件在别的日历
+  // 时，**先在新日历建好、再删旧的**。
+  //
+  // 2026-10-13 修：原实现是「先删旧 + 清 map 条目 + 递归重建」，只要新日历不存在
+  // （日历改名/删除、设置里填错、临时不可写）就会把用户日历里已有的事件删掉、
+  // map 也清空，而重建返回 null——日程凭空消失且无任何提示。改成先建后删后，
+  // 建失败就 return null，旧事件与 map 条目原样保留。
   if (existing !== undefined && existing.uid !== '' && existing.calendar !== '' && existing.calendar !== cal) {
+    const created = await createAppleEvent(input, cal)
+    if (created === null) return null
     await removeAppleCalendarEvent(input.itemId)
-    delete map[input.itemId]
+    map[input.itemId] = { uid: created, calendar: cal }
     writeMap(map)
-    return syncEventToAppleCalendar({ ...input, itemId: input.itemId })
+    return created
   }
 
   // 结束时间：有 time 则 +1 小时；无 time 全天事件。
@@ -175,16 +221,6 @@ export async function syncEventToAppleCalendar(input: CalendarSyncInput): Promis
   const endDate = input.time
     ? endTimeOf(input.date, input.time)
     : `${input.date} 23:59:59`
-
-  const props = [
-    `summary:"${esc(input.title)}"`,
-    `start date:date "${startDate}"`,
-    `end date:date "${endDate}"`,
-    `description:"${esc(input.detail ?? '')}"`,
-    // 显式设置 allday：有 time 时 false（更新分支必须显式清除，否则事件从全天
-    // 更新为带时间后 allday 状态残留，仍显示全天——用户反馈 2026-09-09）。
-    `allday event:${input.time ? 'false' : 'true'}`,
-  ]
 
   let script: string
   if (existing !== undefined && existing.uid !== '') {
@@ -208,16 +244,14 @@ tell application "Calendar"
   end try
 end tell`
   } else {
-    // 新建
-    script = `
-tell application "Calendar"
-  set targetCal to first calendar whose name is "${esc(cal)}"
-  set newEvent to make new event at end of events of targetCal with properties {${props.join(', ')}}
-  return uid of newEvent
-end tell`
+    const created = await createAppleEvent(input, cal)
+    if (created === null) return null
+    map[input.itemId] = { uid: created, calendar: cal }
+    writeMap(map)
+    return created
   }
 
-  const uid = await runOsascript(script)
+  const uid = await osascriptRunner(script)
   if (uid === null || uid === 'NOT_FOUND') {
     // 更新失败（事件被删或日历名变化）→ 重建
     if (existing !== undefined && uid === 'NOT_FOUND') {
@@ -245,7 +279,7 @@ tell application "Calendar"
     delete ev
   end try
 end tell`
-  await runOsascript(script)
+  await osascriptRunner(script)
   delete map[itemId]
   writeMap(map)
 }
@@ -265,7 +299,7 @@ tell application "Calendar"
   end repeat
   return out
 end tell`
-  const raw = await runOsascript(script)
+  const raw = await osascriptRunner(script)
   if (raw === null || raw === '') return []
   return raw.split('|').map((s) => s.trim()).filter((s) => s !== '')
 }

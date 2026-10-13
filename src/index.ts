@@ -172,12 +172,16 @@ export const Config: Schemastery<Schemastery.ObjectS<Config>, Config> = z.object
   conversationNavPosition: v(z.union(['right', 'left']).default('right')),
   centerCard: v(z.boolean().default(false)),
   conversationHeader: v(z.boolean().default(true)),
-  litigationAnnounceToAgent: v(z.boolean().required(false)),
+  litigationAnnounceToAgent: v(z.boolean().default(true)),
   litigationDataDir: v(optionalPath()),
-  litigationCalendarSyncEnabled: v(z.boolean().required(false)),
-  litigationCalendarName: v(z.string().required(false)),
-  litigationCalendarSyncEvents: v(z.boolean().required(false)),
-  litigationCalendarSyncTasks: v(z.boolean().required(false)),
+  litigationCalendarSyncEnabled: v(z.boolean().default(false)),
+  // 合包层必须给出与诉讼域 Config 一致的默认值：域里的默认只在 schema 校验时生效，
+  // 而 litigationConfigOf() 是直接构造对象传给域 apply 的，不会再校验一次——缺默认
+  // 就会让 current().calendarSyncEvents 恒为 undefined，规则判定成「日程开关关闭」，
+  // 所有日程（含自动同步与手动「立即同步」）一条都不进日历（0.2.18 起的回归）。
+  litigationCalendarName: v(z.string().default('个人')),
+  litigationCalendarSyncEvents: v(z.boolean().default(true)),
+  litigationCalendarSyncTasks: v(z.boolean().default(false)),
   nonlitigationDataDir: v(optionalPath()),
   taskDataDir: v(optionalPath()),
   taskLitigationDir: v(optionalPath()),

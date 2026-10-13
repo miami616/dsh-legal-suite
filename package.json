@@ -1,6 +1,6 @@
 {
   "name": "dsh-legal-suite",
-  "version": "0.2.20",
+  "version": "0.2.21",
   "description": "AI 驱动的法律行业案件管理与 Agent 工具：诉讼案件 / 非诉项目 / 任务中心 / 期限引擎 / 技能与 MCP，Agent 预设直接办案，运行于 DeepSeek Harness。",
   "type": "module",
   "license": "GPL-3.0",
@@ -314,7 +314,9 @@
     "typecheck": "tsc --noEmit",
     "check:redact": "tsc -p tsconfig.build.json && node scripts/check-redact.mjs",
     "prepack": "node scripts/verify-client-bundle.mjs",
-    "check:settings": "tsc -p tsconfig.build.json && node scripts/check-client-settings.mjs"
+    "check:settings": "tsc -p tsconfig.build.json && node scripts/check-client-settings.mjs",
+    "check:defaults": "tsc -p tsconfig.build.json && node scripts/check-config-defaults.mjs",
+    "check:calendar": "tsc -p tsconfig.build.json && node scripts/check-calendar-switch.mjs"
   },
   "publishConfig": {
     "access": "public"

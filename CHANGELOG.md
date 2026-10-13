@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.2.21 — 修「关键日程不进 Apple 日历」（合包层漏默认值）+ 切日历不再删丢旧事件
+
+0.2.18 起 Apple 日历同步整条失效：设置页里「日程同步 Apple 日历」是开着的、手动「立即同步」
+也点得动，但一条日程都进不了日历。
+
+### 一、根因：合包层漏了默认值，域里的 default 永远不生效
+
+`litigationCalendarSyncEvents` / `litigationCalendarSyncTasks` / `litigationCalendarName` 在
+0.2.18 加进聚合 Config 时写成 `required(false)`（没有默认值），而 `litigationConfigOf()` 是用对象
+字面量**直接构造**域 Config 传给 `litigation.apply()` 的，不会再过一次域自己的 schema —— 诉讼域里
+的 `calendarSyncEvents: z.boolean().default(true)` 因此从不生效：运行时 `current().calendarSyncEvents`
+恒为 `undefined`，`calendar-sync/rules.ts` 判定成 `disabled`，**所有日程（自动同步 + 手动同步）
+一条都不进日历**。任务侧因为域默认本就是 `false`，症状一致，更难看出是「漏默认值」而不是「开关关着」。
+
+线上证据：`/api/agentlex-case/calendar-resync` 返回 `{enabled:true,total:560,synced:0,failed:0,skipped:560}`；
+`calendar-sync-map.json` 最后一次写入停在 9/28 12:31，而 0.2.18 发布于 9/28 16:18。
+
+### 二、修复
+
+- 聚合层补齐与各业务域一致的默认值：`litigationCalendarSyncEvents` → `default(true)`、
+  `litigationCalendarSyncTasks` → `default(false)`、`litigationCalendarName` → `default('个人')`；
+  顺带把同类的 `litigationAnnounceToAgent`（→ `true`）、`litigationCalendarSyncEnabled`（→ `false`）
+  显式化，避免同一个坑再踩。
+- 新增回归自测 **`pnpm check:defaults`**（`scripts/check-config-defaults.mjs`）：从 `src/index.ts`
+  现场抽「聚合字段 → 域字段」映射（当前 46 对），在空配置下比对两侧 schema 的解析结果，**只要聚合层
+  漏默认值就报错并打印该补什么**。把本修复回滚掉，它会立刻报 `✗ litigation.calendarSyncEvents：聚合层缺默认值`。
+
+### 三、顺带修掉一个会删数据的坑（同日实测复现）
+
+`syncEventToAppleCalendar` 在「目标日历变了」时原本是**先删旧事件 + 清 map 条目 + 递归重建**：
+只要新日历不存在（改名/删除/设置里填错/暂时不可写），重建就返回 null —— 用户日历里那条日程已经
+被删掉了、map 也没了，日程凭空消失且没有任何提示。现改为**先在新日历建好、成功才删旧的**，建失败
+则原样返回 null、旧事件与 map 条目都保留。新增自测 **`pnpm check:calendar`**
+（`scripts/check-calendar-switch.mjs`：假 osascript 执行器 + 临时 DSH_HOME，不碰真实 Apple 日历与 map）。
+
+### 四、验证
+
+- `pnpm check:defaults` 46/46 通过、`pnpm check:calendar` 16/16 通过。
+- 新端口 3081（`agentlex-ls-test` profile，配置里**故意不含**任何 calendar 子键）实测：
+  `/api/agentlex-case/calendar-resync` 由 `{synced:0,failed:0,skipped:560}` 变为
+  `{synced:0,failed:8,skipped:552}` —— 日程已被新默认值放行（8 条指向故意写错的日历所以失败），
+  且旧事件与 map 条目都没被破坏。
+- live 恢复：宿主配置补 `litigationCalendarSyncEvents: true` 后「立即同步」写回 8 条关键日程
+  （10/21 开庭、10/22 09:00 开庭、10/27 上诉期届满、10/15 预交上诉费期限…），目标日历「AgentLex日历」。
+
 ## 0.2.20 — 适配 DSH 0.2.1-alpha.2 + 本地化脱敏
 
 本次发布三块内容：**DSH 0.2.1-alpha.2 适配**（alpha.1 全量比对 + alpha.2 逐包复核 + 三方实机核对）、

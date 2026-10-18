@@ -84,22 +84,101 @@ export function resolveClientSettings<T>(
       /* 落到新版取法 */
     }
   }
-  const forms = serviceOf<{ get?: (entryId: string) => ClientSettingsScope<T> }>(ctx, 'configForms')
+  const forms = serviceOf<ModernConfigForms<T>>(ctx, 'configForms')
   if (typeof forms?.get === 'function') {
-    try {
-      const scope = forms.get(AGENTLEX_ENTRY_ID)
-      if (scope !== undefined && scope !== null) {
-        return {
-          scope,
-          field: (logical) => (modernPrefix === undefined ? logical : prefixedField(modernPrefix, logical)),
-          logicalOf: (actual) => (modernPrefix === undefined ? actual : unprefixedField(modernPrefix, actual)),
-        }
-      }
-    } catch {
-      /* 服务不可用 */
-    }
+    return { scope: moduleSettingsScope(forms, namespace, modernPrefix), field: (logical) => logical, logicalOf: (actual) => actual }
   }
   return undefined
+}
+
+/** `configForms` 服务在 0.2.x 的最小面（get + describe 里的已服务命名空间目录）。 */
+interface ModernConfigForms<T> {
+  get(namespace: string): ClientSettingsScope<T>
+  describe?(): {
+    getSnapshot?: () => { view?: { namespaces?: Array<{ ns?: string }> } }
+    subscribe?: (listener: () => void) => () => void
+  }
+}
+
+/**
+ * 动态解析「该域设置到底读哪个命名空间」的作用域。
+ *
+ * 背景（2026-10-15 修）：
+ *   - 0.1.7-alpha.1 那代 harness 只暴露 loader **条目**（id=`agentlex`）的表单，
+ *     各域字段被并进该条目、用前缀区分（`litigationCalendarSyncEnabled`），
+ *     所以老写法是 `configForms.get('agentlex')` + 前缀映射。
+ *   - 0.2.x 又回到「每个域 `settings.register(自己的命名空间)`」，宿主服务的是
+ *     `agentlex-litigation` / `agentlex-legal-suite` 这些**域命名空间**，
+ *     字段名就是域 schema 的逻辑名（`calendarSyncEnabled`）。
+ * 沿用老写法会去读一个**没人注册的命名空间** `agentlex`：表单 `status='unavailable'`、
+ * `value=undefined` → 设置页全部退回默认值（「日程同步 Apple 日历」显示为关、下面的
+ * 同步范围整块 `pointer-events:none` 点不动、日历下拉显示默认「个人」），而且 `set()`
+ * 写到不存在的命名空间上**静默无效**——用户「改了没反应」的根因。
+ *
+ * 因此这里先看宿主**实际在服务**哪个命名空间：是域命名空间就用域命名空间（字段名
+ * 逻辑名，不做前缀映射）；否则退回老代的合并条目 + 前缀映射。判定挂在镜像的
+ * 已服务命名空间目录上，并在「服务集合变化」时重新通知订阅者，避免启动早期
+ * 目录还没到就锁死选择。
+ */
+function moduleSettingsScope<T>(
+  forms: ModernConfigForms<T>,
+  namespace: string,
+  modernPrefix: string | undefined,
+): ClientSettingsScope<T> {
+  const entryId = AGENTLEX_ENTRY_ID
+  const prefixed = modernPrefix !== undefined
+
+  /** 宿主此刻是否服务这个命名空间（镜像未就绪时返回 false → 退回条目表单）。 */
+  const isServed = (ns: string): boolean => {
+    try {
+      const view = forms.describe?.()?.getSnapshot?.().view
+      if (view === undefined) return false
+      return (view.namespaces ?? []).some((candidate) => candidate?.ns === ns)
+    } catch {
+      return false
+    }
+  }
+
+  /** 当前该读写的目标命名空间，以及是否需要把承载字段名折回逻辑名。 */
+  const target = (): { ns: string; fold: boolean } =>
+    isServed(namespace) ? { ns: namespace, fold: false } : { ns: entryId, fold: prefixed }
+
+  const foldValue = (value: unknown, fold: boolean): T | undefined => {
+    if (!fold) return value as T | undefined
+    if (value === undefined || value === null || typeof value !== 'object') return value as T | undefined
+    const mapped: Record<string, unknown> = {}
+    for (const [actual, field] of Object.entries(value as Record<string, unknown>)) {
+      mapped[unprefixedField(modernPrefix as string, actual)] = field
+    }
+    return mapped as T
+  }
+
+  return {
+    getSnapshot: () => {
+      const { ns, fold } = target()
+      const snapshot = forms.get(ns).getSnapshot()
+      return { ...snapshot, value: foldValue(snapshot.value, fold) }
+    },
+    subscribe: (listener) => {
+      const offs: Array<() => void> = []
+      for (const ns of [namespace, entryId]) {
+        try { offs.push(forms.get(ns).subscribe(listener)) } catch { /* 单个表单不可用不影响另一个 */ }
+      }
+      try {
+        const off = forms.describe?.()?.subscribe?.(listener)
+        if (typeof off === 'function') offs.push(off)
+      } catch { /* 镜像不可用 */ }
+      return () => { for (const off of offs) { try { off() } catch { /* 忽略清理异常 */ } } }
+    },
+    set: (field, value) => {
+      const { ns, fold } = target()
+      return forms.get(ns).set(fold ? prefixedField(modernPrefix as string, field) : field, value)
+    },
+    unset: (field) => {
+      const { ns, fold } = target()
+      return forms.get(ns).unset(fold ? prefixedField(modernPrefix as string, field) : field)
+    },
+  }
 }
 
 /**

@@ -27,6 +27,14 @@ interface SyncMapEntry {
   calendar: string
 }
 
+/**
+ * 读出 itemId → { uid, calendar } 映射（供对账用：判断某条事项是否已同步）。
+ * 读不到时返回空对象，绝不抛。
+ */
+export function readCalendarSyncMap(): Record<string, { uid: string; calendar: string }> {
+  return readMap()
+}
+
 function readMap(): Record<string, SyncMapEntry> {
   try {
     const p = mapPath()
@@ -52,6 +60,19 @@ function writeMap(map: Record<string, SyncMapEntry>): void {
   } catch (error) {
     console.warn('[calendar-sync] 映射文件写入失败:', error instanceof Error ? error.message : String(error))
   }
+}
+
+/**
+ * 串行化队列：日历映射是「读 map → 调 osascript → 写 map」的读-改-写，
+ * 并发调用会互相覆盖（丢条目 → 下次同步又新建 → 日历里出现重复事件；
+ * 或删条目的写被旧快照覆盖 → 映射残留）。这里把整段操作串起来。
+ * 顺带避免同时拉起多个 osascript 把 Calendar 拖住。
+ */
+let calendarQueue: Promise<unknown> = Promise.resolve()
+function enqueueCalendarWork<T>(work: () => Promise<T>): Promise<T> {
+  const next = calendarQueue.then(work, work)
+  calendarQueue = next.then(() => undefined, () => undefined)
+  return next
 }
 
 /** AppleScript 字符串转义：双引号与反斜杠。 */
@@ -192,7 +213,12 @@ export interface CalendarSyncInput {
  * 创建或更新 Apple 日历事件（幂等：按 itemId 映射 uid）。
  * @returns 成功返回 Apple 事件 uid，失败返回 null。
  */
-export async function syncEventToAppleCalendar(input: CalendarSyncInput): Promise<string | null> {
+export function syncEventToAppleCalendar(input: CalendarSyncInput): Promise<string | null> {
+  return enqueueCalendarWork(() => syncEventToAppleCalendarNow(input))
+}
+
+/** {@link syncEventToAppleCalendar} 的实际实现（已由队列串行化）。 */
+async function syncEventToAppleCalendarNow(input: CalendarSyncInput): Promise<string | null> {
   const cal = input.calendarName ?? '个人'
   const map = readMap()
   const existing = map[input.itemId]
@@ -207,7 +233,7 @@ export async function syncEventToAppleCalendar(input: CalendarSyncInput): Promis
   if (existing !== undefined && existing.uid !== '' && existing.calendar !== '' && existing.calendar !== cal) {
     const created = await createAppleEvent(input, cal)
     if (created === null) return null
-    await removeAppleCalendarEvent(input.itemId)
+    await removeAppleCalendarEventNow(input.itemId)
     map[input.itemId] = { uid: created, calendar: cal }
     writeMap(map)
     return created
@@ -257,7 +283,7 @@ end tell`
     if (existing !== undefined && uid === 'NOT_FOUND') {
       delete map[input.itemId]
       writeMap(map)
-      return syncEventToAppleCalendar(input)
+      return syncEventToAppleCalendarNow(input)
     }
     return null
   }
@@ -267,7 +293,12 @@ end tell`
 }
 
 /** 删除 Apple 日历事件（按 itemId 映射）。 */
-export async function removeAppleCalendarEvent(itemId: string): Promise<void> {
+export function removeAppleCalendarEvent(itemId: string): Promise<void> {
+  return enqueueCalendarWork(() => removeAppleCalendarEventNow(itemId))
+}
+
+/** {@link removeAppleCalendarEvent} 的实际实现（已由队列串行化）。 */
+async function removeAppleCalendarEventNow(itemId: string): Promise<void> {
   const map = readMap()
   const entry = map[itemId]
   if (entry === undefined || entry.uid === '') return

@@ -225,6 +225,37 @@ export async function renderPresetBlock(
   return lines.join('\n')
 }
 
+/**
+ * 托管区块内的「非本插件内容」。
+ *
+ * 背景（2026-10-18 实测）：宿主把设置页的写入持久化成 profile patch 里的条目覆盖
+ * （形如 `- id: ui-settings-general` / `- id: agentlex` + `config:`），插入位置是
+ * 「最后一个顶层条目之后」——而区块的结束标记是一行注释，不是条目，于是宿主的
+ * 条目正好落在我们两个标记之间。此前重渲染区块时把整段当成自己的产物重写，
+ * 宿主的设置项就被吞掉：设置页点一下开关，值写进宿主、旋即被抹掉，界面刷新后
+ * 回到默认（用户 2026-10-18「改了又变回去」）。
+ *
+ * 我们生成的条目一律以 `- insert:` 开头，因此区块内**不以此开头**的顶层条目
+ * 都不是我们的，必须原样保留。
+ * @param region - 两个标记之间的文本（不含标记行）。
+ * @returns 需要保留的外部条目原文，按出现顺序。
+ */
+function foreignItemsInRegion(region: string): string[] {
+  const items: string[][] = []
+  let currentChunk: string[] | undefined
+  for (const line of region.split('\n')) {
+    if (/^- /.test(line)) {
+      currentChunk = [line]
+      items.push(currentChunk)
+    } else if (currentChunk !== undefined) {
+      currentChunk.push(line)
+    }
+  }
+  return items
+    .map((chunk) => chunk.join('\n').replace(/\s+$/, ''))
+    .filter((chunk) => chunk !== '' && !chunk.startsWith('- insert:'))
+}
+
 /** 从 YAML 文本里提取已声明的 preset id（`- id: preset-xxx`）。 */
 function extractPresetIds(text: string): Set<string> {
   const ids = new Set<string>()
@@ -261,13 +292,18 @@ export async function syncPresetsIntoProfilePatch(
   const start = current.indexOf(BLOCK_START)
   const end = current.indexOf(BLOCK_END)
   const hasBlock = start >= 0 && end > start
+  /** 区块内属于宿主（设置项覆盖等）的条目：重写时必须原样保留，见 foreignItemsInRegion。 */
+  const preserved = hasBlock
+    ? foreignItemsInRegion(current.slice(start + BLOCK_START.length, end))
+    : []
+  const preservedText = preserved.length === 0 ? '' : `${preserved.join('\n')}\n`
   const outside = hasBlock ? current.slice(0, start) + current.slice(end + BLOCK_END.length) : current
   const declared = extractPresetIds(outside)
   const ids = all.filter((id) => !declared.has(id))
   let next: string
   if (ids.length === 0) {
     if (!hasBlock) return 'unchanged'
-    next = current.slice(0, start) + current.slice(end + BLOCK_END.length)
+    next = current.slice(0, start) + preservedText + current.slice(end + BLOCK_END.length)
     next = `${next.replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '')}\n`
     // 区块被整块摘掉后，若文件只剩注释/空行，补回空数组占位，避免组合期读到空文档。
     const meaningful = next.replace(/^[ \t]*#.*$/gm, '').trim()
@@ -276,7 +312,10 @@ export async function syncPresetsIntoProfilePatch(
     const block = await renderPresetBlock(ids)
     if (hasBlock) {
       const tail = current.slice(end + BLOCK_END.length).replace(/^\n/, '')
-      next = current.slice(0, start) + block + (tail === '' ? '\n' : `\n${tail}`)
+      // 外部条目留在区块内部（结束标记之前）：宿主每次写入都插在同一位置，
+      // 位置稳定才不会和我们形成「插入→搬走→再插入」的写循环。
+      const core = block.slice(0, block.length - BLOCK_END.length)
+      next = current.slice(0, start) + core + preservedText + BLOCK_END + (tail === '' ? '\n' : `\n${tail}`)
     } else {
       let head = current.replace(/\s+$/, '')
       // 新建 profile 的 patch 模板正文就是一行空数组 `[]`。它一旦被后面追加的

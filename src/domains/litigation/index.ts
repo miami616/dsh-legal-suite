@@ -36,8 +36,9 @@ import { nowIso } from './store/id.ts'
 import type { TimelineEvent } from './store/types.ts'
 import { defaultSourcePath, importFromAgentLex } from './import/agentlex-migrate.ts'
 import { makeRoutes } from './routes.ts'
-import { syncEventToAppleCalendar, removeAppleCalendarEvent, listAppleCalendars } from '../calendar-sync/index.ts'
+import { syncEventToAppleCalendar, removeAppleCalendarEvent, listAppleCalendars, readCalendarSyncMap } from '../calendar-sync/index.ts'
 import { shouldSyncToCalendar, calendarEventTitle, pickSyncableItems } from '../calendar-sync/rules.ts'
+import { planCalendarReconcile } from '../calendar-sync/reconcile.ts'
 import { registerLitigationHttpTool } from './tools.ts'
 import { installSettingsSection } from '../../shared/settings-adapter.ts'
 import {
@@ -48,6 +49,13 @@ import {
   fixSupplyChainPolicy,
   restartDshProcess,
 } from './updater.ts'
+
+/**
+ * 自动对账节奏：启动后 45 秒先跑一轮，之后每 10 分钟一次。
+ * 只做增量（补漏 + 清理已删事项的事件），正常情况零 osascript 调用。
+ */
+const CALENDAR_RECONCILE_DELAY_MS = 45_000
+const CALENDAR_RECONCILE_INTERVAL_MS = 10 * 60_000
 
 /** Stable cordis plugin name. */
 export const name = 'litigation'
@@ -561,12 +569,115 @@ export function apply(ctx: Context, config: Config = {}): void {
         }
       },
     }))
-    // 备忘 #27：手动同步 Apple 日历（设置页按钮触发）。遍历 items.json 中所有带日期的
-    // 日程/任务，按设置里选定的同步范围（事件 / 带日期任务）逐条 upsert 到 Apple 日历。
-    // syncEventToAppleCalendar 按 itemId→uid 幂等——已同步的走更新，不会重复创建；
-    // 此前漏同步的（如同步功能上线前建的日程）这次补上。
-    // 只同步「今天及以后」的日程：过去的日程同步进日历毫无意义（用户实测反馈 2026-09-09），
-    // 手动同步的定位是查漏补缺未来日程，不是把历史日程灌进日历。
+    /**
+     * 全量补同步——设置页「手动同步 Apple 日历」与下面的自动对账共用同一实现。
+     *
+     * 遍历 items.json，按当前同步范围（事件 / 带日期任务）+ 规则筛出「今天及以后」的
+     * 日程，逐条 upsert 到 Apple 日历；syncEventToAppleCalendar 按 itemId→uid 幂等，
+     * 已同步的走更新、不会重复创建。只同步未来日程（过去的日程进日历没有意义——
+     * 用户实测反馈 2026-09-09），定位是查漏补缺、不是把历史灌进日历。
+     */
+    async function syncAllSchedules(): Promise<{ enabled: boolean; total: number; synced: number; failed: number; skipped: number }> {
+      const items = await itemStore.listItems()
+      const syncEvents = current().calendarSyncEvents === true
+      const syncTasks = current().calendarSyncTasks === true
+      const todayStr = new Date().toISOString().slice(0, 10)
+      // 标题用案件/项目名而非编号（用户反馈 2026-09-09：日历里只有编号不好认）。
+      // 构建 ownerId → 名称 查找表：诉讼从 caseStore，非诉从 project-registry.json。
+      const ownerNameById = new Map<string, string>()
+      try {
+        const caseReg = await caseStore.readRegistry()
+        for (const [id, c] of Object.entries(caseReg.cases ?? {})) {
+          if (c?.name) ownerNameById.set(id, c.name)
+        }
+      } catch { /* 案件名补全失败不阻塞同步 */ }
+      try {
+        const projRaw = await readFile(join(resolveDataDir(), '..', 'nonlitigation', 'project-registry.json'), 'utf8')
+        const projReg = JSON.parse(projRaw) as { projects?: Record<string, { name?: string }> }
+        for (const [id, p] of Object.entries(projReg.projects ?? {})) {
+          if (p?.name) ownerNameById.set(id, p.name)
+        }
+      } catch { /* 项目名补全失败不阻塞同步 */ }
+      // 统一规则筛选 + 去重（calendar-sync/rules.ts）：只同步尚未发生的日程；
+      // 答辩期/举证期暂不同步；任务严格按任务开关；同一「归属+日期+标题」只写一条。
+      const targets = pickSyncableItems(items, { syncEvents, syncTasks, today: todayStr })
+      let synced = 0
+      let failed = 0
+      for (const it of targets) {
+        const ownerLabel = it.ownerName ?? (it.ownerId !== undefined && it.ownerId !== '' ? (ownerNameById.get(it.ownerId) ?? it.ownerId) : '')
+        // 时间：优先 item.time；缺失时从 detail 提取（开庭/会议的时间点常写在 detail 里）
+        // ——提取到就用具体时间，不做全天（用户反馈 2026-09-09）。
+        const uid = await syncEventToAppleCalendar({
+          itemId: it.id,
+          // 标题格式：【事项标题】案件名（用户 2026-09-11 口径）。
+          title: calendarEventTitle(it.title ?? '日程', ownerLabel),
+          date: it.date ?? '',
+          time: it.time ?? extractTimeFromDetail(it.detail),
+          detail: it.detail,
+          calendarName: current().calendarName ?? '个人',
+        })
+        if (uid !== null) synced++
+        else failed++
+      }
+      return { enabled: true, total: items.length, synced, failed, skipped: items.length - targets.length }
+    }
+
+    /**
+     * 自动对账（2026-10-15 新增）。
+     *
+     * 此前日程进日历只依赖「写事项时派发一次事件」这一条链路：派发丢失、或 osascript
+     * 瞬时失败（Calendar 忙 / 权限弹窗 / 20 秒超时 / 目标日历临时不可写）都会让这条
+     * 日程**永久**漏在日历外——没有重试、没有提示、也没有任何日志。用户看到的就是
+     * 「日程没有实时同步」。这里做**增量**对账：
+     *   ① 补漏：规则上该同步、但日历映射里没有的日程 → 补建进日历；
+     *   ② 清理：映射里有、items.json 里已不存在的事项 → 删掉对应的日历事件。
+     * 正常情况两项都是 0，不产生任何 osascript 调用。
+     * @param limit 单轮补漏上限（避免一次把 Calendar 拖住）
+     * @returns 本轮补建 / 清理条数
+     */
+    async function reconcileCalendar(limit = 50): Promise<{ created: number; removed: number }> {
+      if (current().calendarSyncEnabled !== true) return { created: 0, removed: 0 }
+      const items = await itemStore.listItems()
+      const targets = pickSyncableItems(items, {
+        syncEvents: current().calendarSyncEvents === true,
+        syncTasks: current().calendarSyncTasks === true,
+        today: new Date().toISOString().slice(0, 10),
+      })
+      const mapped = readCalendarSyncMap()
+      const plan = planCalendarReconcile({ targets, mapped, aliveIds: items.map((i) => i.id), limit })
+      let created = 0
+      for (const it of plan.toCreate) {
+        const ownerLabel = await resolveOwnerLabel(it.ownerId, it.ownerName)
+        const uid = await syncEventToAppleCalendar({
+          itemId: it.id,
+          title: calendarEventTitle(it.title ?? '日程', ownerLabel),
+          date: it.date ?? '',
+          time: it.time ?? extractTimeFromDetail(it.detail),
+          detail: it.detail,
+          calendarName: current().calendarName ?? '个人',
+        })
+        if (uid !== null) created++
+      }
+      let removed = 0
+      for (const id of plan.toRemove) {
+        await removeAppleCalendarEvent(id)
+        removed++
+      }
+      if (created > 0 || removed > 0) {
+        console.info(`[calendar-sync] 自动对账：补同步 ${created} 条、清理 ${removed} 条`)
+      }
+      return { created, removed }
+    }
+    try {
+      const firstPass = setTimeout(() => { void reconcileCalendar().catch(() => {}) }, CALENDAR_RECONCILE_DELAY_MS)
+      const interval = setInterval(() => { void reconcileCalendar().catch(() => {}) }, CALENDAR_RECONCILE_INTERVAL_MS)
+      // 定时器绝不能拖住进程退出。
+      ;(firstPass as unknown as { unref?: () => void }).unref?.()
+      ;(interval as unknown as { unref?: () => void }).unref?.()
+      disposers.push(() => { clearTimeout(firstPass); clearInterval(interval) })
+    } catch { /* 老宿主没有定时器：只保留实时派发 + 手动同步 */ }
+
+    // 备忘 #27：手动同步 Apple 日历（设置页按钮触发），走上面的共享实现。
     disposers.push(ctx.webServer.register({
       kind: 'exact',
       path: '/api/agentlex-case/calendar-resync',
@@ -577,58 +688,9 @@ export function apply(ctx: Context, config: Config = {}): void {
             res.end(JSON.stringify({ success: true, data: { enabled: false, message: '日历同步未开启，请在设置中先打开' } }))
             return
           }
-          const items = await itemStore.listItems()
-          const syncEvents = current().calendarSyncEvents === true
-          const syncTasks = current().calendarSyncTasks === true
-          const todayStr = new Date().toISOString().slice(0, 10)
-          // 标题用案件/项目名而非编号（用户反馈 2026-09-09：日历里只有编号不好认）。
-          // 构建 ownerId → 名称 查找表：诉讼从 caseStore，非诉从 project-registry.json。
-          const ownerNameById = new Map<string, string>()
-          try {
-            const caseReg = await caseStore.readRegistry()
-            for (const [id, c] of Object.entries(caseReg.cases ?? {})) {
-              if (c?.name) ownerNameById.set(id, c.name)
-            }
-          } catch { /* 案件名补全失败不阻塞同步 */ }
-          try {
-            const projDir = join(resolveDataDir(), '..', 'nonlitigation')
-            const projRaw = await readFile(join(projDir, 'project-registry.json'), 'utf8')
-            const projReg = JSON.parse(projRaw) as { projects?: Record<string, { name?: string }> }
-            for (const [id, p] of Object.entries(projReg.projects ?? {})) {
-              if (p?.name) ownerNameById.set(id, p.name)
-            }
-          } catch { /* 项目名补全失败不阻塞同步 */ }
-          // 统一规则筛选 + 去重（calendar-sync/rules.ts）：
-          //   只同步尚未发生的日程；答辩期/举证期暂不同步；任务严格按任务开关；
-          //   同一「归属+日期+标题」只写一条（修 0.2.12 的重复问题）。
-          const targets = pickSyncableItems(items, { syncEvents, syncTasks, today: todayStr })
-          const skipped = items.length - targets.length
-          let synced = 0
-          let failed = 0
-          for (const it of targets) {
-            // 标题：案件/项目名（优先 item.ownerName，其次查找表，最后编号兜底）。
-            const ownerLabel = it.ownerName ?? (it.ownerId !== undefined && it.ownerId !== '' ? (ownerNameById.get(it.ownerId) ?? it.ownerId) : '')
-            // 时间：优先 item.time；缺失时从 detail 提取（开庭/会议等日程的明确时间点
-            // 常写在 detail 里，如「14:45 济南市历下区人民法院…」）——提取到就用具体
-            // 时间，不做全天（用户反馈 2026-09-09）。
-            const resolvedTime = it.time ?? extractTimeFromDetail(it.detail)
-            const uid = await syncEventToAppleCalendar({
-              itemId: it.id,
-              // 标题格式：【事项标题】案件名（用户 2026-09-11 口径）。
-              title: calendarEventTitle(it.title ?? '日程', ownerLabel),
-              date: it.date ?? '',
-              time: resolvedTime,
-              detail: it.detail,
-              calendarName: current().calendarName ?? '个人',
-            })
-            if (uid !== null) synced++
-            else failed++
-          }
+          const stats = await syncAllSchedules()
           res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({
-            success: true,
-            data: { enabled: true, total: items.length, synced, failed, skipped },
-          }))
+          res.end(JSON.stringify({ success: true, data: stats }))
         } catch (error) {
           res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
           res.end(JSON.stringify({

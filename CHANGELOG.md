@@ -1,5 +1,162 @@
 # Changelog
 
+## 0.2.23 — 适配 DSH 0.2.1-alpha.5（依赖对齐 + 全量接口面比对）
+
+### 适配结论
+
+`0.2.1-alpha.2 → 0.2.1-alpha.5` 全量比对（340 → 349 个 `@deepseek-ai/*` 包：333 个有代码改动、
+**9 个新增、0 个移除**），与本插件相关的接口面**零断裂** —— 本轮无需改任何插件业务代码，
+只有依赖对齐。
+
+### 改动
+
+- **依赖版本对齐 0.2.1-alpha.5**：17 个 harness devDependency（`dsh-client-*`、`dsh-tools`、
+  `dsh-settings`、`dsh-system-prompt`、`dsh-mcp-client`、`dsh-host-webserver`、控制器与
+  `dsh-util-values`）由 `0.2.1-alpha.1` 升至 `0.2.1-alpha.5`。
+- **vendor 版本跟进**：`@deepseek-ai/cordis` devDependency 追加 `^4.0.5-alpha.2`
+  （alpha.5 自带 cordis 4.0.5-alpha.2 / cosmokit 1.8.6-alpha.2 / loader 1.0.6-alpha.2）；
+  `@deepseek-ai/schemastery` 放宽为 `^3.18.3 || ^3.18.5-alpha.2`（alpha.5 宿主期望
+  3.18.5-alpha.2，旧范围按 semver 预发布规则判 unmet）。
+- **`pnpm-workspace.yaml`（新增文件，pnpm 自动生成）**：pnpm 11 的 `minimumReleaseAge` 默认
+  拦截「发布不足 24 小时」的版本，alpha.5 于 2026-10-16 20:31(CST) 发布，故安装时 pnpm 把
+  alpha.5 各包写进 `minimumReleaseAgeExclude` 白名单。**此文件需随仓库保留**，否则在
+  2026-10-17 20:31 之前 `pnpm install` 装不上 alpha.5；该时点之后可删。
+
+### 接口面比对（alpha.2 → alpha.5，逐项核对）
+
+- **新增包 9 个**（均与本插件无关）：`dsh-api-remote-access`、`dsh-plugin-market`、
+  `dsh-client-ui-plugin-market`、`dsh-client-ui-secret-mask`、`dsh-harness-dev-context`、
+  `dsh-cua`、`dsh-experimental-cua-macos`、`dsh-experimental-plugin-market-bundle`、
+  `dsh-plugin-market-index`；**移除 0 个**。
+- **本插件实际消费的具名符号零变化**：`defineTool`、`ISessions`、`ConvViewProps`、`JsonValue`
+  签名逐字未变（其余 19 个 `@deepseek-ai/*` 依赖都是 `import type {}` 式模块增补，只要求包存在）。
+- **三处类型变更，本插件均未消费**：
+  - `dsh-host-webserver`：`WebServer.port` 由 `number` 变 `number | undefined`，新增 `getOrigin()`；
+    本插件只用 `ctx.webServer.register()` 注册路由，不读 `port`。
+  - `dsh-client-ui-settings`：`ConfigFormSnapshot.mode: 'host' | 'memory'` **删除**（持久化策略改为
+    「所有已认证浏览器都经宿主文档持久化」），`status` 去掉 `'unavailable'`；本插件用自有的结构
+    等价类型 `ClientSettingsScope` 包一层，只依赖 `getSnapshot/subscribe/set/unset` 行为，
+    不引用 `mode`/`unavailable`。
+  - `dsh-util-values`：仅 package.json 版本号变动，包字节等价。
+- **槽位契约未变**：`conversation.view`、`sidebar.right.pane.tab`（keyed/session）、
+  `sidebar.workspaces.session.menu.item` 等仍由原包声明；`ui-slots` 只新增可选 `inline?: true`（增量）。
+- **DOM 锚点无一消失**：插件依赖的 21 个 harness 锚点（`[data-slot="conversation"]` /
+  `main.conversation` / `conversation.session`、`[data-lexical-editor]`、`[class$="_body"]`、
+  `[class$="_bubble"]`、`[class*="centerCol"]`、`[class*="sessionRow"]`、`[class*="projectRow"]`、
+  `[class*="composer"]`、`[class*="newSession"]`、`[class*="logoRow"]`、`[data-queue-dock]`、
+  `[data-submission-echo]`、`[data-pending-steering]`、`[data-tree-row]` …）逐条在 alpha.2 /
+  alpha.5 两版源码中核对，**无一条消失**。
+  值得记录的一处大改：`ui-chat` 的 `MessageItem` 被重写（用户消息改由 `conversation.user.text`
+  工厂槽渲染，新增 `UserContent` 组件、`UserTextFacts` 类型）——但 `AssistantMarkdown` 的
+  `css.body` 与用户气泡的 `css.bubble` 类名仍在，故本插件的会话排版（`_body` / `_bubble` 两端
+  对齐与字号覆盖）锚点未断。
+
+### 本地 DSH 构建对齐
+
+`/Volumes/MEE/dsh-latest` 由 `dsh-v0.2.1-alpha.1`（build 记录 `DSH_CLIENT_VERSION 0.2.1-alpha.1`，
+2026-10-03）切到 **`dsh-v0.2.1-alpha.5`**（= 当前 npm `alpha` dist-tag，也与 `origin/master` 同
+commit `1517a4d`），`pnpm install` + `pnpm build`：9 个 gate 全过、329 个客户端产物，build 记录
+`DSH_CLIENT_VERSION 0.2.1-alpha.5`；CLI `dsh --version` 报 `0.2.1-alpha.5`。
+
+### 验证
+
+- **自测**：`check:settings` 26 / `check:defaults` 46 / `check:calendar` 16 / `check:reconcile` 9 /
+  `check:redact` 55 —— 合计 **152 项全绿**；`pnpm build`（tsc + tsdown + banner）在 alpha.5 类型下
+  **零编译错误**。
+- **新版本适配台（本地构建 alpha.5）**：隔离 `DSH_HOME=/tmp/dshhome-a5` + 本地构建
+  `dsh-v0.2.1-alpha.5` + 全新 profile `agentlex-a5` + 端口 **3100**，从零装本次 tarball。
+- **对照台（alpha.2，与 live 同版本）**：隔离 `DSH_HOME=/tmp/dshhome-a2` + npm `dsh@0.2.1-alpha.2`
+  + 同构全新 profile + 端口 **3101**，同一 tarball。
+- **两台 Playwright 实测结果逐项一致**：composer 锚点在、4 个侧边栏入口、9 个皮肤
+  `style[data-agentlex-skin]`、右侧面板 `[data-dsh-litigation-view]` 挂载且可见 +
+  `data-dsh-litigation-active` 生效 + 渲染真实案件数据（2026-002）、会话列 `centerCol` 存活、
+  **`console.error` 与 `pageerror` 均为 0**。
+- **宿主路由**（带会话 cookie）：`/api/agentlex-suite/config`、`/api/agentlex-skin/config`、
+  `/api/agentlex-redact/health`、`/api/agentlex-case/read`、`/api/agentlex-item/health|items`、
+  `/api/agentlex-memo/health` 全 **200** 且返回真实数据。
+- **预设写入与二次启动**：全新 profile 首启把 2 条预设写进 `cordis.patch.yml`（占位 `[]` 注释为
+  `# []` 后追加托管区块），**二次启动不崩**、幂等（日志「already declared」）。
+- live（`:3080`）全程未触碰。
+
+### 修复：设置页改了又变回去（托管区块吞掉宿主设置项）
+
+全功能验证时发现：设置页点一下「文书脱敏」开关，值写进宿主（`settings/mutate` 返回
+`ok`、`user:{redactEnabled:false}`），**几秒后又被清空**，刷新页面回到默认；「诉讼案件
+数据目录」同样——宿主确实按新目录迁移了数据（启动日志可见），但设置页读回空、配置也没落盘。
+
+根因（`src/shared/preset-sync.ts`，2026-10-18 实测钉死）：
+
+- 宿主把设置页的写入持久化成 profile patch 里的**条目覆盖**（`- id: ui-settings-general`
+  / `- id: agentlex` + `config:`），插入位置是「最后一个顶层条目之后」。区块的结束标记
+  是一行**注释**而不是条目，于是宿主的条目正好落在我们两个标记**之间**。
+- 下次插件 apply 重渲染托管区块时，把「标记之间的一切」当成自己的产物整体重写，宿主那条
+  设置项就被删了。实测：一次开关点击触发 **7 次插件重载**，每次重渲染都把刚写入的设置项
+  抹掉一次——用户看到的就是「改了又变回去」。
+- 修复：区块内**不以 `- insert:` 开头的顶层条目一律视为宿主内容，逐字保留**（我们只生成
+  `- insert:` 段落），并留在结束标记之前（宿主每次插在同一位置，位置稳定才不会形成
+  「插入→搬走→再插入」的写循环）；区块被整块摘除时同样保留。
+
+验证：
+
+- 新增 `pnpm check:preset`（16 项：区块内宿主条目保留、区块后条目保留、标记成对、
+  第二次同步 `unchanged` 不写盘、区块摘除时不吞条目、preset 不重复声明）。
+- 实机（本地构建 alpha.5 + 端口 3100）：点「文书脱敏」→ 6 秒后仍为**关**（此前会自己回到开）、
+  `cordis.patch.yml` 出现 `redactEnabled: false`、**整页刷新后仍为关**；「诉讼案件数据目录」
+  写入 `/tmp/...` → patch 出现 `litigationDataDir` → 刷新后读回该路径 → 清空后条目同步移除。
+- 六个自测套件合计 **168 项全绿**（settings 26 / defaults 46 / calendar 16 / reconcile 9 /
+  redact 55 / preset 16）。
+
+## 0.2.22 — 修「日历选项点不动、改了没反应」+ 同步加自动对账与串行化
+
+### 一、设置页读错了命名空间（用户「选择框点选不了 / 改了几次还是不行」的根因）
+
+0.2.x 宿主重新回到「每个域 `settings.register(自己的命名空间)`」，服务的是
+`agentlex-litigation` / `agentlex-legal-suite` 这些**域命名空间**；客户端却仍按 0.1.7
+那代固定 `configForms.get('agentlex')` 去读那个**没人注册的条目命名空间** → 表单
+`status='unavailable'`、`value=undefined`，于是：
+
+- 「日程同步 Apple 日历」显示为**关**（宿主里其实是 true）；
+- 下面的同步范围整块 `pointer-events:none` —— **「同步到日历」下拉框点不动**（浏览器实测
+  该 `<select>` 计算样式就是 `pointer-events: none`）；
+- `set()` 写到不存在的命名空间 → **静默无效**，用户改几次都一样。
+
+修复：先看宿主**实际在服务**哪个命名空间（挂镜像的已服务目录），是域命名空间就用它、
+字段名按域 schema 的逻辑名（**不再折叠前缀**）；只有老代合并条目（0.1.7）才退回
+`agentlex` + 前缀映射。判定随「已服务命名空间集合」变化重新通知订阅者，避免启动早期
+目录还没到就锁死选择。
+
+实机验证（测试实例 :3081，Chrome）：主开关由 `false` → **`true`**（与宿主一致），
+下拉框 `pointer-events` 由 `none` → **`auto`**。
+
+### 二、日历同步补上「自动对账」（用户「日程没有实时同步」的根因）
+
+此前日程进日历只依赖「写事项时派发一次事件」这条链路：派发丢失、或 osascript 瞬时失败
+（Calendar 忙 / 权限弹窗 / 20 秒超时 / 目标日历临时不可写）都会让这条日程**永久**漏在
+日历外 —— 没有重试、没有提示。实测：6 条应同步的未来日程（10/30 上诉期届满、两条
+10/22 预交诉讼费期限、10/22 开庭、12/02 开庭，以及新案 2026-064 的收案）在日历里缺失。
+
+修复：启动后 45 秒起、每 10 分钟做一次**增量**对账 —— ① 补「规则上该同步、但日历映射里
+没有」的日程；② 删「映射里有、items.json 已不存在」的日历事件（只认事项被删，不认
+「日程过了 / 命中跳过词」，不反过来删用户日历里的历史）。正常情况两项都是 0，不产生
+任何 osascript 调用。设置页「手动同步」与它共用同一实现。回归自测
+**`pnpm check:reconcile`**（9 项，纯函数判定，不读盘、不碰真实日历）。
+
+### 三、日历映射读写串行化
+
+`calendar-sync-map.json` 是「读 map → 调 osascript → 写 map」的读-改-写，并发同步会互相
+覆盖：丢条目 → 下次同步又新建 → 日历里出现重复事件；删条目的写被旧快照覆盖 → 映射残留
+（本次实测就出现过条目丢失与被旧快照回填）。现把整段操作串行化，顺带避免同时拉起多个
+osascript 把 Calendar 拖住。
+
+### 四、验证
+
+- `pnpm check:settings` 26/26（新增「命名空间选择」回归 8 项）、`check:reconcile` 9/9、
+  `check:defaults` 46/46、`check:calendar` 16/16、`check:redact` 55/55。
+- 测试实例 :3081（agentlex-ls-test）实机：设置页主开关与宿主一致、下拉可点；自动对账跑通
+  （清掉 10 条「事项已删、日历事件残留」的映射）。
+- live 现场：手动同步把 6 条漏掉的日程补进「AgentLex日历」（含 2026-064 收案、
+  10/30 上诉期届满、两条 10/22 预交诉讼费期限等）。
+
 ## 0.2.21 — 修「关键日程不进 Apple 日历」（合包层漏默认值）+ 切日历不再删丢旧事件
 
 0.2.18 起 Apple 日历同步整条失效：设置页里「日程同步 Apple 日历」是开着的、手动「立即同步」

@@ -1,5 +1,5 @@
 /**
- * 案件账实核对（巡检）—— 0.2.12。
+ * 案件进展检查（巡检）—— 0.2.12。
  *
  * **定位**：发现「案件的实际状态」与「登记」不一致——漏登记、登记错了、该推进没推进。
  * 明确**不碰**另外两件事，否则同一问题会在三处各报一次：
@@ -16,7 +16,7 @@
  * 所以每条规则都要能回答：「凭什么算不符？不符有什么后果？」
  *
  * **立案日期不参与核对**（用户裁定）：实践中很难同步——原告还好掌握正式立案时间，
- * 被告几乎不可能知道准确立案日。这不是"账实不符"，是客观不可得。
+ * 被告几乎不可能知道准确立案日。这不是"登记与实际进展不一致"，是客观不可得。
  */
 
 import type { CaseRecord } from './store/types.ts'
@@ -79,14 +79,14 @@ const DEADLINE_LABEL = /(届满|期限)/
 const PERIOD_STATE = /^(post_trial|appeal_window)$/
 /**
  * 立案**之前**的状态档位（收案 / 诉前准备 / 立案中）。
- * 这些档位一旦出现「已立案」的证据，就是账实不符。
+ * 这些档位一旦出现「已立案」的证据，就是登记与实际进展不一致。
  */
 const PRE_FILING_STATE = /^(intake|pre_filing|filing)$/
 /**
  * 「已经立案」的证据：这些文书/节点只可能在法院受理立案之后出现。
  *
  * 注意与「立案日期」的区别——立案日期字段**不参与核对**（用户裁定：被告几乎不可能
- * 知道准确立案日，这是客观不可得，不是账实不符）；但"收到传票了状态还写立案中"
+ * 知道准确立案日，这是客观不可得，不是登记与实际进展不一致）；但"收到传票了状态还写立案中"
  * 是**硬矛盾**，与日期精度无关。
  */
 const FILED_EVIDENCE = /(传票|受理通知|立案通知|应诉通知|举证通知|缴费通知|开庭通知|开庭排期|缴纳诉讼费|受理案件通知|开庭|答辩期)/
@@ -98,7 +98,10 @@ const eventsOf = (items: Item[]): Item[] => items.filter(isEventItem)
 /** 该案的任务事项。 */
 const tasksOf = (items: Item[]): Item[] => items.filter(isTaskItem)
 
-const today = (): string => new Date().toISOString().slice(0, 10)
+const today = (): string => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 /* ══════════════════════════════ 规则 ══════════════════════════════ */
 
@@ -350,8 +353,8 @@ export function runPatrol(
   const caseCount = new Set(findings.map((f) => f.caseId)).size
   const high = findings.filter((f) => f.severity === 'high').length
   const summary = findings.length === 0
-    ? '案件账实核对：无异常。'
-    : `案件账实核对：${findings.length} 项异常，涉及 ${caseCount} 个案件（其中高优先级 ${high} 项）`
+    ? '案件进展检查：无异常。'
+    : `案件进展检查：${findings.length} 项异常，涉及 ${caseCount} 个案件（其中高优先级 ${high} 项）`
   return { findings, caseCount, summary }
 }
 

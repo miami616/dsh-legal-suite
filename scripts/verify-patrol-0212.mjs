@@ -1,5 +1,5 @@
 /**
- * 0.2.12 案件账实核对（巡检）验证。
+ * 0.2.12 案件进展检查（巡检）验证。
  *
  * 覆盖：
  *  A. 每条规则命中正确 + 给出证据/期望/动作；
@@ -183,7 +183,7 @@ try {
 
   /* ══════════ D. 卡片 ══════════ */
   const md = patrolCardMarkdown(result.findings.slice(0, 2))
-  check('D1 卡片标题与严重级', md.includes('# 案件账实核对') && md.includes('⚠ 高'))
+  check('D1 卡片标题与严重级', md.includes('# 案件进展检查') && md.includes('⚠ 高'))
   check('D2 每条含证据/期望/动作', md.includes('期望：') && md.includes('动作：') && md.includes('- '))
   check('D3 卡片说明去处', md.includes('mute_patrol_finding'))
 

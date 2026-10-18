@@ -415,7 +415,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const scheduleStore = createScheduleStore(dataDir, ctx)
     // 期限规则本地补丁表 + 提案回流（0.2.12）：规则资产，与案件档案分开存。
     const periodRuleStore = createPeriodRuleStore(dataDir, ctx)
-    // 账实核对台账（0.2.12）：去重推送 + 已确认留档。
+    // 案件进展检查台账（0.2.12）：去重推送 + 已确认留档。
     const patrolLedgerStore = createPatrolLedgerStore(dataDir, ctx)
     // 0.2.2 + 0.2.12：启动时先做一次性并库迁移（registry 任务镜像 / case-timeline
     // 旧事件 / registry.keyDates / schedules.json → items，成功后旧字段与旧文件退役），

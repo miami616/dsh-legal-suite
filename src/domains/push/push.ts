@@ -1,21 +1,19 @@
 /**
- * Push core: read deadlines → filter to today/tomorrow → format the FIXED
- * template → send as a Feishu card → record the dedupe ledger.
+ * Push core — 把「期限」变成「今天该提醒什么，并且只提醒一次」。
  *
- * Design decisions (confirmed 2026-09-10):
- *  - Reminder timing is a DAILY 8:30 run: every morning the run pushes the
- *    deadlines due TODAY (daysLeft === 0) and TOMORROW (daysLeft === 1) as
- *    one Feishu card. No per-deadline 24h-precise reminders anymore.
- *  - Delivery is FIXED to the Feishu card channel (direct Feishu open API,
- *    same credentials as feishu_push.py). No dsh-im dependency, no channel
- *    detection — the card path is the only path.
- *  - The push text uses a FIXED template (a code constant) — field-complete
- *    but compact, identical across runs, never varying with content.
- *  - Dedupe is per-day: a deadline pushed in today's run is skipped by a
- *    second run the same day; tomorrow's run re-pushes the fresh window.
+ * v0.2.25 重构要点（对旧版固定窗口的改进）：
+ *  1. **按期限性质分级**：法定不变期间/保全/开庭/举证缴费/普通任务各用一条提醒阶梯
+ *     （T-90…T-1/D0），见 `reminder-plan.ts`。旧版只有「今天/明天」。
+ *  2. **分档去重**：同一事项同一档只提醒一次（台账键含 `|T{n}`），跨天不重发；
+ *     错过档位日（休眠/重启）在补发窗口内补一条，并标「（补）」。
+ *  3. **精确到点**：开庭提前 2 小时/30 分钟、其他事项提前 30 分钟，单独一张
+ *     「即将开始」卡；每 5 分钟巡检一次，休眠恢复后立即补发。
+ *  4. **失败可见**：发送失败写入 push-state.json 并每 10 分钟重试；连续失败时弹
+ *     macOS 本地通知兜底；下次成功卡上注明「上次推送失败」。
+ *  5. **当日补充**：摘要卡之后新增了当天到期事项，15 分钟冷却后发「补充」卡。
  *
- * The same core is used by the host half (in-process, from the built-in
- * 8:30 timer or a manual /run trigger).
+ * 数据：$DSH_HOME/agentlex/push/（push-config.json / push-ledger.json / push-state.json）。
+ * 依赖：飞书凭据（$DSH_HOME/integrations/dsh-feishu/config.json + .credentials.yaml）。
  */
 
 import { computeDeadlinesV2, eventKind, type DeadlineItem, type OwnerMeta } from '../litigation/deadlines.ts'
@@ -26,21 +24,44 @@ import { isEventItem, isTaskItem } from '../item/store/types.ts'
 import { runPatrol, groupItemsByCase, type PatrolFinding } from '../litigation/patrol.ts'
 import { createPatrolLedgerStore } from '../litigation/store/patrol-ledger-store.ts'
 import { createPeriodRuleStore } from '../litigation/store/period-rule-store.ts'
-import { sendPatrolCard } from './feishu-card.ts'
+import { sendPatrolCard, sendReminderCard, sendFeishuCard } from './feishu-card.ts'
 import type { CaseRegistry, TimelineEvent } from '../litigation/store/types.ts'
-import { sendDeadlineCard } from './feishu-card.ts'
-import { ledgerKey, type PushConfig, type PushStore } from './store/push-config.ts'
+import { ledgerKey, parsePushTime, type PushConfig, type PushStore, type PushRunState, type PushStateStore } from './store/push-config.ts'
+import {
+  buildPreview,
+  formatIntradayMarkdown,
+  intradayCandidates,
+  localDate,
+  applyDigestCaps,
+  reminderCandidates,
+  selectDigestEntries,
+  type IntradayEntry,
+  type ReminderEntry,
+  type ReminderPlanOptions,
+  type ReminderPreview,
+  type SuppressedSummary,
+} from './reminder-plan.ts'
+import { notifyLocal } from './notify-local.ts'
 import { join } from 'node:path'
 
-/** 提醒窗口：今天（daysLeft === 0）与明天（daysLeft === 1）。 */
+/** 旧版提醒窗口：今天（0）与明天（1）。保留导出供兼容性校验使用。 */
 export const WINDOW_DAYS = [0, 1]
 
+/** 失败重试间隔：10 分钟。 */
+const RETRY_INTERVAL_MS = 10 * 60_000
+/** 当日补充提醒冷却：15 分钟。 */
+const INCREMENTAL_INTERVAL_MS = 15 * 60_000
+/** 本地兜底通知冷却：6 小时（避免飞书长期故障时反复弹通知）。 */
+const FALLBACK_INTERVAL_MS = 6 * 60 * 60_000
+/** 台账保留天数（分档键长期去重，但文件不能无限增长）。 */
+const LEDGER_RETENTION_DAYS = 180
+/** 精确提醒巡检时段（本地时间）。 */
+const INTRADAY_START_HOUR = 6
+const INTRADAY_END_HOUR = 22
+
 /**
- * 推送窗口选择（0.2.11）：今天/明天到期的事项，**外加逾期未完成的任务**。
- *
- * 逾期只属于任务——日程过期即历史（vendor taskAggregation 的既有约定：
- * events never go overdue），所以这里是 `kind === 'task' && daysLeft < 0`，
- * 而不是对一切 kind 放宽。
+ * 旧版窗口选择（兼容 0.2.11 的行为断言）：
+ * 今天/明天到期，外加逾期未完成的任务。新版实际走 `reminderCandidates`。
  */
 export function selectPushRows(items: DeadlineItem[]): DeadlineItem[] {
   return items.filter((item) => WINDOW_DAYS.includes(item.daysLeft) || (item.kind === 'task' && item.daysLeft < 0))
@@ -69,31 +90,13 @@ function rowMetaLines(row: DeadlineItem): string[] {
   return lines
 }
 
-/**
- * Build the FIXED push text from the fresh deadline rows.
- *
- * Template (a constant — never varies with content), designed to render well
- * in plain text (feishu / weixin) with a clean, scannable hierarchy:
- *
- *   {prefix}📌 重要日程提醒
- *
- *   ⚖️ 开庭 · 明天 09:00
- *   甲方与乙方买卖合同纠纷
- *   （2026）X民初XXXX号 · XX市XX区人民法院 · 第X法庭
- *
- *   ✅ 案件沟通会 · 明天 16:30
- *   某顾问单位
- *
- * Each block: a title line (emoji + 事项 + 剩余 + 时间), then the case name,
- * then an optional meta line (案号 · 法院 · 法庭) joined with ·.
- */
+/** Plain-text push body (kept for scripts/tests and non-card consumers). */
 export function formatPush(rows: DeadlineItem[], titlePrefix?: string): string {
   const prefix = titlePrefix !== undefined && titlePrefix.trim() !== '' ? `${titlePrefix.trim()} ` : ''
   const header = `${prefix}重要日程提醒`
   const blocks = rows.map((row) => {
     const time = row.time !== undefined && row.time !== '' ? ` ${row.time}` : ''
     const title = `${row.label} · ${remainingLabel(row.daysLeft)}${time}`
-    // 独立任务 caseName === label 时不重复显示案件名。
     const lines = row.caseName === row.label ? [] : [row.caseName]
     lines.push(...rowMetaLines(row))
     return `${title}\n${lines.join('\n')}`
@@ -101,18 +104,13 @@ export function formatPush(rows: DeadlineItem[], titlePrefix?: string): string {
   return `${header}\n\n${blocks.join('\n\n')}`
 }
 
-/**
- * Build the FIXED push text as Feishu-card markdown (the ONLY delivery path).
- * Each deadline becomes a `## ` section (bold heading + large text), so the
- * Feishu card renders clean sectioned blocks with hr separators.
- */
+/** Markdown push body (kept for generic Feishu cards / tests). */
 export function formatPushMarkdown(rows: DeadlineItem[], titlePrefix?: string): string {
   const prefix = titlePrefix !== undefined && titlePrefix.trim() !== '' ? `${titlePrefix.trim()} ` : ''
   const header = `${prefix}重要日程提醒`
   const sections = rows.map((row) => {
     const time = row.time !== undefined && row.time !== '' ? ` ${row.time}` : ''
     const title = `${row.label} · ${remainingLabel(row.daysLeft)}${time}`
-    // 独立任务 caseName === label 时不重复显示案件名。
     const lines = row.caseName === row.label ? [] : [row.caseName]
     lines.push(...rowMetaLines(row))
     return `## ${title}\n${lines.join('\n')}`
@@ -122,7 +120,7 @@ export function formatPushMarkdown(rows: DeadlineItem[], titlePrefix?: string): 
 
 /** Result of one push run. */
 export interface PushRunResult {
-  /** Number of deadline rows in the window (today/tomorrow, before dedupe). */
+  /** Number of reminder entries in today's plan (before dedupe). */
   due: number
   /** Number actually pushed (fresh, after dedupe). */
   pushed: number
@@ -130,8 +128,16 @@ export interface PushRunResult {
   attempted: boolean
   /** Error text when the send failed (undefined on success). */
   error?: string
-  /** 案件账实核对（0.2.12）：独立消息、独立台账，与每日到期提醒无关。 */
+  /** 案件进展检查（0.2.12）：独立消息、独立台账。 */
   patrol?: { total: number; pushed: number; summary: string }
+}
+
+/** Result of one tick (digest / incremental / intraday). */
+export interface ReminderTickResult extends PushRunResult {
+  /** What this tick did. */
+  kind: 'digest' | 'incremental' | 'intraday' | 'retry' | 'none'
+  /** 精确提醒条数（kind=intraday 时有意义）。 */
+  intraday?: number
 }
 
 /** 从日期字符串提取日期部分（YYYY-MM-DD）。 */
@@ -149,13 +155,7 @@ function timePart(value: string): string | undefined {
  * 从自然语言 detail 提取具体时间（HH:MM），无则 undefined。
  *
  * 独立任务/非诉任务的 deadline 只存纯日期（界面 type="date"），具体时间点
- * 写在 detail 字段（如「9月4日下午3点10分开会」）。本函数解析常见中文/数字
- * 时间格式，使非诉/独立任务与诉讼（timeline 的 time 字段）统一带具体时间。
- *
- * 支持格式：
- *  - HH:MM / H:MM（如 09:00、14:45）
- *  - 下午X点Y分 / 上午X点Y分 / X点Y分 / X点 / X时
- *  - 下午X:Y / X:Y
+ * 写在 detail 字段（如「9月4日下午3点10分开会」）。
  */
 export function extractTimeFromDetail(detail: string | undefined): string | undefined {
   if (detail === undefined || detail === '') return undefined
@@ -184,7 +184,6 @@ export function extractTimeFromDetail(detail: string | undefined): string | unde
       }
     }
     if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
-      // 下午/晚上/凌晨 12 小时制 → 24 小时制
       if (/下午|晚上/.test(text) && h < 12) h += 12
       if (/凌晨/.test(text) && h === 12) h = 0
       return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
@@ -194,13 +193,13 @@ export function extractTimeFromDetail(detail: string | undefined): string | unde
   return undefined
 }
 
-/** 计算 daysLeft（相对今天）。 */
+/** 计算 daysLeft（相对本地今天）。 */
 function daysLeftOf(date: string): number {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDate()
   return Math.round((new Date(`${date}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86_400_000)
 }
 
-/** 构造一个 DeadlineItem（统一字段）。 */
+/** 构造一个 DeadlineItem（兼容旧测试/调用）。 */
 function makeItem(partial: {
   caseId: string
   caseName: string
@@ -232,18 +231,11 @@ function makeItem(partial: {
 }
 
 /**
- * 聚合所有数据源的期限（0.2.12 统一出口版）。
+ * 聚合所有数据源的期限（统一出口）。
  *
- * **不再自建一份聚合**：以前这里按 items 自己拼一份 DeadlineItem[]，与
- * `deadlines.ts` 的引擎各算各的——同一期限在两处去重/优先级口径不同，就会出现
- * 「期限汇总一行、飞书推送两行」这类分叉。现在统一调 `computeDeadlinesV2`：
- *   - 事件（items event/both）+ 任务期限（items task/both）+ 关键日期（registry 装配）
- *     由引擎按 `caseId|date|label` 去重、按 kind 优先级择一；
- *   - 非诉项目与独立事项通过 `ownerMeta` 补名称/来源，因此不必再为它们单独开分支。
- *
- * @param litigationDir - 诉讼数据目录。
- * @param nonlitigationDir - 非诉数据目录。
- * @param tasksDir - 任务数据目录（独立任务已并入 items，仅作兼容签名）。
+ * 事件（items event/both）+ 任务期限（items task/both）+ 关键日期（registry 装配）
+ * 由 `computeDeadlinesV2` 按 `caseId|date|label` 去重；非诉项目与独立事项通过
+ * `ownerMeta` 补名称/来源。
  */
 export async function collectAllDeadlines(
   litigationDir: string,
@@ -279,8 +271,6 @@ export async function collectAllDeadlines(
     const itemStore = createItemStore(itemsDir)
     const all = await itemStore.listItems()
 
-    // 事件侧：items 的 event/both → TimelineEvent 形状（keydate 不进这里——它由
-    // registry 装配的 keyDates 走 keydate 通道，否则同一期限会进两次）。
     const events: TimelineEvent[] = []
     const taskDeadlines = new Map<string, { caseId: string; title: string; date: string; time?: string; status: string }>()
     for (const it of all) {
@@ -291,7 +281,7 @@ export async function collectAllDeadlines(
           id: it.id,
           caseId: it.ownerId ?? '',
           caseName: it.ownerName ?? '',
-          type: (it.kind ?? (it.type === 'both' ? 'hearing' : 'case_event')) as TimelineEvent['type'],
+          type: (it.kind ?? 'case_event') as TimelineEvent['type'],
           title: it.title,
           detail: it.detail,
           date,
@@ -319,15 +309,54 @@ export async function collectAllDeadlines(
   }
 }
 
+/** 从推送配置取出提醒计划选项。 */
+function planOptions(cfg: PushConfig): ReminderPlanOptions & { preciseReminder?: boolean } {
+  return {
+    smartLead: cfg.smartLead !== false,
+    includeConsequence: cfg.includeConsequence !== false,
+    preciseReminder: cfg.preciseReminder !== false,
+    maxDigestRows: cfg.maxDigestRows ?? 15,
+    density: cfg.density ?? 'concise',
+  }
+}
+
+/** 过滤掉已推送过的条目（force 时全部保留）。 */
+async function filterFresh(entries: ReminderEntry[], store: PushStore, force: boolean): Promise<ReminderEntry[]> {
+  if (force) return entries
+  const fresh: ReminderEntry[] = []
+  for (const entry of entries) {
+    if (await store.hasPushed(entry.key)) continue
+    // 升级当天兼容旧台账：旧键按天去重，避免同一事项被新旧两套键各推一次。
+    const legacy = ledgerKey(entry.item.caseId, entry.item.date, entry.item.label)
+    if (entry.key !== legacy && await store.hasPushed(legacy)) continue
+    fresh.push(entry)
+  }
+  return fresh
+}
+
+/** 过滤掉已推送过的精确提醒。 */
+async function filterFreshIntraday(entries: IntradayEntry[], store: PushStore, force: boolean): Promise<IntradayEntry[]> {
+  if (force) return entries
+  const fresh: IntradayEntry[] = []
+  for (const entry of entries) {
+    if (!(await store.hasPushed(entry.key))) fresh.push(entry)
+  }
+  return fresh
+}
+
+/** 精确提醒卡的头部颜色（有高危用橙，否则蓝）。 */
+function intradayTemplate(entries: IntradayEntry[]): string {
+  return entries.some((entry) => entry.severity === 'critical') ? 'red' : 'orange'
+}
+
 /**
- * Run one deadline-push pass.
+ * 旧版入口：立即做一次「摘要」推送（手动执行/测试用）。
  *
- * @param dirs - the data directories for all sources.
- * @param cfg - the resolved push config.
- * @param store - the push store (config + ledger).
- * @param opts - force: true 时绕过台账去重，推送窗口内全部（手动「立即执行」用）。
- * @param now - current time (ms epoch); injectable for tests.
- * @returns the run result.
+ * @param dirs - 数据目录。
+ * @param cfg - 推送配置。
+ * @param store - 配置 + 台账。
+ * @param opts.force - true 时绕过台账，推送当前计划内全部。
+ * @param now - 当前时间（可注入）。
  */
 export async function runDeadlinePush(
   dirs: { litigation: string; nonlitigation: string; tasks: string },
@@ -338,58 +367,291 @@ export async function runDeadlinePush(
 ): Promise<PushRunResult> {
   if (!cfg.enabled) return { due: 0, pushed: 0, attempted: false }
 
-  // 1. Aggregate deadlines from all data sources (litigation + nonlitigation + standalone tasks).
   const items = await collectAllDeadlines(dirs.litigation, dirs.nonlitigation, dirs.tasks)
-
-  // 2. Filter to the daily window: today (daysLeft === 0) and tomorrow (daysLeft === 1).
-  //
-  // ⚠ 逾期任务不设上限（0.2.11 修）：任务到期未完成就是**逾期**（taskAggregation
-  // 的 isTaskOverdue 语义），一个 09-24 到期未办的「递交起诉状」在 09-25 之后
-  // 从提醒里消失，等于把最该催的事静默掉了。日程仍维持 [0,1]——日程过期即历史，
-  // 不产生逾期，不重推。
-  const due = selectPushRows(items)
-
-  // 3. Dedupe against the ledger (per-day: only today's records count).
-  //    force=true（手动触发）绕过台账，推送窗口内全部。
-  const fresh = []
-  for (const item of due) {
-    const key = ledgerKey(item.caseId, item.date, item.label)
-    if (opts.force === true || !(await store.hasPushed(key))) fresh.push(item)
+  const selection = selectDigestEntries(reminderCandidates(items, planOptions(cfg), now), {
+    density: cfg.density ?? 'concise',
+    now,
+  })
+  const freshAll = await filterFresh(selection.entries, store, opts.force === true)
+  const capped = applyDigestCaps(freshAll, { density: cfg.density ?? 'concise', maxRows: cfg.maxDigestRows })
+  const fresh = capped.entries
+  const suppressed = {
+    ...selection.suppressed,
+    capped: (selection.suppressed.capped ?? 0) + capped.hidden,
   }
-  // 3.5 案件账实核对（0.2.12）：**独立一条消息**，不与每日到期提醒混——两者性质不同
-  //     （每日提醒回答"今天要干什么"，核对卡回答"你的账可能记错了"）。混在一起会让
-  //     "今天没事"的日子看不出异常，也会让异常被日常事项淹没。
-  //     台账保证只有**新出现或证据变化**才推，同一件事不会天天刷。
-  const patrol = await runPatrolPass(dirs.litigation)
+  const patrol = await runPatrolPass(dirs.litigation, { weekly: true })
 
-  if (fresh.length === 0) {
-    return { due: due.length, pushed: 0, attempted: false, patrol }
-  }
+  if (fresh.length === 0) return { due: selection.entries.length, pushed: 0, attempted: false, patrol }
 
-  // 4. Format the FIXED template as a structured Feishu card (the only delivery path).
-  // 5. Send the Feishu card (direct Feishu open API — no dsh-im dependency).
   try {
-    await sendDeadlineCard(fresh, cfg.titlePrefix)
+    await sendReminderCard(fresh, {
+      titlePrefix: cfg.titlePrefix,
+      pushTime: cfg.pushTime,
+      maxRows: cfg.maxDigestRows,
+      density: cfg.density ?? 'concise',
+      suppressed,
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return { due: due.length, pushed: 0, attempted: true, error: message, patrol }
+    return { due: selection.entries.length, pushed: 0, attempted: true, error: message, patrol }
   }
 
-  // 6. Record the ledger (only on success — a failure retries next run).
-  if (fresh.length > 0) {
-    await store.recordPushed(fresh.map((item) => ledgerKey(item.caseId, item.date, item.label)))
-  }
-  return { due: due.length, pushed: fresh.length, attempted: true, patrol }
+  await store.recordPushed(fresh.map((entry) => entry.key))
+  return { due: selection.entries.length, pushed: fresh.length, attempted: true, patrol }
+}
+
+/** 是否到今日摘要档期。 */
+function digestSlotReached(cfg: PushConfig, now: number): boolean {
+  const [h, m] = parsePushTime(cfg.pushTime)
+  const slot = new Date(now)
+  slot.setHours(h, m, 0, 0)
+  return now >= slot.getTime()
+}
+
+/** 摘要档期距现在多久（毫秒，负数=已过）。 */
+function msFromDigestSlot(cfg: PushConfig, now: number): number {
+  const [h, m] = parsePushTime(cfg.pushTime)
+  const slot = new Date(now)
+  slot.setHours(h, m, 0, 0)
+  return slot.getTime() - now
+}
+
+/** 当前是否在精确提醒巡检时段。 */
+function inIntradayWindow(now: number): boolean {
+  const hour = new Date(now).getHours()
+  return hour >= INTRADAY_START_HOUR && hour < INTRADAY_END_HOUR
+}
+
+/** 记录一次成功（摘要/补充/精确共用）。 */
+function successPatch(now: number, extra: Partial<PushRunState>): (state: PushRunState) => PushRunState {
+  const iso = new Date(now).toISOString()
+  return (state) => ({
+    ...state,
+    lastSuccessAt: iso,
+    lastAttemptAt: iso,
+    lastError: undefined,
+    consecutiveFailures: 0,
+    ...extra,
+  })
 }
 
 /**
- * 案件账实核对（0.2.12）—— 独立一条消息 + 去重台账。
+ * 分钟级巡检入口（host 每 5 分钟调用一次）。
+ *
+ * 决策顺序：
+ *  1. 到点且今天还没发摘要 → 发摘要（成功才记 lastDigestDate；失败下个 tick 重试）；
+ *  2. 上次失败且已过 10 分钟 → 重试；
+ *  3. 当天摘要后出现新事项 → 冷却 15 分钟后发「补充」；
+ *  4. 有事项即将开始 → 发「即将开始」精确卡。
+ */
+export async function runReminderTick(
+  dirs: { litigation: string; nonlitigation: string; tasks: string },
+  cfg: PushConfig,
+  store: PushStore,
+  stateStore: PushStateStore,
+  opts: { force?: boolean; mode?: 'auto' | 'manual' | 'digest' | 'intraday'; now?: number } = {},
+): Promise<ReminderTickResult> {
+  const now = opts.now ?? Date.now()
+  if (!cfg.enabled && opts.force !== true) {
+    return { due: 0, pushed: 0, attempted: false, kind: 'none' }
+  }
+
+  const state = await stateStore.read()
+  const today = localDate(now)
+  const slotReached = digestSlotReached(cfg, now)
+  const manual = opts.force === true || opts.mode === 'manual' || opts.mode === 'digest'
+  const lastKind = state.lastKind ?? 'digest'
+  const failed = (state.lastError ?? '') !== ''
+  const retryWaitOver = state.lastAttemptAt === undefined
+    || now - Date.parse(state.lastAttemptAt) >= RETRY_INTERVAL_MS
+  // 失败后 10 分钟内不再重试，避免飞书持续故障时每 5 分钟打一次。
+  const digestDue = (manual || (slotReached && state.lastDigestDate !== today))
+    && !(failed && lastKind === 'digest' && !retryWaitOver)
+  const retryDue = failed && lastKind === 'digest' && retryWaitOver
+  const intradayWindow = opts.mode === 'intraday' || (cfg.preciseReminder !== false && inIntradayWindow(now))
+  const incrementalAllowed = slotReached
+    && state.lastDigestDate === today
+    && (state.lastIncrementalAt === undefined || now - Date.parse(state.lastIncrementalAt) >= INCREMENTAL_INTERVAL_MS)
+    && !(failed && lastKind === 'incremental' && !retryWaitOver)
+  const intradayAllowed = intradayWindow && !(failed && lastKind === 'intraday' && !retryWaitOver)
+
+  if (!digestDue && !retryDue && !intradayWindow && !incrementalAllowed) {
+    return { due: 0, pushed: 0, attempted: false, kind: 'none' }
+  }
+
+  const items = await collectAllDeadlines(dirs.litigation, dirs.nonlitigation, dirs.tasks)
+  const options = planOptions(cfg)
+  const selection = selectDigestEntries(reminderCandidates(items, options, now), {
+    density: cfg.density ?? 'concise',
+    now,
+  })
+  const candidates = selection.entries
+  const freshAll = await filterFresh(candidates, store, opts.force === true)
+  const capped = applyDigestCaps(freshAll, { density: cfg.density ?? 'concise', maxRows: cfg.maxDigestRows })
+  const fresh = capped.entries
+  const suppressed = {
+    ...selection.suppressed,
+    capped: (selection.suppressed.capped ?? 0) + capped.hidden,
+  }
+  const intraday = await filterFreshIntraday(intradayCandidates(items, options, now), store, opts.force === true)
+
+  // ① 摘要 / ② 失败重试
+  if (digestDue || retryDue) {
+    // 进展检查分级投递：高优先级新发现当天推；中/低优先级只在周一汇总，
+    // 避免「已结案仍有未完成任务」这类清理型问题每天打扰。
+    const weekly = new Date(now).getDay() === 1
+    const patrol = await runPatrolPass(dirs.litigation, { weekly })
+    if (fresh.length === 0) {
+      await stateStore.mutate(successPatch(now, {
+        lastDigestDate: today,
+        lastPushedCount: 0,
+        lastKind: 'digest',
+      }))
+      return { due: candidates.length, pushed: 0, attempted: false, patrol, kind: 'digest' }
+    }
+    try {
+      const late = slotReached && msFromDigestSlot(cfg, now) < -60 * 60_000
+      await sendReminderCard(fresh, {
+        titlePrefix: cfg.titlePrefix,
+        pushTime: cfg.pushTime,
+        failureNote: state.lastError,
+        late,
+        maxRows: cfg.maxDigestRows,
+        density: cfg.density ?? 'concise',
+        suppressed,
+      })
+      await store.recordPushed(fresh.map((entry) => entry.key))
+      void store.pruneLedger(now - LEDGER_RETENTION_DAYS * 86_400_000).catch(() => { /* best-effort */ })
+      const kind: 'digest' | 'retry' = retryDue && !manual ? 'retry' : 'digest'
+      await stateStore.mutate(successPatch(now, {
+        lastDigestDate: digestDue ? today : state.lastDigestDate,
+        lastPushedCount: fresh.length,
+        lastKind: kind,
+      }))
+      return {
+        due: candidates.length,
+        pushed: fresh.length,
+        attempted: true,
+        patrol,
+        kind,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const failures = (state.consecutiveFailures ?? 0) + 1
+      await stateStore.mutate((s) => ({
+        ...s,
+        lastAttemptAt: new Date(now).toISOString(),
+        lastError: message,
+        consecutiveFailures: failures,
+        lastKind: 'digest',
+      }))
+      const canFallback = state.lastFallbackAt === undefined
+        || now - Date.parse(state.lastFallbackAt) >= FALLBACK_INTERVAL_MS
+      if (canFallback) {
+        const notified = await notifyLocal(
+          'AgentLex 提醒推送失败',
+          `飞书推送失败（第 ${failures} 次），${fresh.length} 项提醒未送达。请检查飞书配置。`,
+        )
+        if (notified) {
+          await stateStore.mutate((s) => ({ ...s, lastFallbackAt: new Date(now).toISOString() }))
+        }
+      }
+      console.warn(`[agentlex-push] 推送失败（第 ${failures} 次）: ${message}`)
+      return { due: candidates.length, pushed: 0, attempted: true, error: message, patrol, kind: 'digest' }
+    }
+  }
+
+  // ③ 当日补充
+  if (fresh.length > 0 && incrementalAllowed) {
+    try {
+      await sendReminderCard(fresh, {
+        titlePrefix: cfg.titlePrefix,
+        pushTime: cfg.pushTime,
+        supplement: true,
+        maxRows: cfg.maxDigestRows,
+        density: cfg.density ?? 'concise',
+        suppressed,
+      })
+      await store.recordPushed(fresh.map((entry) => entry.key))
+      await stateStore.mutate(successPatch(now, {
+        lastIncrementalAt: new Date(now).toISOString(),
+        lastPushedCount: fresh.length,
+        lastKind: 'incremental',
+      }))
+      return { due: candidates.length, pushed: fresh.length, attempted: true, kind: 'incremental' }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await stateStore.mutate((s) => ({
+        ...s,
+        lastAttemptAt: new Date(now).toISOString(),
+        lastError: message,
+        consecutiveFailures: (s.consecutiveFailures ?? 0) + 1,
+        lastKind: 'incremental',
+      }))
+      return { due: candidates.length, pushed: 0, attempted: true, error: message, kind: 'incremental' }
+    }
+  }
+
+  // ④ 即将开始（精确提醒）
+  if (intraday.length > 0 && intradayAllowed) {
+    try {
+      await sendFeishuCard(formatIntradayMarkdown(intraday, cfg.titlePrefix), { template: intradayTemplate(intraday) })
+      await store.recordPushed(intraday.map((entry) => entry.key))
+      await stateStore.mutate(successPatch(now, {
+        lastPushedCount: intraday.length,
+        lastKind: 'intraday',
+      }))
+      return { due: intraday.length, pushed: intraday.length, attempted: true, kind: 'intraday', intraday: intraday.length }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await stateStore.mutate((s) => ({
+        ...s,
+        lastAttemptAt: new Date(now).toISOString(),
+        lastError: message,
+        consecutiveFailures: (s.consecutiveFailures ?? 0) + 1,
+        lastKind: 'intraday',
+      }))
+      return { due: intraday.length, pushed: 0, attempted: true, error: message, kind: 'intraday' }
+    }
+  }
+
+  return { due: candidates.length, pushed: 0, attempted: false, kind: 'none' }
+}
+
+/** 预览今日提醒计划（设置页用，不发送、不写台账）。 */
+export async function previewReminderPlan(
+  dirs: { litigation: string; nonlitigation: string; tasks: string },
+  cfg: PushConfig,
+  now: number = Date.now(),
+): Promise<ReminderPreview & { nextDigestAt: string; suppressed: SuppressedSummary }> {
+  const items = await collectAllDeadlines(dirs.litigation, dirs.nonlitigation, dirs.tasks)
+  const selection = selectDigestEntries(reminderCandidates(items, planOptions(cfg), now), {
+    density: cfg.density ?? 'concise',
+    now,
+  })
+  const capped = applyDigestCaps(selection.entries, { density: cfg.density ?? 'concise', maxRows: cfg.maxDigestRows })
+  const entries = capped.entries
+  const suppressed = {
+    ...selection.suppressed,
+    capped: (selection.suppressed.capped ?? 0) + capped.hidden,
+  }
+  const [h, m] = parsePushTime(cfg.pushTime)
+  const slot = new Date(now)
+  slot.setHours(h, m, 0, 0)
+  if (slot.getTime() <= now) slot.setDate(slot.getDate() + 1)
+  const nextDigestAt = `${slot.getFullYear()}-${String(slot.getMonth() + 1).padStart(2, '0')}-${String(slot.getDate()).padStart(2, '0')} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+  return { ...buildPreview(entries, 50), nextDigestAt, suppressed }
+}
+
+/**
+ * 案件进展检查（0.2.12）—— 独立一条消息 + 去重台账。
  *
  * 与每日到期提醒彻底分开：这里回答「你的账是不是记错了」，不是「今天要干什么」。
- * 台账（patrol-ledger.json）保证只有**新出现或证据变化**的发现才推；已确认无需处理
- * 的（mute_patrol_finding）不再提醒。
  */
-async function runPatrolPass(litigationDir: string): Promise<{ total: number; pushed: number; summary: string }> {
+async function runPatrolPass(
+  litigationDir: string,
+  opts: { weekly?: boolean } = {},
+): Promise<{ total: number; pushed: number; summary: string }> {
   try {
     const itemsDir = join(litigationDir, '..', 'items')
     const itemStore = createItemStore(itemsDir)
@@ -407,6 +669,9 @@ async function runPatrolPass(litigationDir: string): Promise<{ total: number; pu
     const active: PatrolFinding[] = []
     for (const f of result.findings) {
       if (await ledger.isMuted(f.caseId, f.ruleId)) continue
+      // 高优先级（期限漏登/该推进没推进）当天推；中/低优先级（重复登记/结案未清任务）
+      // 只在周一汇总，减少日常噪音。
+      if (f.severity !== 'high' && opts.weekly !== true) continue
       active.push(f)
     }
     const valid = active.map((f) => f.fingerprint)
@@ -421,7 +686,7 @@ async function runPatrolPass(litigationDir: string): Promise<{ total: number; pu
     console.warn(`[agentlex-patrol] ${result.summary}；本次推送 ${freshFindings.length} 项新发现`)
     return { total: active.length, pushed: freshFindings.length, summary: result.summary }
   } catch (error) {
-    console.warn('[agentlex-patrol] 账实核对失败:', error instanceof Error ? error.message : String(error))
-    return { total: 0, pushed: 0, summary: '案件账实核对：执行失败' }
+    console.warn('[agentlex-patrol] 进展检查失败:', error instanceof Error ? error.message : String(error))
+    return { total: 0, pushed: 0, summary: '案件进展检查：执行失败' }
   }
 }

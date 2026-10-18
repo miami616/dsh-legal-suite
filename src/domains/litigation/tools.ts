@@ -34,7 +34,7 @@ export interface ToolDeps {
   itemStore?: import('../item/store/item-store.ts').ItemStore
   /** 期限规则本地补丁表 + 提案（0.2.12）。 */
   periodRuleStore?: import('./store/period-rule-store.ts').PeriodRuleStore
-  /** 账实核对台账（去重推送 + 已确认留档）。 */
+  /** 案件进展检查台账（去重推送 + 已确认留档）。 */
   patrolLedgerStore?: import('./store/patrol-ledger-store.ts').PatrolLedgerStore
   /** Deadline engine summary (optional when unavailable). */
   deadlines?(caseId?: string, opts?: { includeOverdue?: boolean }): unknown | Promise<unknown>
@@ -187,7 +187,7 @@ const DESCRIPTION = [
   '取规范术语、带法律依据，并自动铺「提前量任务链」（T-10 研读 → T-7 分析 → T-5 确认 → T-3 定稿 → T-2 递交）。',
   '- 拿不准时先用 derive_deadline 只读预览（不落库）：返回候选、届满日、计算过程、依据与将落的任务；',
   '- 规则表查不到（period_rules 可看全集）→ 不要编日期：用 propose_period_rule 依法条提案并说明依据，律师 resolve_period_rule(accept) 确认后才生效；',
-  '- 账实核对用 patrol_scan：列出「实际状态与登记不一致」的案件（漏登记/登记错/该推进没推进），每条带证据+期望+动作；确认无需处理的用 mute_patrol_finding；',
+  '- 案件进展检查用 patrol_scan：列出「实际状态与登记不一致」的案件（漏登记/登记错/该推进没推进），每条带证据+期望+动作；确认无需处理的用 mute_patrol_finding；',
   '  法院在文书中指定的期间（举证期限/答辩期等以通知书载明为准）仍按文书日期直接登记。',
   '- 触发事由归一：判决书/裁定书/裁决书 → 「裁判文书送达」（status=done，进时间轴纪年）；',
   '- 标签纪律：劳动仲裁裁决之后登记「起诉期届满」（无上诉！终局裁决用人单位才走「撤销裁决申请期届满」）；',
@@ -451,7 +451,7 @@ export function registerLitigationTool(ctx: Context, deps: ToolDeps): () => void
           })
         }
         case 'patrol_scan': {
-          // 案件账实核对（0.2.12）：只读。规则见 patrol.ts——定位是"实际状态与登记不一致"，
+          // 案件进展检查（0.2.12）：只读。规则见 patrol.ts——定位是"实际状态与登记不一致"，
           // 不碰字段完整性（case_health）与任务逾期（任务台账）。
           const rules = await effectiveRulesOf(deps)
           const registry = await cs.readRegistry()

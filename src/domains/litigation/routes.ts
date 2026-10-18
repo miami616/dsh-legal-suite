@@ -63,7 +63,7 @@ export interface RouteDeps {
   itemStore?: ItemStore
   /** 期限规则本地补丁表 + 提案（0.2.12）。 */
   periodRuleStore?: PeriodRuleStore
-  /** 账实核对台账（去重推送 + 已确认留档）。 */
+  /** 案件进展检查台账（去重推送 + 已确认留档）。 */
   patrolLedgerStore?: PatrolLedgerStore
   /** Announce the deadline engine's per-case summary (M4). */
   deadlines?(caseId?: string, opts?: { includeOverdue?: boolean }): unknown | Promise<unknown>
@@ -740,7 +740,7 @@ export function makeRoutes(ctx: Context, deps: RouteDeps): () => void {
     ok(res, { count: rules.length, rules })
   })
 
-  // 案件账实核对（只读）：实际状态与登记不一致的清单（漏登/登错/该推进没推进）。
+  // 案件进展检查（只读）：实际状态与登记不一致的清单（漏登/登错/该推进没推进）。
   route(`${API_PREFIX}/patrol-scan`, async (d, _b, res) => {
     const registry = await d.caseStore.readRegistry()
     const items = d.itemStore === undefined ? [] : await d.itemStore.listItems()

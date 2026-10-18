@@ -97,7 +97,7 @@ check('推送 2 条', r1.pushed === 2)
 check('attempted', r1.attempted === true)
 check('发送了 1 张卡片', sentCards.length === 1)
 const card1 = JSON.parse(sentCards[0])
-check('卡片 header 含前缀+标题', card1.header?.title?.content === '律所 重要日程与任务提醒')
+check('卡片 header 含前缀+标题', card1.header?.title?.content === '律所 日程提醒')
 const cardText = JSON.stringify(card1)
 check('卡片含开庭标题', cardText.includes('**开庭**'))
 check('卡片含明天标签', cardText.includes("<text_tag color='orange'>明天</text_tag>"))
@@ -130,17 +130,27 @@ console.log('== runDeadlinePush: disabled config ==')
 const r3 = await runDeadlinePush({ litigation: dir, nonlitigation: dir, tasks: dir }, { enabled: false }, store)
 check('disabled 不推', r3.pushed === 0 && r3.attempted === false)
 
-console.log('== runDeadlinePush: next-day re-push (ledger expiry) ==')
-// 模拟次日：把台账里今天的记录改成昨天 → 次日 8:30 应重新推送窗口内期限。
+console.log('== runDeadlinePush: 分档键随日期变化重新提醒 ==')
+// 新版按「事项 + 日期 + 档位」长期去重：同一个事项改了日期（或进入下一档）会重新提醒。
+// 模拟时间推进一天：今天的事项变成明天、明天的事项变成后天。
 const fsPromises = await import('node:fs/promises')
-const ledgerPath = join(dir, 'push-ledger.json')
-const ledger = JSON.parse(await fsPromises.readFile(ledgerPath, 'utf8'))
-const yesterday = new Date(Date.now() - 86400000).toISOString()
-ledger.entries = ledger.entries.map((e) => ({ ...e, pushedAt: yesterday }))
-await fsPromises.writeFile(ledgerPath, JSON.stringify(ledger))
+const itemsPath = join(base, 'items', 'items.json')
+const itemDoc = JSON.parse(await fsPromises.readFile(itemsPath, 'utf8'))
+const shift = (date, days) => {
+  const d = new Date(`${date}T00:00:00`)
+  d.setDate(d.getDate() + days)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+itemDoc.items = itemDoc.items.map((it) => ({ ...it, date: shift(it.date, 1) }))
+await fsPromises.writeFile(itemsPath, JSON.stringify(itemDoc))
 const r4 = await runDeadlinePush({ litigation: dir, nonlitigation: dir, tasks: dir }, cfg, store)
-check('次日重新推送窗口内 2 条', r4.pushed === 2)
+check('日期推进后按新档位重新推送 2 条', r4.pushed === 2)
 check('卡片数变为 3', sentCards.length === 3)
+
+console.log('== runDeadlinePush: 同一档位不重复 ==')
+const r5 = await runDeadlinePush({ litigation: dir, nonlitigation: dir, tasks: dir }, cfg, store)
+check('同一档位第二次不重复', r5.pushed === 0 && r5.attempted === false)
+check('卡片数仍为 3', sentCards.length === 3)
 
 // Restore fetch.
 globalThis.fetch = originalFetch

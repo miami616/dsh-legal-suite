@@ -15,8 +15,14 @@ import type { CaseRegistry, CaseRecord, TimelineEvent } from './store/types.ts'
 
 /** Reminder horizon in days for the "urgent" flag (AgentLex 7d/1d convention). */
 export const URGENT_HORIZON_DAYS = 7
-/** Hard-overdue horizon: treat as overdue when < today. */
-const TODAY = (): string => new Date().toISOString().slice(0, 10)
+/**
+ * 本地日期（不使用 toISOString：UTC 在凌晨 0–8 点会与本地日期差一天，
+ * 会让「今天到期」在清晨误判为明天，提醒窗口错位）。
+ */
+const TODAY = (): string => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 export interface DeadlineItem {
   caseId: string
@@ -29,6 +35,10 @@ export interface DeadlineItem {
   time?: string
   /** 附加详情（如法庭/审判庭、时间地点等，来自 timeline 事件 detail）。 */
   detail?: string
+  /** 命中的法定期限规则 id（keydate 审计字段；手工登记/普通任务为空）。 */
+  ruleId?: string
+  /** 法律依据（配合 ruleId，用于提醒卡说明）。 */
+  cite?: string
   date: string
   label: string
   kind: 'hearing' | 'deadline' | 'keydate' | 'task'
@@ -106,7 +116,7 @@ export function computeDeadlines(
     task: 1,
   }
 
-  const push = (date: string, label: string, kind: DeadlineItem['kind'], source: string, rec: CaseRecord, extra?: { time?: string; detail?: string }): void => {
+  const push = (date: string, label: string, kind: DeadlineItem['kind'], source: string, rec: CaseRecord, extra?: { time?: string; detail?: string; ruleId?: string; cite?: string }): void => {
     if (!date) return
     const normLabel = String(label ?? '').trim()
     if (normLabel === '') return
@@ -118,6 +128,8 @@ export function computeDeadlines(
       court: rec.court,
       time: extra?.time !== undefined && extra.time.trim() !== '' ? extra.time.trim() : undefined,
       detail: extra?.detail !== undefined && extra.detail.trim() !== '' ? extra.detail.trim() : undefined,
+      ruleId: extra?.ruleId,
+      cite: extra?.cite,
       date,
       label: normLabel,
       kind,
@@ -137,6 +149,8 @@ export function computeDeadlines(
         if (merged.detail === undefined) merged.detail = existing.detail
         if (merged.caseNumber === undefined) merged.caseNumber = existing.caseNumber
         if (merged.court === undefined) merged.court = existing.court
+        if (merged.ruleId === undefined) merged.ruleId = existing.ruleId
+        if (merged.cite === undefined) merged.cite = existing.cite
       }
       byKey.set(key, merged)
     }
@@ -181,7 +195,7 @@ export function computeDeadlines(
         if (e.time !== undefined && e.time !== '') time = e.time
         if (e.detail !== undefined && e.detail !== '') detail = e.detail
       }
-      push(kd.date, kd.label, 'keydate', 'keydate', rec, { time, detail })
+      push(kd.date, kd.label, 'keydate', 'keydate', rec, { time, detail, ruleId: kd.ruleId, cite: kd.cite })
     }
   }
 
@@ -245,7 +259,7 @@ export function computeDeadlinesV2(
     return { caseId: ownerId, caseName: meta.name ?? ownerId, caseNumber: meta.caseNumber, court: meta.court, sourceTag: meta.source }
   }
 
-  const push = (rec: { caseId: string; caseName: string; caseNumber?: string; court?: string; sourceTag?: string }, date: string, label: string, kind: DeadlineItem['kind'], source: string, extra?: { time?: string; detail?: string }): void => {
+  const push = (rec: { caseId: string; caseName: string; caseNumber?: string; court?: string; sourceTag?: string }, date: string, label: string, kind: DeadlineItem['kind'], source: string, extra?: { time?: string; detail?: string; ruleId?: string; cite?: string }): void => {
     if (!date) return
     const normLabel = String(label ?? '').trim()
     if (normLabel === '') return
@@ -257,6 +271,8 @@ export function computeDeadlinesV2(
       court: rec.court,
       time: extra?.time !== undefined && extra.time.trim() !== '' ? extra.time.trim() : undefined,
       detail: extra?.detail !== undefined && extra.detail.trim() !== '' ? extra.detail.trim() : undefined,
+      ruleId: extra?.ruleId,
+      cite: extra?.cite,
       date,
       label: normLabel,
       kind,
@@ -274,6 +290,8 @@ export function computeDeadlinesV2(
         if (mergedItem.detail === undefined) mergedItem.detail = existing.detail
         if (mergedItem.caseNumber === undefined) mergedItem.caseNumber = existing.caseNumber
         if (mergedItem.court === undefined) mergedItem.court = existing.court
+        if (mergedItem.ruleId === undefined) mergedItem.ruleId = existing.ruleId
+        if (mergedItem.cite === undefined) mergedItem.cite = existing.cite
       }
       byKey.set(key, mergedItem)
     }
@@ -321,7 +339,7 @@ export function computeDeadlinesV2(
         if (e.time !== undefined && e.time !== '') time = e.time
         if (e.detail !== undefined && e.detail !== '') detail = e.detail
       }
-      push(owner, kd.date, kd.label, 'keydate', 'keydate', { time, detail })
+      push(owner, kd.date, kd.label, 'keydate', 'keydate', { time, detail, ruleId: kd.ruleId, cite: kd.cite })
     }
   }
 

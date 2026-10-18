@@ -11,10 +11,12 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import type { PushStore } from './store/push-config.ts'
-import { runDeadlinePush } from './push.ts'
-import { sendDeadlineCard } from './feishu-card.ts'
+import { parseMaxDigestRows, type PushStateStore, type PushStore } from './store/push-config.ts'
+import { previewReminderPlan, runReminderTick } from './push.ts'
+import { sendReminderCard } from './feishu-card.ts'
 import { isFeishuConfigured, loadFeishuConfig, saveFeishuConfig } from './feishu-config.ts'
+import { localDate, reminderCandidates, type ReminderPlanOptions } from './reminder-plan.ts'
+import type { DeadlineItem } from '../litigation/deadlines.ts'
 
 /** Route prefix for the whole family. */
 export const API_PREFIX = '/api/agentlex-push'
@@ -23,6 +25,8 @@ export const API_PREFIX = '/api/agentlex-push'
 export interface PushRouteDeps {
   /** The push store (config + ledger). */
   store: PushStore
+  /** 运行状态（上次成功/失败、失败重试）。 */
+  stateStore: PushStateStore
   /** The litigation data directory (reads case-registry.json / items.json). */
   litigationDataDir: string
   /** The nonlitigation data directory (reads project-registry.json). */
@@ -102,6 +106,11 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
     if (typeof b.enabled === 'boolean') next.enabled = b.enabled
     if (typeof b.pushTime === 'string') next.pushTime = b.pushTime.trim()
     if (typeof b.titlePrefix === 'string') next.titlePrefix = b.titlePrefix.trim()
+    if (typeof b.smartLead === 'boolean') next.smartLead = b.smartLead
+    if (typeof b.preciseReminder === 'boolean') next.preciseReminder = b.preciseReminder
+    if (typeof b.includeConsequence === 'boolean') next.includeConsequence = b.includeConsequence
+    if (b.maxDigestRows !== undefined) next.maxDigestRows = parseMaxDigestRows(b.maxDigestRows)
+    if (b.density === 'concise' || b.density === 'standard') next.density = b.density
     ok(res, await d.store.writeConfig(next))
     // 配置变更（如推送时间）后让 host 重建定时器。
     d.onConfigChange?.()
@@ -134,33 +143,83 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
     }
   })
 
-  // Send a test Feishu card to the bot owner.
+  // Send a test Feishu card to the bot owner (same smart card as production).
   route(`${API_PREFIX}/test`, async (d, b, res) => {
     const prefix = typeof b.titlePrefix === 'string' ? b.titlePrefix.trim() : ''
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
-    const today = new Date().toISOString().slice(0, 10)
-    const sample: Array<Parameters<typeof sendDeadlineCard>[0][number]> = [
-      { caseId: 'sample', caseName: '示例案件', caseNumber: '（2026）X民初XXXX号', court: 'XX市XX区人民法院', time: '09:00', detail: '第X法庭', date: tomorrow, label: '开庭', kind: 'hearing', daysLeft: 1, urgent: true, overdue: false, source: 'sample' },
-      { caseId: 'sample2', caseName: '某顾问单位', date: today, label: '案件沟通会', kind: 'keydate', daysLeft: 0, urgent: true, overdue: false, source: 'sample' },
+    const today = localDate()
+    const plus = (days: number): string => {
+      const dt = new Date(`${today}T00:00:00`)
+      dt.setDate(dt.getDate() + days)
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+    }
+    const sample: DeadlineItem[] = [
+      {
+        caseId: 'sample', caseName: '示例案件', caseNumber: '（2026）X民初XXXX号', court: 'XX市XX区人民法院',
+        time: '09:00', detail: '第X法庭', date: plus(1), label: '开庭', kind: 'hearing',
+        daysLeft: 1, urgent: true, overdue: false, source: 'sample',
+      },
+      {
+        caseId: 'sample2', caseName: '甲方与乙方买卖合同纠纷', caseNumber: '（2026）X民初XXXX号',
+        date: plus(3), label: '上诉期届满', kind: 'keydate', daysLeft: 3, urgent: true, overdue: false, source: 'sample',
+      },
     ]
+    const plan: ReminderPlanOptions = { smartLead: true, includeConsequence: true }
     try {
-      await sendDeadlineCard(sample, prefix)
+      await sendReminderCard(reminderCandidates(sample, plan), { titlePrefix: prefix, pushTime: '08:30' })
       ok(res, { sent: true })
     } catch (error) {
       fail(res, error, 502, '请检查飞书凭据（integrations/dsh-feishu/config.json 与 .credentials.yaml）')
     }
   })
 
-  // Trigger a manual push run now (for testing). force=true 绕过台账推全部。
+  // Trigger a manual reminder tick now (force=true 绕过台账推全部)。
   route(`${API_PREFIX}/run`, async (d, b, res) => {
     const cfg = await d.store.readConfig()
     if (typeof b.enabled === 'boolean') cfg.enabled = b.enabled
     if (typeof b.titlePrefix === 'string') cfg.titlePrefix = b.titlePrefix.trim()
-    const result = await runDeadlinePush(
+    const result = await runReminderTick(
       { litigation: d.litigationDataDir, nonlitigation: d.nonlitigationDataDir, tasks: d.tasksDataDir },
-      cfg, d.store, { force: b.force === true },
+      cfg, d.store, d.stateStore, { mode: 'manual', force: b.force === true },
     )
     ok(res, result)
+  })
+
+  // Reminder health/status for the settings page.
+  route(`${API_PREFIX}/status`, async (d, _b, res, method) => {
+    if (method !== 'GET') {
+      fail(res, new Error('GET only'), 405)
+      return
+    }
+    const config = await d.store.readConfig()
+    const [state, feishuConfigured, preview] = await Promise.all([
+      d.stateStore.read(),
+      isFeishuConfigured(),
+      previewReminderPlan(
+        { litigation: d.litigationDataDir, nonlitigation: d.nonlitigationDataDir, tasks: d.tasksDataDir },
+        config,
+      ),
+    ])
+    ok(res, {
+      config,
+      state,
+      feishuConfigured,
+      nextDigestAt: preview.nextDigestAt,
+      due: preview.total,
+      suppressed: preview.suppressed,
+      serverTime: new Date().toISOString(),
+    })
+  })
+
+  // Preview today's reminder plan (no send, no ledger write).
+  route(`${API_PREFIX}/preview`, async (d, b, res) => {
+    const cfg = await d.store.readConfig()
+    if (typeof b.smartLead === 'boolean') cfg.smartLead = b.smartLead
+    if (typeof b.includeConsequence === 'boolean') cfg.includeConsequence = b.includeConsequence
+    const preview = await previewReminderPlan(
+      { litigation: d.litigationDataDir, nonlitigation: d.nonlitigationDataDir, tasks: d.tasksDataDir },
+      cfg,
+    )
+    ok(res, preview)
   })
 
   return () => { for (const dispose of disposers.splice(0).reverse()) dispose() }

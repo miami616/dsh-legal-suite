@@ -1,29 +1,32 @@
 /**
  * dsh-legal-suite/push — host half.
  *
- * 期限提醒：每天早上 8:30 统一推送「今日 + 明日」到期的关键日期，飞书卡片。
+ * 期限提醒（v0.2.25 智能分级版）：
+ *  - 每日摘要：到设定时间（默认 08:30）推送当天的提醒计划到飞书卡片；
+ *  - 精确提醒：开庭提前 2 小时/30 分钟、其他事项提前 30 分钟；
+ *  - 每 5 分钟巡检一次：补发休眠/重启错过的档期，失败每 10 分钟重试。
  *
- * 架构（2026-09-10 确认，自包含化）：
- *  - 定时 = 插件内置 ticker（setTimeout 排到每天 8:30，host 常驻，GUI 关闭也照常）。
- *    不再依赖 dsh-timer-agent 的 command 任务。
- *  - 推送 = 直连飞书 open API 发分区卡片（与 feishu_push.py 同一套凭据）。
- *    不再依赖 @xmanrui/dsh-im。
- *  - 本域只做「读期限 → 过滤今日/明日 → 组卡片文案 → 发飞书 → 按日去重」。
+ * 架构（2026-10-18 调整）：
+ *  - **不再用「排到明天 8:30 的一次性 setTimeout」**：笔记本合盖休眠、进程重启都会
+ *    让那一次定时丢失，且无处补发。现在用一个 5 分钟心跳 + push-state.json 的
+ *    `lastDigestDate` 判断「今天是否已发」，启动后立即补跑；
+ *  - 定时与推送仍完全自包含（不依赖 dsh-timer-agent / dsh-im），直连飞书 open API；
+ *  - 失败状态落盘（push-state.json），下次成功卡会注明「上次推送失败」，并弹
+ *    macOS 本地通知兜底。
  *
- * 数据：$DSH_HOME/agentlex/push/（push-config.json + push-ledger.json）。
- * 依赖：飞书凭据（$DSH_HOME/integrations/dsh-feishu/config.json +
- *       $DSH_HOME/.credentials.yaml），与每日早报共用；缺席时推送失败并告警，不崩溃。
+ * 数据：$DSH_HOME/agentlex/push/（push-config.json + push-ledger.json + push-state.json）。
+ * 依赖：飞书凭据（$DSH_HOME/integrations/dsh-feishu/config.json + .credentials.yaml）；
+ *       缺席时推送失败并告警，不崩溃。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
-import { homedir } from 'node:os'
 import { installSettingsSection } from '../../shared/settings-adapter.ts'
-import { createPushStore, parsePushTime } from './store/push-config.ts'
+import { createPushStore, createRunStateStore } from './store/push-config.ts'
 import { makeRoutes } from './routes.ts'
-import { runDeadlinePush } from './push.ts'
+import { runReminderTick } from './push.ts'
 
 /** Stable cordis plugin name. */
 export const name = 'push'
@@ -36,7 +39,7 @@ export const PUSH_SETTINGS_NAMESPACE = 'agentlex-push' as const
 
 /** Plugin config, validated by the same-named schemastery schema. */
 export interface Config {
-  /** Master switch for the plugin (routes, built-in timer). */
+  /** Master switch for the plugin (routes, built-in ticker). */
   enabled?: boolean
   /** Data directory override (default: $DSH_HOME/agentlex/push). */
   dataDir?: string
@@ -91,31 +94,16 @@ export function tasksDataDir(): string {
 export const DEFAULT_PUSH_HOUR = 8
 export const DEFAULT_PUSH_MINUTE = 30
 
-/**
- * 排下一次推送：计算到下一个「配置的推送时间」的毫秒数，setTimeout 到点执行后
- * 再排下一次。间隔恒 < 24h，远小于 setTimeout 的 2^31-1 ms 上限。
- * 每次排程时现读配置时间——用户改了推送时间后，下一次排程即用新时间。
- */
-export function scheduleNextRun(fn: () => void, getPushTime: () => string): NodeJS.Timeout {
-  const now = new Date()
-  const [hour, minute] = parsePushTime(getPushTime())
-  const next = new Date(now)
-  next.setHours(hour, minute, 0, 0)
-  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1)
-  return setTimeout(() => {
-    try {
-      fn()
-    } finally {
-      // 无论 fn 是否抛错，都排下一次（异常只记日志，不中断排程）。
-      scheduleNextRun(fn, getPushTime)
-    }
-  }, next.getTime() - now.getTime())
-}
+/** 巡检心跳间隔：5 分钟（精确到点提醒的粒度）。 */
+export const TICK_INTERVAL_MS = 5 * 60_000
+/** 启动后补跑延迟：留出 20 秒让数据存储与飞书配置就绪。 */
+export const STARTUP_DELAY_MS = 20_000
 
 /** Module-level surface registry (survives fiber reloads). */
 interface PushSurface {
   token: object
   timer: NodeJS.Timeout | undefined
+  startup: NodeJS.Timeout | undefined
   dispose: () => void
 }
 let pushSurface: PushSurface | undefined
@@ -140,6 +128,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
     const dataDir = resolveDataDir(value.dataDir)
     const store = createPushStore(dataDir)
+    const stateStore = createRunStateStore(dataDir)
     const dirs = {
       litigation: litigationDataDir(),
       nonlitigation: nonlitigationDataDir(),
@@ -149,15 +138,16 @@ export function apply(ctx: Context, config: Config = {}): void {
     const disposers: Array<() => void> = []
     disposers.push(makeRoutes(ctx, {
       store,
+      stateStore,
       litigationDataDir: dirs.litigation,
       nonlitigationDataDir: dirs.nonlitigation,
       tasksDataDir: dirs.tasks,
-      // 配置变更（含推送时间）后重建定时器。
+      // 配置变更（时间/开关）后重建巡检器并立即试跑一次。
       onConfigChange: sync,
     }))
     pendingDisposers = disposers
 
-    // 内置定时器：每天按配置的推送时间触发一次（防重入：上一次未跑完则跳过本轮）。
+    // 5 分钟心跳（防重入：上一次未跑完则跳过本轮）。
     let inFlight = false
     const run = async (): Promise<void> => {
       if (inFlight) return
@@ -165,33 +155,37 @@ export function apply(ctx: Context, config: Config = {}): void {
       try {
         const cfg = await store.readConfig()
         if (!cfg.enabled) return
-        const result = await runDeadlinePush(dirs, cfg, store)
+        const result = await runReminderTick(dirs, cfg, store, stateStore)
         if (result.error !== undefined) {
           console.warn(`[agentlex-push] 推送失败: ${result.error}`)
-        } else {
-          console.log(`[agentlex-push] due=${result.due} pushed=${result.pushed} attempted=${result.attempted}`)
+        } else if (result.pushed > 0) {
+          console.log(`[agentlex-push] kind=${result.kind} due=${result.due} pushed=${result.pushed}`)
         }
       } catch (error) {
-        console.warn('[agentlex-push] 定时推送异常:', error instanceof Error ? error.message : String(error))
+        console.warn('[agentlex-push] 巡检异常:', error instanceof Error ? error.message : String(error))
       } finally {
         inFlight = false
       }
     }
 
-    // 异步读配置拿到推送时间后再建定时器（首次排程即用真实配置时间）。
-    void store.readConfig().then((cfg) => {
-      if (pendingDisposers !== disposers) return // 已被新的 sync 取代，放弃。
-      const timer = scheduleNextRun(() => { void run() }, () => cfg.pushTime ?? '08:30')
-      pushSurface = {
-        token,
-        timer,
-        dispose: () => {
-          if (timer !== undefined) clearTimeout(timer)
-          for (const dispose of disposers.splice(0).reverse()) dispose()
-          if (pendingDisposers === disposers) pendingDisposers = []
-        },
-      }
-    })
+    // 启动补跑：若今天已过推送时间但状态里没有 lastDigestDate（关机/重启/休眠错过），
+    // 20 秒后立即补一次；否则也会在下一个心跳周期自然处理。
+    const startup = setTimeout(() => { void run() }, STARTUP_DELAY_MS)
+    const timer = setInterval(() => { void run() }, TICK_INTERVAL_MS)
+    if (typeof timer.unref === 'function') timer.unref()
+    if (typeof startup.unref === 'function') startup.unref()
+
+    pushSurface = {
+      token,
+      timer,
+      startup,
+      dispose: () => {
+        if (timer !== undefined) clearInterval(timer)
+        if (startup !== undefined) clearTimeout(startup)
+        for (const dispose of disposers.splice(0).reverse()) dispose()
+        if (pendingDisposers === disposers) pendingDisposers = []
+      },
+    }
   }
 
   const disposeSettings = installSettingsSection(ctx, PUSH_SETTINGS_NAMESPACE, Config, config, {

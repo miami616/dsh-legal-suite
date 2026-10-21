@@ -18,6 +18,7 @@ import type {
   Item, ItemChecklist, ItemRegistry, ItemStatus, ItemSubtask, ItemType, TaskGroup, TaskGroupRegistry,
 } from './types.ts'
 import { isTaskItem, normalizeItemType } from './types.ts'
+import { inferEventType } from '../../../shared/event-type.ts'
 
 export type { Item, ItemRegistry, TaskGroup, TaskGroupRegistry }
 
@@ -91,6 +92,21 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
     const raw = (it as { type?: string }).type
     const t = normalizeItemType(raw)
     return t === raw ? it : { ...it, type: t }
+  }
+
+  /**
+   * 写入时补 kind（0.2.26）：日程（event/both）没写 kind 时按标题推断。
+   *
+   * 「管家登记日程」以前会把开庭/上诉期写成一条无 kind 的事件，读侧只能落到
+   * case_event——界面不标红、推送也进不了紧急阶梯（用户 2026-10-20 反馈）。
+   * 读侧已有兜底推断，这里把推断结果落库，让 items.json 自身就是对的。
+   * 只补缺失值，绝不覆盖调用方显式写入的 kind。
+   */
+  function withInferredKind(it: Item): Item {
+    if (it.kind !== undefined && it.kind !== '') return it
+    if (it.type !== 'event' && it.type !== 'both') return it
+    const inferred = inferEventType(it.title)
+    return inferred === 'case_event' ? it : { ...it, kind: inferred }
   }
 
   /** 读取 + 归一化（每次读都确保两个数组存在）。 */
@@ -238,7 +254,7 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
         const next = clone(reg)
         const index = input.id === undefined || input.id === '' ? -1 : next.items.findIndex((i) => i.id === input.id)
         if (index >= 0) {
-          const merged = { ...next.items[index]!, ...clone(input), updatedAt: now }
+          const merged = withInferredKind({ ...next.items[index]!, ...clone(input), updatedAt: now })
           next.items[index] = merged
           result = clone(merged)
         } else {
@@ -273,8 +289,9 @@ export function createItemStore(dataDir: string, ctx?: Context): ItemStore {
             createdAt: now,
             updatedAt: now,
           }
-          next.items.push(created)
-          result = clone(created)
+          const createdWithKind = withInferredKind(created)
+          next.items.push(createdWithKind)
+          result = clone(createdWithKind)
         }
         next.lastUpdated = now
         return next

@@ -14,6 +14,8 @@
  * 可以安全共用。
  */
 
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { JsonFileStore } from '../../litigation/store/file-store.ts'
 
 /** 本地日期（不用 toISOString：UTC 在凌晨 0–8 点会错一天）。 */
@@ -41,6 +43,14 @@ export interface PushConfig {
   includeConsequence?: boolean
   /** 标准模式单张摘要卡最多展示条数（默认 15；精简模式按分区限额）。 */
   maxDigestRows?: number
+  /** 图片版提醒：把当天摘要渲染成 PNG 发飞书（失败自动回退文字卡）。 */
+  imageMode?: boolean
+  /**
+   * 提醒频率（默认 low）：
+   *  - low：法定期限 30/7/3/1/0，任务 3/1/0，开庭只提前 2 小时提醒一次；
+   *  - normal：保留 15/2 等中间档位，开庭 2h/30m。
+   */
+  frequency?: 'low' | 'normal'
   /**
    * 提醒密度（默认 concise）：
    *  - concise：每日只推近 7 天 + 当天 + 逾期前 3 天，积压只给数量；
@@ -59,6 +69,8 @@ export function pushConfigDefault(): PushConfig {
     preciseReminder: true,
     includeConsequence: true,
     maxDigestRows: 15,
+    imageMode: true,
+    frequency: 'low',
     density: 'concise',
   }
 }
@@ -213,5 +225,37 @@ export function createPushStore(dataDir: string): PushStore {
         return { ...ledger, entries: kept }
       }, '')
     },
+  }
+}
+
+
+/**
+ * 跨进程推送互斥锁。
+ *
+ * 同一份 `$DSH_HOME/agentlex/push` 可能被多个 DSH 实例共用（live 3080 + 测试 3081）。
+ * 每个实例都有自己的 5 分钟心跳；如果没有互斥，两个实例会在同一分钟各发一张卡。
+ * 用 `mkdir` 的原子性做锁，超过 TTL 视为崩溃残留自动清理。
+ *
+ * @param dataDir - push 数据目录（锁目录为 `<dataDir>/push-run.lock`）。
+ * @param ttlMs - 锁的最长持有时间（默认 10 分钟）。
+ * @returns 释放函数；拿不到锁时返回 undefined（本轮直接跳过）。
+ */
+export async function acquirePushRunLock(dataDir: string, ttlMs = 10 * 60_000): Promise<(() => Promise<void>) | undefined> {
+  const lockDir = join(dataDir, 'push-run.lock')
+  const release = async (): Promise<void> => { await rm(lockDir, { recursive: true, force: true }) }
+  try {
+    await mkdir(lockDir)
+    await writeFile(join(lockDir, 'owner'), `${process.pid} ${new Date().toISOString()}\n`, 'utf8')
+    return release
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') return undefined
+    try {
+      const info = await stat(lockDir)
+      if (Date.now() - info.mtimeMs > ttlMs) {
+        await rm(lockDir, { recursive: true, force: true })
+        return await acquirePushRunLock(dataDir, ttlMs)
+      }
+    } catch { /* 锁在检查时被释放：本轮让给对方 */ }
+    return undefined
   }
 }

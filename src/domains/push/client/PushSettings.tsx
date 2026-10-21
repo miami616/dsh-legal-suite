@@ -12,7 +12,7 @@ import {
 } from './api.ts'
 
 /** 提醒时机说明。 */
-const WINDOW_HINT = '每天按设定时间推送提醒计划：法定期限按 T-30/T-15/T-7/T-3/T-2/T-1/当天逐级提醒，开庭提前 2 小时/30 分钟，逾期任务持续提醒。每条同一档只提醒一次，错过会补发。'
+const WINDOW_HINT = '仅工作日（周一至周五，含调休上班日）按设定时间推送：法定期限 T-30/7/3/1/当天，开庭 T-7/3/1/当天 + 当天提前 2 小时；周末与法定节假日不发每日摘要（开庭精确提醒仍发），假期前最后一个工作日会补位。'
 
 /** 卡片模板预览——用中性示例，不含真实当事人/案号/法院。 */
 const TEMPLATE_PREVIEW = `日程提醒
@@ -235,6 +235,34 @@ export function PushSettings(): React.JSX.Element {
             </span>
           </span>
         </label>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--dsw-alias-label-primary)' }}>
+          <input
+            type="checkbox"
+            checked={config.frequency !== 'normal'}
+            onChange={(e) => setConfig((prev) => (prev === null ? prev : { ...prev, frequency: e.target.checked ? 'low' : 'normal' }))}
+            style={{ marginTop: 2 }}
+          />
+          <span>
+            低频提醒（推荐）
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)' }}>
+              法定期限只提醒 T-30/7/3/1/当天，普通任务 T-3/1/当天；开庭只提前 2 小时提醒一次
+            </span>
+          </span>
+        </label>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--dsw-alias-label-primary)' }}>
+          <input
+            type="checkbox"
+            checked={config.imageMode === true}
+            onChange={(e) => setConfig((prev) => (prev === null ? prev : { ...prev, imageMode: e.target.checked }))}
+            style={{ marginTop: 2 }}
+          />
+          <span>
+            图片版提醒
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)' }}>
+              把当天摘要渲染成一张图发飞书；生成/上传失败自动回退文字卡
+            </span>
+          </span>
+        </label>
         {[
           { key: 'smartLead' as const, title: '智能分级提醒', hint: '按期限性质分级：上诉/起诉/答辩/保全 T-30 起逐级提醒，开庭/举证 T-7 起，普通任务 T-3 起' },
           { key: 'preciseReminder' as const, title: '开庭/会议前精确提醒', hint: '开庭提前 2 小时与 30 分钟，其他带时间事项提前 30 分钟' },
@@ -285,6 +313,9 @@ export function PushSettings(): React.JSX.Element {
         <div style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--dsw-alias-bg-l2)', fontSize: 11.5, lineHeight: 1.7, color: 'var(--dsw-alias-label-secondary)' }}>
           <span style={{ fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>运行状态</span>
           <div>下次摘要：{status.nextDigestAt} · 今日计划 {status.due} 项</div>
+          {status.workday === false && (
+            <div style={{ color: 'var(--dsw-alias-label-tertiary)' }}>今天是非工作日（周末/法定节假日），每日摘要暂停；开庭/法定期限的精确提醒仍会发送。</div>
+          )}
           <div>
             上次：{status.state.lastSuccessAt !== undefined
               ? `成功 ${new Date(status.state.lastSuccessAt).toLocaleString('zh-CN', { hour12: false })}`

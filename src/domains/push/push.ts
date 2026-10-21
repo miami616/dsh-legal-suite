@@ -24,7 +24,7 @@ import { isEventItem, isTaskItem } from '../item/store/types.ts'
 import { runPatrol, groupItemsByCase, type PatrolFinding } from '../litigation/patrol.ts'
 import { createPatrolLedgerStore } from '../litigation/store/patrol-ledger-store.ts'
 import { createPeriodRuleStore } from '../litigation/store/period-rule-store.ts'
-import { sendPatrolCard, sendReminderCard, sendFeishuCard } from './feishu-card.ts'
+import { sendPatrolCard, sendReminderCard, sendReminderImageCard, sendFeishuCard } from './feishu-card.ts'
 import type { CaseRegistry, TimelineEvent } from '../litigation/store/types.ts'
 import { ledgerKey, parsePushTime, type PushConfig, type PushStore, type PushRunState, type PushStateStore } from './store/push-config.ts'
 import {
@@ -33,6 +33,9 @@ import {
   intradayCandidates,
   localDate,
   applyDigestCaps,
+  holidayGapCandidates,
+  isDigestWorkday,
+  mergeCandidates,
   reminderCandidates,
   selectDigestEntries,
   type IntradayEntry,
@@ -42,6 +45,7 @@ import {
   type SuppressedSummary,
 } from './reminder-plan.ts'
 import { notifyLocal } from './notify-local.ts'
+import { cleanupReminderImage, renderReminderImage } from './reminder-image.ts'
 import { join } from 'node:path'
 
 /** 旧版提醒窗口：今天（0）与明天（1）。保留导出供兼容性校验使用。 */
@@ -317,7 +321,110 @@ function planOptions(cfg: PushConfig): ReminderPlanOptions & { preciseReminder?:
     preciseReminder: cfg.preciseReminder !== false,
     maxDigestRows: cfg.maxDigestRows ?? 15,
     density: cfg.density ?? 'concise',
+    frequency: cfg.frequency ?? 'low',
   }
+}
+
+/**
+ * 发送摘要：图片模式优先，失败自动回退文字卡。
+ *
+ * 注意：只发一条消息。图片生成/上传失败时不重试图片，直接走文字卡，
+ * 避免同一天出现「图片 + 文字」两张。
+ */
+async function sendDigest(
+  entries: ReminderEntry[],
+  cfg: PushConfig,
+  now: number,
+  meta: {
+    total: number
+    suppressed: SuppressedSummary
+    failureNote?: string
+    late?: boolean
+    supplement?: boolean
+    progressCheck?: string
+  },
+): Promise<void> {
+  if (cfg.imageMode === true) {
+    try {
+      const png = await renderReminderImage({
+        entries,
+        now,
+        pushTime: cfg.pushTime,
+        total: meta.total,
+        suppressed: meta.suppressed,
+      })
+      try {
+        await sendReminderImageCard(png, entries, {
+          titlePrefix: cfg.titlePrefix,
+          pushTime: cfg.pushTime,
+          failureNote: meta.failureNote,
+          late: meta.late,
+          supplement: meta.supplement,
+          progressCheck: meta.progressCheck,
+        })
+      } finally {
+        await cleanupReminderImage(png)
+      }
+      return
+    } catch (error) {
+      console.warn('[agentlex-push] 图片版生成失败，回退文字卡:', error instanceof Error ? error.message : String(error))
+    }
+  }
+  await sendReminderCard(entries, {
+    titlePrefix: cfg.titlePrefix,
+    pushTime: cfg.pushTime,
+    failureNote: meta.failureNote,
+    late: meta.late,
+    supplement: meta.supplement,
+    maxRows: cfg.maxDigestRows,
+    density: cfg.density ?? 'concise',
+    suppressed: meta.suppressed,
+    progressCheck: meta.progressCheck,
+  })
+}
+
+/** 发送「即将开始」：图片优先，失败回退文字卡。 */
+async function sendIntraday(
+  entries: IntradayEntry[],
+  cfg: PushConfig,
+  now: number,
+): Promise<void> {
+  if (cfg.imageMode === true) {
+    try {
+      const mapped: ReminderEntry[] = entries.map((entry) => ({
+        item: entry.item,
+        key: entry.key,
+        cls: entry.cls,
+        severity: entry.severity,
+        threshold: 0,
+        phaseLabel: entry.phaseLabel,
+        consequence: entry.item.detail,
+        catchUp: false,
+        section: 'today_critical',
+      }))
+      const png = await renderReminderImage({
+        entries: mapped,
+        now,
+        pushTime: cfg.pushTime,
+        total: mapped.length,
+        compact: true,
+        kind: 'intraday',
+      })
+      try {
+        await sendReminderImageCard(png, mapped, {
+          titlePrefix: cfg.titlePrefix,
+          pushTime: cfg.pushTime,
+          kind: 'intraday',
+        })
+      } finally {
+        await cleanupReminderImage(png)
+      }
+      return
+    } catch (error) {
+      console.warn('[agentlex-push] 即将开始图片生成失败，回退文字卡:', error instanceof Error ? error.message : String(error))
+    }
+  }
+  await sendFeishuCard(formatIntradayMarkdown(entries, cfg.titlePrefix), { template: intradayTemplate(entries) })
 }
 
 /** 过滤掉已推送过的条目（force 时全部保留）。 */
@@ -368,7 +475,10 @@ export async function runDeadlinePush(
   if (!cfg.enabled) return { due: 0, pushed: 0, attempted: false }
 
   const items = await collectAllDeadlines(dirs.litigation, dirs.nonlitigation, dirs.tasks)
-  const selection = selectDigestEntries(reminderCandidates(items, planOptions(cfg), now), {
+  const selection = selectDigestEntries(mergeCandidates(
+    reminderCandidates(items, planOptions(cfg), now),
+    holidayGapCandidates(items, now),
+  ), {
     density: cfg.density ?? 'concise',
     now,
   })
@@ -379,18 +489,30 @@ export async function runDeadlinePush(
     ...selection.suppressed,
     capped: (selection.suppressed.capped ?? 0) + capped.hidden,
   }
-  const patrol = await runPatrolPass(dirs.litigation, { weekly: true })
+  const patrolPass = await collectPatrolPass(dirs.litigation, { weekly: true })
+  const patrol = { total: patrolPass.total, pushed: 0, summary: patrolPass.summary }
 
-  if (fresh.length === 0) return { due: selection.entries.length, pushed: 0, attempted: false, patrol }
+  if (fresh.length === 0) {
+    if (patrolPass.findings.length > 0) {
+      try {
+        await sendPatrolCard(patrolPass.findings)
+        await patrolPass.commit()
+        patrol.pushed = patrolPass.findings.length
+      } catch (error) {
+        console.warn('[agentlex-patrol] 检查卡发送失败:', error instanceof Error ? error.message : String(error))
+      }
+    }
+    return { due: selection.entries.length, pushed: 0, attempted: false, patrol }
+  }
 
   try {
-    await sendReminderCard(fresh, {
-      titlePrefix: cfg.titlePrefix,
-      pushTime: cfg.pushTime,
-      maxRows: cfg.maxDigestRows,
-      density: cfg.density ?? 'concise',
+    await sendDigest(fresh, cfg, now, {
+      total: fresh.length,
       suppressed,
+      progressCheck: progressCheckText(patrolPass.findings),
     })
+    await patrolPass.commit()
+    patrol.pushed = patrolPass.findings.length
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return { due: selection.entries.length, pushed: 0, attempted: true, error: message, patrol }
@@ -464,10 +586,12 @@ export async function runReminderTick(
   const failed = (state.lastError ?? '') !== ''
   const retryWaitOver = state.lastAttemptAt === undefined
     || now - Date.parse(state.lastAttemptAt) >= RETRY_INTERVAL_MS
+  // 每天摘要只在工作日发；周末/法定节假日静默（精确提醒不受影响）。
+  const workday = isDigestWorkday(now)
   // 失败后 10 分钟内不再重试，避免飞书持续故障时每 5 分钟打一次。
-  const digestDue = (manual || (slotReached && state.lastDigestDate !== today))
+  const digestDue = (manual || (workday && slotReached && state.lastDigestDate !== today))
     && !(failed && lastKind === 'digest' && !retryWaitOver)
-  const retryDue = failed && lastKind === 'digest' && retryWaitOver
+  const retryDue = failed && lastKind === 'digest' && retryWaitOver && (manual || workday)
   const intradayWindow = opts.mode === 'intraday' || (cfg.preciseReminder !== false && inIntradayWindow(now))
   const incrementalAllowed = slotReached
     && state.lastDigestDate === today
@@ -481,7 +605,10 @@ export async function runReminderTick(
 
   const items = await collectAllDeadlines(dirs.litigation, dirs.nonlitigation, dirs.tasks)
   const options = planOptions(cfg)
-  const selection = selectDigestEntries(reminderCandidates(items, options, now), {
+  const selection = selectDigestEntries(mergeCandidates(
+    reminderCandidates(items, options, now),
+    holidayGapCandidates(items, now),
+  ), {
     density: cfg.density ?? 'concise',
     now,
   })
@@ -500,8 +627,18 @@ export async function runReminderTick(
     // 进展检查分级投递：高优先级新发现当天推；中/低优先级只在周一汇总，
     // 避免「已结案仍有未完成任务」这类清理型问题每天打扰。
     const weekly = new Date(now).getDay() === 1
-    const patrol = await runPatrolPass(dirs.litigation, { weekly })
+    const patrolPass = await collectPatrolPass(dirs.litigation, { weekly })
+    const patrol = { total: patrolPass.total, pushed: 0, summary: patrolPass.summary }
     if (fresh.length === 0) {
+      if (patrolPass.findings.length > 0) {
+        try {
+          await sendPatrolCard(patrolPass.findings)
+          await patrolPass.commit()
+          patrol.pushed = patrolPass.findings.length
+        } catch (error) {
+          console.warn('[agentlex-patrol] 检查卡发送失败:', error instanceof Error ? error.message : String(error))
+        }
+      }
       await stateStore.mutate(successPatch(now, {
         lastDigestDate: today,
         lastPushedCount: 0,
@@ -511,20 +648,23 @@ export async function runReminderTick(
     }
     try {
       const late = slotReached && msFromDigestSlot(cfg, now) < -60 * 60_000
-      await sendReminderCard(fresh, {
-        titlePrefix: cfg.titlePrefix,
-        pushTime: cfg.pushTime,
+      await sendDigest(fresh, cfg, now, {
+        total: fresh.length,
+        suppressed,
         failureNote: state.lastError,
         late,
-        maxRows: cfg.maxDigestRows,
-        density: cfg.density ?? 'concise',
-        suppressed,
+        progressCheck: progressCheckText(patrolPass.findings),
       })
+      await patrolPass.commit()
+      patrol.pushed = patrolPass.findings.length
       await store.recordPushed(fresh.map((entry) => entry.key))
       void store.pruneLedger(now - LEDGER_RETENTION_DAYS * 86_400_000).catch(() => { /* best-effort */ })
       const kind: 'digest' | 'retry' = retryDue && !manual ? 'retry' : 'digest'
       await stateStore.mutate(successPatch(now, {
         lastDigestDate: digestDue ? today : state.lastDigestDate,
+        // 摘要发送后同时启动补充提醒的冷却：否则下一轮 5 分钟心跳会把摘要里
+        // 因分区限额没展开的条目当成「新增事项」再发一张卡（09:01 摘要 + 09:03 补充）。
+        lastIncrementalAt: new Date(now).toISOString(),
         lastPushedCount: fresh.length,
         lastKind: kind,
       }))
@@ -561,24 +701,23 @@ export async function runReminderTick(
     }
   }
 
-  // ③ 当日补充
-  if (fresh.length > 0 && incrementalAllowed) {
+  // ③ 当日补充：只补「今天新出现」的事项；提前提醒/逾期积压等下一轮摘要或周一，
+  //    不再把摘要里因限额暂缓的条目在几分钟后当成补充消息重发。
+  const freshToday = fresh.filter((entry) => entry.section === 'today' || entry.section === 'today_critical')
+  if (freshToday.length > 0 && incrementalAllowed) {
     try {
-      await sendReminderCard(fresh, {
-        titlePrefix: cfg.titlePrefix,
-        pushTime: cfg.pushTime,
-        supplement: true,
-        maxRows: cfg.maxDigestRows,
-        density: cfg.density ?? 'concise',
+      await sendDigest(freshToday, cfg, now, {
+        total: freshToday.length,
         suppressed,
+        supplement: true,
       })
-      await store.recordPushed(fresh.map((entry) => entry.key))
+      await store.recordPushed(freshToday.map((entry) => entry.key))
       await stateStore.mutate(successPatch(now, {
         lastIncrementalAt: new Date(now).toISOString(),
-        lastPushedCount: fresh.length,
+        lastPushedCount: freshToday.length,
         lastKind: 'incremental',
       }))
-      return { due: candidates.length, pushed: fresh.length, attempted: true, kind: 'incremental' }
+      return { due: candidates.length, pushed: freshToday.length, attempted: true, kind: 'incremental' }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       await stateStore.mutate((s) => ({
@@ -595,7 +734,7 @@ export async function runReminderTick(
   // ④ 即将开始（精确提醒）
   if (intraday.length > 0 && intradayAllowed) {
     try {
-      await sendFeishuCard(formatIntradayMarkdown(intraday, cfg.titlePrefix), { template: intradayTemplate(intraday) })
+      await sendIntraday(intraday, cfg, now)
       await store.recordPushed(intraday.map((entry) => entry.key))
       await stateStore.mutate(successPatch(now, {
         lastPushedCount: intraday.length,
@@ -623,12 +762,16 @@ export async function previewReminderPlan(
   dirs: { litigation: string; nonlitigation: string; tasks: string },
   cfg: PushConfig,
   now: number = Date.now(),
-): Promise<ReminderPreview & { nextDigestAt: string; suppressed: SuppressedSummary }> {
+): Promise<ReminderPreview & { nextDigestAt: string; suppressed: SuppressedSummary; workday: boolean }> {
   const items = await collectAllDeadlines(dirs.litigation, dirs.nonlitigation, dirs.tasks)
-  const selection = selectDigestEntries(reminderCandidates(items, planOptions(cfg), now), {
+  const selection = selectDigestEntries(mergeCandidates(
+    reminderCandidates(items, planOptions(cfg), now),
+    holidayGapCandidates(items, now),
+  ), {
     density: cfg.density ?? 'concise',
     now,
   })
+  const workday = isDigestWorkday(now)
   const capped = applyDigestCaps(selection.entries, { density: cfg.density ?? 'concise', maxRows: cfg.maxDigestRows })
   const entries = capped.entries
   const suppressed = {
@@ -640,18 +783,29 @@ export async function previewReminderPlan(
   slot.setHours(h, m, 0, 0)
   if (slot.getTime() <= now) slot.setDate(slot.getDate() + 1)
   const nextDigestAt = `${slot.getFullYear()}-${String(slot.getMonth() + 1).padStart(2, '0')}-${String(slot.getDate()).padStart(2, '0')} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-  return { ...buildPreview(entries, 50), nextDigestAt, suppressed }
+  return { ...buildPreview(entries, 50), nextDigestAt, suppressed, workday }
+}
+
+/** 进展检查一轮的结果：不在这里发送，由摘要卡决定「附在卡尾」还是「单独发」。 */
+interface PatrolPassResult {
+  total: number
+  summary: string
+  /** 新发现（尚未写台账）。 */
+  findings: PatrolFinding[]
+  /** 发送成功后调用：把这些发现的指纹记入台账。 */
+  commit: () => Promise<void>
 }
 
 /**
- * 案件进展检查（0.2.12）—— 独立一条消息 + 去重台账。
+ * 案件进展检查（0.2.12）：只计算「新发现」，不直接发消息。
  *
- * 与每日到期提醒彻底分开：这里回答「你的账是不是记错了」，不是「今天要干什么」。
+ * 与每日提醒一起发送（附在卡尾「需要核对」），避免同一天两张卡；
+ * 只有当天没有任何提醒事项时，才单独发一张检查卡。
  */
-async function runPatrolPass(
+async function collectPatrolPass(
   litigationDir: string,
   opts: { weekly?: boolean } = {},
-): Promise<{ total: number; pushed: number; summary: string }> {
+): Promise<PatrolPassResult> {
   try {
     const itemsDir = join(litigationDir, '..', 'items')
     const itemStore = createItemStore(itemsDir)
@@ -676,17 +830,27 @@ async function runPatrolPass(
     }
     const valid = active.map((f) => f.fingerprint)
     const fresh = await ledger.filterNew(valid, valid)
-    if (fresh.length === 0) {
-      if (active.length > 0) console.warn(`[agentlex-patrol] ${result.summary}（均为已推送过的，不重复打扰）`)
-      return { total: active.length, pushed: 0, summary: result.summary }
-    }
     const freshFindings = active.filter((f) => fresh.includes(f.fingerprint))
-    await sendPatrolCard(freshFindings)
-    await ledger.markPushed(fresh)
-    console.warn(`[agentlex-patrol] ${result.summary}；本次推送 ${freshFindings.length} 项新发现`)
-    return { total: active.length, pushed: freshFindings.length, summary: result.summary }
+    if (freshFindings.length === 0) {
+      if (active.length > 0) console.warn(`[agentlex-patrol] ${result.summary}（均为已推送过的，不重复打扰）`)
+      return { total: active.length, summary: result.summary, findings: [], commit: async () => {} }
+    }
+    return {
+      total: active.length,
+      summary: result.summary,
+      findings: freshFindings,
+      commit: async () => { await ledger.markPushed(freshFindings.map((f) => f.fingerprint)) },
+    }
   } catch (error) {
     console.warn('[agentlex-patrol] 进展检查失败:', error instanceof Error ? error.message : String(error))
-    return { total: 0, pushed: 0, summary: '案件进展检查：执行失败' }
+    return { total: 0, summary: '案件进展检查：执行失败', findings: [], commit: async () => {} }
   }
+}
+
+/** 附在摘要卡尾部的「需要核对」文本（最多 6 条，余下给数量）。 */
+function progressCheckText(findings: PatrolFinding[]): string | undefined {
+  if (findings.length === 0) return undefined
+  const lines = findings.slice(0, 6).map((f) => `· ${f.caseId} ${f.caseName}：${f.ruleName}`)
+  if (findings.length > 6) lines.push(`· 另有 ${findings.length - 6} 项，用 patrol_scan 查看`)
+  return lines.join('\n')
 }

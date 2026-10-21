@@ -771,12 +771,18 @@ export interface DiskStandaloneTask {
 }
 
 export function normalizeTimelineEvent(raw: DiskTimelineEvent): TimelineEvent {
+  const label = raw.title ?? raw.label ?? '';
+  const rawType = (raw.type as TimelineEventType | undefined) ?? 'case_event';
+  // 关键日期/手工登记的日程常常没写 kind，服务端 shape 只能落到 case_event；
+  // 不按标题兜底推断，界面就不知道它是开庭还是上诉期——既不标红也不进紧急
+  // 阶梯（用户 2026-10-20 反馈「21 号开庭没时间也不红」）。
+  const type = rawType === 'case_event' ? inferEventType(label) : rawType;
   return {
     id: raw.id ?? '',
     caseId: raw.caseId ?? '',
     caseName: raw.caseName ?? '',
-    type: (raw.type as TimelineEventType) ?? 'case_event',
-    label: raw.title ?? raw.label ?? '',
+    type,
+    label,
     date: raw.date ?? '',
     time: raw.time,
     source: (raw.source as TimelineEventSource) ?? 'manual',
@@ -789,18 +795,33 @@ export function normalizeTimelineEvent(raw: DiskTimelineEvent): TimelineEvent {
   };
 }
 
-/** Infer a TimelineEvent type from a legacy keyDate label (mirrors the agent SOP
- *  rules + the one-time backfill). Used only for the read-time fallback below. */
-function inferEventType(label: string): TimelineEventType {
-  if (label.includes('开庭')) return 'hearing';
-  if (label.includes('举证')) return 'evidence_deadline';
-  if (label.includes('答辩')) return 'defense_deadline';
-  if (label.includes('上诉')) return 'appeal_deadline';
-  if (label.includes('再审')) return 'retrial_deadline';
-  if (label.includes('时效') || label.includes('审限')) return 'limitation_expiry';
-  if (label.includes('立案') && label.includes('截止')) return 'filing_deadline';
-  if (label.includes('立案') || label.includes('起诉')) return 'filing';
-  if (label.includes('送达')) return 'service';
+/** Infer a TimelineEvent type from a label (mirrors the agent SOP rules + the
+ *  one-time backfill).
+ *
+ *  用途不止「关键日期投影」：
+ *  ① projectKeyDatesToTimeline 的读时兜底；
+ *  ② normalizeTimelineEvent 的 type 兜底——关键日期/手工登记的事件经常没写
+ *     kind，服务端 shape 就落到 case_event，界面于是不知道它是开庭还是上诉期，
+ *     既不会标红也进不了紧急阶梯（用户 2026-10-20 反馈「21 号开庭没时间也不红」）。
+ *
+ *  顺序说明：「送达 / 收到 ×××」优先于「开庭」——「收到开庭传票与答辩通知书」
+ *  本质是送达事件，不该被当成开庭。 */
+export function inferEventType(label: string): TimelineEventType {
+  const text = (label ?? '').trim();
+  if (text === '') return 'case_event';
+  if (text.includes('送达') || text.startsWith('收到')) return 'service';
+  // 缴费期限先于「上诉」判断：「预交上诉费期限」是交钱的日子，不是上诉期。
+  if (text.includes('预交') || text.includes('缴款') || text.includes('缴费') || text.includes('交纳')) return 'deadline';
+  if (text.includes('开庭') || text.includes('庭审') || text.includes('出庭')) return 'hearing';
+  if (text.includes('举证')) return 'evidence_deadline';
+  if (text.includes('答辩')) return 'defense_deadline';
+  if (text.includes('上诉')) return 'appeal_deadline';
+  if (text.includes('再审')) return 'retrial_deadline';
+  if (text.includes('时效') || text.includes('审限')) return 'limitation_expiry';
+  if (text.includes('立案') && text.includes('截止')) return 'filing_deadline';
+  // 「届满」= 真正的期限：判决履行期限、保全期限、起诉期等，否则临期不预警。
+  if (text.includes('届满')) return 'deadline';
+  if (text.includes('立案') || text.includes('起诉')) return 'filing';
   return 'case_event';
 }
 

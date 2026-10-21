@@ -17,6 +17,7 @@ import {
   dateDiffDays,
   applyDigestCaps,
   groupEntries,
+  holidayGapCandidates,
   intradayCandidates,
   ladderOf,
   localDate,
@@ -26,6 +27,7 @@ import {
   selectDigestEntries,
   thresholdFor,
 } from '../lib/domains/push/reminder-plan.js'
+import { holidayGap, isWorkday, nextWorkday, workdayStatus } from '../lib/shared/workday-calendar.js'
 
 let pass = 0
 let fail = 0
@@ -94,8 +96,10 @@ check('「申请强制执行」是任务，不是 2 年期间', classifyDeadline
 check('「保全到期」仍是保全', classifyDeadline(item({ label: '保全到期', kind: 'keydate' })) === 'preservation')
 
 console.log('== 2. 提醒阶梯与补发 ==')
-const statutoryLadder = ladderOf('statutory', true)
-check('法定阶梯含 T-30/T-15/T-7/T-3/T-2/T-1/D0', [30, 15, 7, 3, 2, 1, 0].every((n) => statutoryLadder.includes(n)))
+const statutoryLadder = ladderOf('statutory', true, 'normal')
+check('标准阶梯含 T-30/T-15/T-7/T-3/T-2/T-1/D0', [30, 15, 7, 3, 2, 1, 0].every((n) => statutoryLadder.includes(n)))
+check('低频法定阶梯：30/7/3/1/0（去掉 15、2）', ladderOf('statutory', true, 'low').join(',') === '30,7,3,1,0')
+check('低频任务阶梯：3/1/0', ladderOf('task', true, 'low').join(',') === '3,1,0')
 check('关闭智能分级 → 仅 T-1/D0', ladderOf('statutory', false).join(',') === '1,0')
 check('正好 T-15 → 命中且非补发', JSON.stringify(thresholdFor(15, statutoryLadder, 7)) === JSON.stringify({ threshold: 15, catchUp: false }))
 check('T-14 → 补发 T-15', JSON.stringify(thresholdFor(14, statutoryLadder, 7)) === JSON.stringify({ threshold: 15, catchUp: true }))
@@ -112,7 +116,7 @@ const items = [
   item({ label: '上诉期届满', kind: 'keydate', daysLeft: 3 }),
   item({ label: '开庭', daysLeft: 1, time: '09:00' }),
   item({ label: '举证期限届满', kind: 'keydate', daysLeft: 0 }),
-  item({ label: '起草代理词', kind: 'task', daysLeft: 7 }),
+  item({ label: '起草代理词', kind: 'task', daysLeft: 3 }),
   item({ label: '普通会议', kind: 'hearing', source: 'case_event', daysLeft: 3 }),
   item({ label: '过期日程', daysLeft: -3 }),
   item({ label: '逾期任务', kind: 'task', daysLeft: -3 }),
@@ -122,7 +126,7 @@ const labels = candidates.map((entry) => entry.item.label)
 check('上诉期（T-3）进入提醒', labels.includes('上诉期届满'))
 check('明日开庭进入提醒', labels.includes('开庭'))
 check('今日举证期限进入提醒', labels.includes('举证期限届满'))
-check('T-7 任务进入提醒', labels.includes('起草代理词'))
+check('T-3 任务进入提醒（低频保留 T-3）', labels.includes('起草代理词'))
 check('普通日程 T-3 不进入提醒（阶梯 1/0）', !labels.includes('普通会议'))
 check('过期日程不进入提醒（日程不搞逾期）', !labels.includes('过期日程'))
 check('逾期任务进入提醒', labels.includes('逾期任务'))
@@ -130,6 +134,12 @@ const overdue = candidates.find((entry) => entry.item.label === '逾期任务')
 check('逾期任务分区=overdue', overdue?.section === 'overdue')
 check('逾期任务文案=已逾期 3 天', overdue?.phaseLabel === '已逾期 3 天')
 check('逾期任务按升级档位去重', overdue?.key.endsWith('|OD|3') === true, overdue?.key)
+
+const staleTimed = item({ label: '上午开庭', date: '2026-10-18', time: '09:00', daysLeft: 0 })
+const at10 = new Date(2026, 9, 18, 10, 0).getTime()
+check('今天已过时间的开庭不再进摘要（避免庭后提醒）', reminderCandidates([staleTimed], { smartLead: true }, at10).length === 0)
+const at8 = new Date(2026, 9, 18, 8, 0).getTime()
+check('今天未到时间的开庭仍进摘要', reminderCandidates([staleTimed], { smartLead: true }, at8).length === 1)
 
 console.log('== 3b. 逾期升级与精简密度 ==')
 check('逾期档位：1/2/3 天逐日', overdueSlot(1) === 1 && overdueSlot(2) === 2 && overdueSlot(3) === 3)
@@ -140,18 +150,18 @@ check('逾期档位：31 天进入 60 天档', overdueSlot(31) === 60)
 const manyOverdue = [1, 2, 4, 5, 8].map((age, i) => item({ label: `旧任务${i}`, kind: 'task', source: 'task', daysLeft: -age }))
 const densityEntries = reminderCandidates([
   ...manyOverdue,
-  item({ label: '上诉期届满', kind: 'keydate', daysLeft: 15 }),
+  item({ label: '上诉期届满', kind: 'keydate', daysLeft: 30 }),
   item({ label: '开庭', daysLeft: 1, time: '09:00' }),
 ], { smartLead: true }, NOW)
 const concise = selectDigestEntries(densityEntries, { density: 'concise', now: NOW })
 check('精简：逾期只留前 3 天', concise.entries.filter((e) => e.section === 'overdue').length === 2, String(concise.entries.filter((e) => e.section === 'overdue').length))
 check('精简：积压逾期计数', concise.suppressed.overdue === 3, String(concise.suppressed.overdue))
-check('精简：T-15 非周一折叠', concise.entries.every((e) => e.item.label !== '上诉期届满') && concise.suppressed.ahead >= 1)
+check('精简：T-30 非周一折叠', concise.entries.every((e) => e.item.label !== '上诉期届满') && concise.suppressed.ahead >= 1)
 const mondayNow = new Date(2026, 9, 19, 10, 0).getTime() // 2026-10-19 是周一
 const monday = selectDigestEntries(reminderCandidates([
-  item({ label: '上诉期届满', kind: 'keydate', daysLeft: 15 }),
+  item({ label: '上诉期届满', kind: 'keydate', daysLeft: 30 }),
 ], { smartLead: true }, mondayNow), { density: 'concise', now: mondayNow })
-check('精简：周一纳入 T-15 周计划', monday.entries.some((e) => e.item.label === '上诉期届满'))
+check('精简：周一纳入 T-30 周计划', monday.entries.some((e) => e.item.label === '上诉期届满'))
 const standard = selectDigestEntries(densityEntries, { density: 'standard', now: NOW })
 check('标准：保留全部档位', standard.entries.length === densityEntries.length && standard.suppressed.overdue === 0)
 const capped = applyDigestCaps(densityEntries.filter((e) => e.section === 'overdue'), { density: 'concise', maxRows: 8 })
@@ -181,18 +191,37 @@ console.log('== 5. 精确到点提醒 ==')
 const hearingAt = new Date(2026, 9, 18, 9, 0, 0).getTime()
 const at = (h, m) => new Date(2026, 9, 18, h, m, 0).getTime()
 const hearingItem = item({ label: '开庭', date: '2026-10-18', time: '09:00', daysLeft: 0 })
-const leadAt = (ms) => intradayCandidates([hearingItem], { preciseReminder: true }, ms)[0]?.leadMinutes
+const leadAt = (ms) => intradayCandidates([hearingItem], { preciseReminder: true, frequency: 'normal' }, ms)[0]?.leadMinutes
 check('07:00 → 命中 2 小时档', leadAt(at(7, 0)) === 120)
 check('08:00 → 仍命中 2 小时档（补发）', leadAt(at(8, 0)) === 120)
 check('08:35 → 命中 30 分钟档', leadAt(at(8, 35)) === 30)
 check('09:01 → 不再提醒', leadAt(at(9, 1)) === undefined)
 check('关闭精确提醒 → 空', intradayCandidates([hearingItem], { preciseReminder: false }, at(7, 0)).length === 0)
+check('低频开庭只保留 2 小时档（错过则补发这一档）', intradayCandidates([hearingItem], { preciseReminder: true, frequency: 'low' }, at(8, 35))[0]?.leadMinutes === 120)
 const taskAt = item({ label: '案件沟通会', kind: 'task', date: '2026-10-18', time: '15:00', daysLeft: 0 })
-const taskLead = intradayCandidates([taskAt], { preciseReminder: true }, at(14, 40))[0]
-check('普通带时间事项只提前 30 分钟', taskLead?.leadMinutes === 30)
+const taskLead = intradayCandidates([taskAt], { preciseReminder: true, frequency: 'normal' }, at(14, 40))[0]
+check('标准频率：普通带时间事项提前 30 分钟', taskLead?.leadMinutes === 30)
+check('低频：普通带时间事项不单独提醒', intradayCandidates([taskAt], { preciseReminder: true, frequency: 'low' }, at(14, 40)).length === 0)
 check('精确提醒台账键含 IN', taskLead?.key.includes('|IN|30') === true)
 check('精确提醒显示剩余分钟', taskLead?.phaseLabel === '还有 20 分钟')
 check('开庭时间戳解析正确', hearingAt === at(9, 0))
+
+console.log('== 5b. 工作日 / 节假日 ==')
+check('2026-10-21 周三 → 工作日', isWorkday('2026-10-21') === true)
+check('2026-10-24 周六 → 非工作日', isWorkday('2026-10-24') === false)
+check('2026-10-01 国庆 → 非工作日', isWorkday('2026-10-01') === false)
+check('2026-10-10 周六调休 → 工作日', isWorkday('2026-10-10') === true && workdayStatus('2026-10-10') === 'makeup-workday')
+check('2026-01-04 周日调休 → 工作日', isWorkday('2026-01-04') === true)
+check('2026-09-30 之后下一个工作日是 10-08', nextWorkday('2026-09-30') === '2026-10-08', nextWorkday('2026-09-30'))
+check('国庆前 gap = 10-01…10-07', holidayGap('2026-09-30').length === 7, String(holidayGap('2026-09-30').length))
+check('普通周五 gap = 周六、周日', holidayGap('2026-10-23').join(',') === '2026-10-24,2026-10-25', holidayGap('2026-10-23').join(','))
+const fridayNow = new Date(2026, 9, 23, 8, 0).getTime()
+const sundayHearing = holidayGapCandidates([
+  item({ label: '开庭', date: '2026-10-25' }),
+  item({ label: '普通任务', kind: 'task', source: 'task', date: '2026-10-25' }),
+], fridayNow)
+check('周五补位：周日开庭进入摘要', sundayHearing.some((e) => e.item.label === '开庭' && e.phaseLabel === '假期'))
+check('周五补位：普通任务不补', sundayHearing.every((e) => e.item.label !== '普通任务'))
 
 console.log('== 6. 本地日期（UTC 陷阱） ==')
 const earlyMorning = new Date(2026, 9, 18, 1, 30, 0).getTime()

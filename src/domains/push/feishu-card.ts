@@ -165,8 +165,10 @@ export interface ReminderCardOptions {
   late?: boolean
   /** 当日摘要后新增事项的「补充提醒」。 */
   supplement?: boolean
-  /** 法定期限待登记告警（沿用 0.2.12 的巡检尾部提示）。 */
-  periodWarning?: string
+  /** 案件进展检查的新发现（附在卡尾「需要核对」；同一天不再单独发一张卡）。 */
+  progressCheck?: string
+  /** 卡片类型：digest（每日摘要）/ intraday（即将开始）。 */
+  kind?: 'digest' | 'intraday'
   /** 单卡最多展开条数（默认精简 8 / 标准 15）；超出只给计数。 */
   maxRows?: number
   /** 提醒密度：精简模式按分区限额，避免逾期任务挤占今日事项。 */
@@ -297,9 +299,9 @@ export async function sendReminderCard(entries: ReminderEntry[], opts: ReminderC
     elements.push({ tag: 'hr' })
     elements.push({ tag: 'div', text: { tag: 'lark_md', content: `⚠ **上次推送失败**：${opts.failureNote.trim()}` } })
   }
-  if (opts.periodWarning !== undefined && opts.periodWarning.trim() !== '') {
+  if (opts.progressCheck !== undefined && opts.progressCheck.trim() !== '') {
     elements.push({ tag: 'hr' })
-    elements.push({ tag: 'div', text: { tag: 'lark_md', content: `⚠️ **法定期限待登记**\n${opts.periodWarning.trim()}` } })
+    elements.push({ tag: 'div', text: { tag: 'lark_md', content: `⚠️ **需要核对**\n${opts.progressCheck.trim()}` } })
   }
 
   elements.push({ tag: 'hr' })
@@ -315,6 +317,71 @@ export async function sendReminderCard(entries: ReminderEntry[], opts: ReminderC
       },
     },
     elements,
+  }
+  const url = `${FEISHU_BASE}/open-apis/im/v1/messages?receive_id_type=open_id`
+  return httpJson(url, {
+    receive_id: owner,
+    msg_type: 'interactive',
+    content: JSON.stringify(card),
+  }, token)
+}
+
+/**
+ * 发送图片版提醒卡：把渲染好的 PNG 上传到飞书，再作为图片卡发出。
+ *
+ * 与文字卡并存，由 `imageMode` 决定用哪个；图片失败时调用方会回退文字卡。
+ */
+export async function sendReminderImageCard(
+  pngPath: string,
+  entries: ReminderEntry[],
+  opts: ReminderCardOptions = {},
+): Promise<Record<string, unknown>> {
+  const bot = await loadFeishuConfig()
+  const secret = await loadSecret(bot.secretRef)
+  const token = await getToken(bot.appId, secret)
+  const owner = bot.ownerOpenIds[0]
+
+  const png = await readFile(pngPath)
+  const form = new FormData()
+  form.append('image_type', 'message')
+  form.append('image', new Blob([png], { type: 'image/png' }), 'reminder.png')
+  const uploadRes = await fetch(`${FEISHU_BASE}/open-apis/im/v1/images`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
+  })
+  const uploaded = await uploadRes.json().catch(() => ({})) as Record<string, unknown>
+  if (!uploadRes.ok || uploaded.code !== 0) {
+    throw new Error(`feishu image upload ${uploadRes.status}: ${JSON.stringify(uploaded)}`)
+  }
+  const imageKey = (uploaded.data as { image_key?: string } | undefined)?.image_key
+  if (imageKey === undefined) throw new Error('feishu image upload returned no image_key')
+
+  const prefix = opts.titlePrefix !== undefined && opts.titlePrefix.trim() !== '' ? `${opts.titlePrefix.trim()} ` : ''
+  const critical = entries.filter((entry) => entry.severity === 'critical').length
+  const overdue = entries.filter((entry) => entry.section === 'overdue').length
+  const summary: string[] = [`共 ${entries.length} 项`]
+  if (critical > 0) summary.push(`硬期限 ${critical} 项`)
+  if (overdue > 0) summary.push(`逾期 ${overdue} 项`)
+
+  const card = {
+    config: { wide_screen_mode: true },
+    header: {
+      template: headerTemplate(entries),
+      title: { tag: 'plain_text', content: `${prefix}${opts.kind === 'intraday' ? '即将开始' : opts.supplement === true ? '日程提醒（补充）' : opts.late === true ? '日程提醒（补发）' : '日程提醒'}` },
+    },
+    elements: [
+      { tag: 'img', img_key: imageKey, alt: { tag: 'plain_text', content: '今日日程提醒' } },
+      { tag: 'hr' },
+      { tag: 'div', text: { tag: 'lark_md', content: summary.join(' · ') } },
+      ...(opts.progressCheck !== undefined && opts.progressCheck.trim() !== ''
+        ? [{ tag: 'div', text: { tag: 'lark_md', content: `⚠️ **需要核对**\n${opts.progressCheck.trim()}` } }]
+        : []),
+      ...(opts.failureNote !== undefined && opts.failureNote.trim() !== ''
+        ? [{ tag: 'div', text: { tag: 'lark_md', content: `⚠ **上次推送失败**：${opts.failureNote.trim()}` } }]
+        : []),
+      { tag: 'note', elements: [{ tag: 'plain_text', content: opts.kind === 'intraday' ? '图片版 · 临近开始提醒 · 点开图片可放大' : `图片版 · 每日 ${opts.pushTime ?? '08:30'} · 点开图片可放大` }] },
+    ],
   }
   const url = `${FEISHU_BASE}/open-apis/im/v1/messages?receive_id_type=open_id`
   return httpJson(url, {

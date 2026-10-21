@@ -31,6 +31,7 @@ import { createPatrolLedgerStore } from './store/patrol-ledger-store.ts'
 import { createTimelineStore } from './store/timeline-store.ts'
 import { createItemStore } from '../item/store/item-store.ts'
 import { isEventItem, isTaskItem, normalizeItemType } from '../item/store/types.ts'
+import { resolveEventType } from '../../shared/event-type.ts'
 import { computeDeadlines, computeDeadlinesV2 } from './deadlines.ts'
 import { nowIso } from './store/id.ts'
 import type { TimelineEvent } from './store/types.ts'
@@ -461,8 +462,8 @@ export function apply(ctx: Context, config: Config = {}): void {
           caseId: it.ownerId ?? '',
           caseName: it.ownerName ?? '',
           // 事件类型：优先 items.kind（0.2.11 起 upsert_event 落库 kind），
-          // 缺失时才按 type 兜底——否则上诉期/举证期会被归成「开庭」。
-          type: (it.kind ?? (it.type === 'both' ? 'hearing' : 'case_event')) as TimelineEvent['type'],
+          // 缺失时按标题推断（历史关键日期大多没写 kind），最后才按 type 兜底。
+          type: resolveEventType(it.kind, it.title, it.type) as TimelineEvent['type'],
           title: it.title,
           detail: it.detail,
           date: it.date,

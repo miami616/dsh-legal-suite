@@ -11,7 +11,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import { parseMaxDigestRows, type PushStateStore, type PushStore } from './store/push-config.ts'
+import { acquirePushRunLock, parseMaxDigestRows, type PushStateStore, type PushStore } from './store/push-config.ts'
 import { previewReminderPlan, runReminderTick } from './push.ts'
 import { sendReminderCard } from './feishu-card.ts'
 import { isFeishuConfigured, loadFeishuConfig, saveFeishuConfig } from './feishu-config.ts'
@@ -27,6 +27,8 @@ export interface PushRouteDeps {
   store: PushStore
   /** 运行状态（上次成功/失败、失败重试）。 */
   stateStore: PushStateStore
+  /** push 数据目录（跨进程运行锁）。 */
+  dataDir: string
   /** The litigation data directory (reads case-registry.json / items.json). */
   litigationDataDir: string
   /** The nonlitigation data directory (reads project-registry.json). */
@@ -111,6 +113,8 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
     if (typeof b.includeConsequence === 'boolean') next.includeConsequence = b.includeConsequence
     if (b.maxDigestRows !== undefined) next.maxDigestRows = parseMaxDigestRows(b.maxDigestRows)
     if (b.density === 'concise' || b.density === 'standard') next.density = b.density
+    if (typeof b.imageMode === 'boolean') next.imageMode = b.imageMode
+    if (b.frequency === 'low' || b.frequency === 'normal') next.frequency = b.frequency
     ok(res, await d.store.writeConfig(next))
     // 配置变更（如推送时间）后让 host 重建定时器。
     d.onConfigChange?.()
@@ -177,11 +181,20 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
     const cfg = await d.store.readConfig()
     if (typeof b.enabled === 'boolean') cfg.enabled = b.enabled
     if (typeof b.titlePrefix === 'string') cfg.titlePrefix = b.titlePrefix.trim()
-    const result = await runReminderTick(
-      { litigation: d.litigationDataDir, nonlitigation: d.nonlitigationDataDir, tasks: d.tasksDataDir },
-      cfg, d.store, d.stateStore, { mode: 'manual', force: b.force === true },
-    )
-    ok(res, result)
+    const release = await acquirePushRunLock(d.dataDir)
+    if (release === undefined) {
+      ok(res, { due: 0, pushed: 0, attempted: false, kind: 'none', error: '另一实例正在推送，请稍后重试' })
+      return
+    }
+    try {
+      const result = await runReminderTick(
+        { litigation: d.litigationDataDir, nonlitigation: d.nonlitigationDataDir, tasks: d.tasksDataDir },
+        cfg, d.store, d.stateStore, { mode: 'manual', force: b.force === true },
+      )
+      ok(res, result)
+    } finally {
+      await release().catch(() => { /* best-effort */ })
+    }
   })
 
   // Reminder health/status for the settings page.
@@ -206,6 +219,7 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
       nextDigestAt: preview.nextDigestAt,
       due: preview.total,
       suppressed: preview.suppressed,
+      workday: preview.workday,
       serverTime: new Date().toISOString(),
     })
   })

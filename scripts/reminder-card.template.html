@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AgentLex 提醒</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #F3EFE5;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+    color: #1F2328;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { width: 1080px; margin: 0 auto; padding: 64px 64px 48px; background: #FBF8F1; }
+  .brand { font-size: 19px; letter-spacing: .22em; color: #8A7A5E; font-weight: 600; }
+  .date { font-family: "Songti SC", "STSong", serif; font-size: 64px; font-weight: 700; margin-top: 18px; letter-spacing: .02em; }
+  .date span { font-size: 30px; font-weight: 500; color: #6F6656; margin-left: 16px; letter-spacing: .1em; }
+  .chips { display: flex; gap: 12px; margin-top: 22px; }
+  .chip { font-size: 21px; padding: 8px 18px; border-radius: 999px; color: #fff; font-weight: 600; }
+  .chip.red { background: #B23A3A; }
+  .chip.blue { background: #2F5D8A; }
+  .chip.amber { background: #B26B2E; }
+  .rule { height: 2px; background: #E2D8C6; margin: 28px 0 8px; }
+  .hero {
+    margin-top: 26px; background: #B23A3A; color: #fff; border-radius: 18px;
+    padding: 30px 34px; display: grid; grid-template-columns: 160px 1fr auto; gap: 24px; align-items: center;
+  }
+  .hero-time { font-family: "Songti SC", serif; font-size: 58px; font-weight: 700; line-height: 1; }
+  .hero-kicker { font-size: 19px; opacity: .82; letter-spacing: .12em; }
+  .hero-label { font-size: 46px; font-weight: 700; margin-top: 6px; }
+  .hero-case { font-size: 22px; opacity: .92; margin-top: 8px; line-height: 1.5; }
+  .hero-note { font-size: 20px; opacity: .9; margin-top: 8px; }
+  .hero-tag { font-size: 21px; border: 1.5px solid rgba(255,255,255,.7); padding: 8px 18px; border-radius: 999px; }
+  section { margin-top: 34px; }
+  .sec-head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+  .bar { width: 8px; height: 34px; border-radius: 4px; display: inline-block; }
+  h2 { font-size: 31px; font-weight: 700; letter-spacing: .04em; font-family: "Songti SC", "STSong", serif; }
+  .count { margin-left: auto; font-size: 21px; color: #8A8172; }
+  .row {
+    display: grid; grid-template-columns: 150px 1fr auto; gap: 22px;
+    align-items: start; padding: 20px 0; border-bottom: 1px solid #E7DFD1;
+  }
+  .time { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; padding-top: 2px; }
+  .time.muted { color: #B4AA98; font-weight: 400; }
+  .label { font-size: 31px; font-weight: 650; line-height: 1.35; }
+  .case { font-size: 22px; color: #6F6656; line-height: 1.55; margin-top: 6px; }
+  .note { font-size: 20px; color: #B26B2E; margin-top: 8px; }
+  .tag { font-size: 20px; font-weight: 600; padding: 8px 18px; border-radius: 999px; color: #fff; white-space: nowrap; margin-top: 2px; }
+  .tag.red { background: #B23A3A; }
+  .tag.blue { background: #2F5D8A; }
+  .tag.green { background: #3F6B52; }
+  footer {
+    margin-top: 40px; border-top: 2px solid #E2D8C6; padding-top: 22px;
+    display: flex; justify-content: space-between; font-size: 19px; color: #8A8172;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="brand" id="brand">AGENTLEX · 案件提醒</div>
+  <div class="date" id="date"></div>
+  <div class="chips" id="chips"></div>
+  <div class="rule"></div>
+  <div id="hero"></div>
+  <div id="sections"></div>
+  <footer><span id="foot-left"></span><span id="foot-right"></span></footer>
+</div>
+<script>
+  const DATA = /*__DATA__*/;
+  const ORDER = ['overdue', 'today_critical', 'today', 'tomorrow', 'ahead'];
+  const TITLES = { overdue: '逾期任务', today_critical: '今日必办', today: '今日安排', tomorrow: '明日安排', ahead: '提前提醒' };
+  const COLORS = { overdue: '#B23A3A', today_critical: '#B23A3A', today: '#B26B2E', tomorrow: '#2F5D8A', ahead: '#3F6B52' };
+  const TAG = { overdue: 'red', today_critical: 'red', today: 'red', tomorrow: 'blue', ahead: 'green' };
+
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const groups = Object.fromEntries(ORDER.map((k) => [k, (DATA.items || []).filter((i) => i.section === k)]));
+  const hero = groups.today_critical[0];
+  if (hero) groups.today_critical = groups.today_critical.slice(1);
+
+  const dt = new Date(DATA.now);
+  const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][dt.getDay()];
+  document.getElementById('date').innerHTML = `${dt.getMonth() + 1}月${dt.getDate()}日<span>${week}</span>`;
+
+  const isIntraday = DATA.kind === 'intraday';
+  document.getElementById('brand').textContent = isIntraday ? 'AGENTLEX · 即将开始' : 'AGENTLEX · 案件提醒';
+  const chips = [];
+  if (isIntraday) {
+    // 「即将开始」卡不再重复一个倒计时 chip：hero 右侧已有 phase 标签。
+  } else {
+    chips.push(`<span class="chip red">今日必办 ${(hero ? 1 : 0) + groups.today_critical.length}</span>`);
+    chips.push(`<span class="chip amber">今日安排 ${groups.today.length}</span>`);
+    if (groups.overdue.length) chips.push(`<span class="chip red">逾期 ${groups.overdue.length}</span>`);
+    chips.push(`<span class="chip blue">共 ${DATA.total} 项</span>`);
+  }
+  document.getElementById('chips').innerHTML = chips.join('');
+
+  if (hero) {
+    document.getElementById('hero').innerHTML = `<div class="hero">
+      <div class="hero-time">${esc(hero.time || '今天')}</div>
+      <div>
+        <div class="hero-kicker">${isIntraday ? '即将开始' : '今日必办'}</div>
+        <div class="hero-label">${esc(hero.label)}</div>
+        <div class="hero-case">${esc(hero.caseName)}</div>
+        ${hero.consequence ? `<div class="hero-note">注意：${esc(hero.consequence)}</div>` : ''}
+      </div>
+      <div class="hero-tag">${isIntraday ? esc(hero.phaseLabel || '即将开始') : '今天'}</div>
+    </div>`;
+  }
+
+  const row = (it) => `<div class="row">
+    <div class="time ${it.time ? '' : 'muted'}">${esc(it.time || (it.section === 'overdue' ? '' : '全天'))}</div>
+    <div>
+      <div class="label">${esc(it.label)}</div>
+      <div class="case">${esc(it.caseName)}</div>
+      ${it.consequence && it.section === 'today_critical' ? `<div class="note">注意：${esc(it.consequence)}</div>` : ''}
+    </div>
+    <div class="tag ${TAG[it.section]}">${esc(String(it.phaseLabel || '').replace('（补）', ''))}</div>
+  </div>`;
+
+  document.getElementById('sections').innerHTML = ORDER.map((key) => {
+    const g = groups[key];
+    if (!g.length) return '';
+    return `<section>
+      <div class="sec-head"><span class="bar" style="background:${COLORS[key]}"></span><h2>${TITLES[key]}</h2><span class="count">${g.length} 项</span></div>
+      ${g.map(row).join('')}
+    </section>`;
+  }).join('');
+
+  document.getElementById('foot-left').textContent = isIntraday ? 'AgentLex · 临近开始提醒' : `AgentLex · 每日 ${DATA.pushTime || '09:00'} 提醒`;
+  const sup = DATA.suppressed || {};
+  const extra = [];
+  if (sup.overdue) extra.push(`另有逾期 ${sup.overdue} 项`);
+  if (sup.ahead) extra.push(`远期 ${sup.ahead} 项周一汇总`);
+  if (sup.capped) extra.push(`另有 ${sup.capped} 项未展示`);
+  document.getElementById('foot-right').textContent = extra.join(' · ');
+  document.documentElement.dataset.ready = '1';
+</script>
+</body>
+</html>

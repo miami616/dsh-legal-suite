@@ -54,6 +54,10 @@ export interface PushConfigView {
   maxDigestRows?: number
   /** 提醒密度：concise（每日近 7 天+当天，积压只给数量）/ standard。 */
   density?: 'concise' | 'standard'
+  /** 图片版提醒（渲染失败自动回退文字卡）。 */
+  imageMode?: boolean
+  /** 提醒频率：low（默认，低频）/ normal（标准）。 */
+  frequency?: 'low' | 'normal'
   updatedAt?: string
 }
 
@@ -74,6 +78,8 @@ export interface PushStatusView {
   nextDigestAt: string
   due: number
   suppressed?: { overdue: number; ahead: number; oldestOverdueAge?: number }
+  /** 今天是否工作日（周末/法定节假日每日摘要不发）。 */
+  workday?: boolean
   serverTime: string
 }
 

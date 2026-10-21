@@ -24,7 +24,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import { installSettingsSection } from '../../shared/settings-adapter.ts'
-import { createPushStore, createRunStateStore } from './store/push-config.ts'
+import { acquirePushRunLock, createPushStore, createRunStateStore } from './store/push-config.ts'
 import { makeRoutes } from './routes.ts'
 import { runReminderTick } from './push.ts'
 
@@ -139,6 +139,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     disposers.push(makeRoutes(ctx, {
       store,
       stateStore,
+      dataDir,
       litigationDataDir: dirs.litigation,
       nonlitigationDataDir: dirs.nonlitigation,
       tasksDataDir: dirs.tasks,
@@ -152,6 +153,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     const run = async (): Promise<void> => {
       if (inFlight) return
       inFlight = true
+      // 跨进程互斥：live 与测试实例共用数据目录时，只允许一个实例发提醒。
+      const release = await acquirePushRunLock(dataDir)
+      if (release === undefined) {
+        inFlight = false
+        return
+      }
       try {
         const cfg = await store.readConfig()
         if (!cfg.enabled) return
@@ -164,6 +171,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       } catch (error) {
         console.warn('[agentlex-push] 巡检异常:', error instanceof Error ? error.message : String(error))
       } finally {
+        await release().catch(() => { /* best-effort */ })
         inFlight = false
       }
     }

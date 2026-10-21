@@ -16,6 +16,7 @@
  */
 
 import type { DeadlineItem } from '../litigation/deadlines.ts'
+import { holidayGap, isWorkday } from '../../shared/workday-calendar.ts'
 
 /** 期限性质（决定提醒阶梯、严重度与后果提示）。 */
 export type DeadlineClass =
@@ -64,9 +65,14 @@ export interface ReminderPlanOptions {
   maxDigestRows?: number
   /** 提醒密度：concise 只保留近 7 天与逾期前 3 天；standard 保留全部档位。 */
   density?: ReminderDensity
+  /** 提醒频率：low 用低频阶梯；normal 用标准阶梯。 */
+  frequency?: ReminderFrequency
 }
 
-/** 各期限性质的提醒阶梯（距届满天数，降序）。 */
+/** 提醒频率：低频（默认）/ 标准。 */
+export type ReminderFrequency = 'low' | 'normal'
+
+/** 各期限性质的提醒阶梯（标准频率，距届满天数，降序）。 */
 export const CLASS_LADDERS: Record<DeadlineClass, number[]> = {
   statutory_long: [90, 30, 15, 7, 3, 2, 1, 0],
   statutory: [30, 15, 7, 3, 2, 1, 0],
@@ -76,6 +82,23 @@ export const CLASS_LADDERS: Record<DeadlineClass, number[]> = {
   task: [7, 3, 1, 0],
   event: [1, 0],
   // 未能识别性质的 keydate：保守只提醒今天/明天，避免对普通节点刷屏。
+  misc: [1, 0],
+}
+
+/**
+ * 低频阶梯（默认）：砍掉中间过密的档位。
+ *  - 法定期限：30 / 7 / 3 / 1 / 0（去掉 15、2）
+ *  - 普通任务/程序期限：3 / 1 / 0（去掉 7）
+ *  - 开庭保持 7 / 3 / 1 / 0（三次准备 + 当天）
+ */
+export const LOW_FREQUENCY_LADDERS: Record<DeadlineClass, number[]> = {
+  statutory_long: [90, 30, 7, 3, 1, 0],
+  statutory: [30, 7, 3, 1, 0],
+  preservation: [30, 7, 3, 1, 0],
+  hearing: [7, 3, 1, 0],
+  procedural: [3, 1, 0],
+  task: [3, 1, 0],
+  event: [1, 0],
   misc: [1, 0],
 }
 
@@ -241,8 +264,9 @@ export function consequenceOf(item: DeadlineItem, cls: DeadlineClass): string | 
 }
 
 /** 某事项在当前配置下应使用的提醒阶梯。 */
-export function ladderOf(cls: DeadlineClass, smartLead: boolean): number[] {
-  return smartLead ? CLASS_LADDERS[cls] : [1, 0]
+export function ladderOf(cls: DeadlineClass, smartLead: boolean, frequency: ReminderFrequency = 'low'): number[] {
+  if (!smartLead) return [1, 0]
+  return frequency === 'low' ? LOW_FREQUENCY_LADDERS[cls] : CLASS_LADDERS[cls]
 }
 
 /**
@@ -284,6 +308,10 @@ function sectionOf(daysLeft: number, severity: Severity): ReminderSection {
  * @param opts - 分级开关与后果提示开关。
  * @param now - 当前时间（可注入，便于测试）。
  */
+export function isDigestWorkday(now: number = Date.now()): boolean {
+  return isWorkday(localDate(now))
+}
+
 export function reminderCandidates(
   items: DeadlineItem[],
   opts: ReminderPlanOptions = {},
@@ -319,7 +347,14 @@ export function reminderCandidates(
       continue
     }
 
-    const ladder = ladderOf(cls, smart)
+    // 今天已过具体时间的事项不再进摘要：09:00 的庭在 09:01 的日报里再出现一次
+    // 只会制造「庭都开了才提醒」的错觉；这类事项由 2h/30m 精确提醒负责。
+    if (d === 0 && item.time !== undefined && item.time !== '') {
+      const startedAt = localDateTime(item.date, item.time)
+      if (startedAt !== undefined && startedAt <= now) continue
+    }
+
+    const ladder = ladderOf(cls, smart, opts.frequency ?? 'low')
     const hit = thresholdFor(d, ladder, smart ? CATCH_UP_DAYS[cls] : 0)
     if (hit === undefined) continue
 
@@ -464,6 +499,51 @@ export function applyDigestCaps(
   return { entries: kept, hidden }
 }
 
+/**
+ * 假期前「补位」提醒：最后一个工作日，把假期内的开庭/硬期限提前纳入摘要。
+ *
+ * 平时只看当天/明天/阶梯；周五到周日的庭、节前到节后的硬期限，如果不补位，
+ * 会因为没有工作日摘要而完全消失。只补 critical/hearing/procedural，普通任务不补。
+ */
+export function holidayGapCandidates(items: DeadlineItem[], now: number = Date.now()): ReminderEntry[] {
+  const today = localDate(now)
+  const gap = holidayGap(today)
+  if (gap.length === 0) return []
+  const gapSet = new Set(gap)
+  const entries: ReminderEntry[] = []
+  for (const item of items) {
+    if (!gapSet.has(item.date)) continue
+    const cls = classifyDeadline(item)
+    if (!['statutory', 'statutory_long', 'preservation', 'hearing', 'procedural'].includes(cls)) continue
+    const severity = severityOf(cls)
+    entries.push({
+      item,
+      key: `${item.caseId}|${item.date}|${item.label}|GAP`,
+      cls,
+      severity,
+      threshold: 0,
+      phaseLabel: '假期',
+      consequence: consequenceOf(item, cls),
+      catchUp: false,
+      section: 'tomorrow',
+    })
+  }
+  return sortEntries(entries)
+}
+
+/** 合并候选项：同一「案件+日期+事项」只保留一条（优先常规阶梯）。 */
+export function mergeCandidates(base: ReminderEntry[], extra: ReminderEntry[]): ReminderEntry[] {
+  const seen = new Set(base.map((entry) => `${entry.item.caseId}|${entry.item.date}|${entry.item.label}`))
+  const merged = [...base]
+  for (const entry of extra) {
+    const key = `${entry.item.caseId}|${entry.item.date}|${entry.item.label}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(entry)
+  }
+  return sortEntries(merged)
+}
+
 /** 卡片分区标题。 */
 export const SECTION_TITLES: Record<ReminderSection, string> = {
   overdue: '逾期任务',
@@ -574,7 +654,10 @@ export function intradayCandidates(
     const cls = classifyDeadline(item)
     const severity = severityOf(cls)
     // 开庭提前 2 小时（异地/早高峰），其他事项提前 30 分钟。
-    const leads = cls === 'hearing' ? [120, 30] : [30]
+    const low = (opts.frequency ?? 'low') === 'low'
+    // 低频：开庭只提前 2 小时提醒一次；其他带时间事项不再单独提醒（进每日摘要）。
+    // 标准：开庭 2h/30m，其他 30m。
+    const leads = cls === 'hearing' ? (low ? [120] : [120, 30]) : (low ? [] : [30])
     // 选「下一个未到的提前量档」：剩 100 分钟命中 2h 档，剩 45 分钟命中 30m 档。
     // 若 2h 档因休眠错过，剩 60 分钟时仍补发 2h 档（显示实际剩余分钟），
     // 到 30 分钟再发 30m 档，两档不互相吞掉。

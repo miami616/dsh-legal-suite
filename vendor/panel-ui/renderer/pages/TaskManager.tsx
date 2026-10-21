@@ -31,9 +31,10 @@ import OverlayBackdrop from '@/components/OverlayBackdrop';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { MobileNav } from '@/components/agentlex/MobileNav';
 import {
-  deriveAllTasks, taskTimeBucket, daysUntil, localTodayStr,
+  deriveAllTasks, taskTimeBucket, daysUntil,
   type UnifiedTask,
 } from '@/utils/taskAggregation';
+import { useTodayStr } from '@/utils/useTodayStr';
 
 // ── 本地日期工具（deadline 是本地日历日，禁止用 UTC） ──
 const fmtMD = (ds: string) => {
@@ -42,7 +43,20 @@ const fmtMD = (ds: string) => {
 };
 const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const weekdayOf = (ds: string) => WEEK[new Date(`${ds}T00:00:00`).getDay()];
-const todayStr = localTodayStr();
+// 注：「今天」不再写成模块级常量——页面常驻跨 0 点后它会停在昨天，
+// 已过去的日程会继续留在「未来日程」里。改由组件内 useTodayStr() 提供。
+
+// ── 未来日程的紧急判定 ──
+/** 会进入红色预警的日程类型：开庭/仲裁 + 各类法定期限与缴费期限。
+ *  送达、立案、普通进展只是事件记录，临期也不标红（旧实现只列了 4 种，
+ *  上诉期/答辩期/履行期限这些最要命的反而从来没红过）。 */
+const URGENT_EVENT_TYPES = new Set([
+  'hearing', 'arbitration', 'deadline', 'court_notice',
+  'limitation_expiry', 'evidence_deadline', 'defense_deadline',
+  'appeal_deadline', 'retrial_deadline', 'filing_deadline',
+]);
+/** 临期（≤3 天）标红的窗口。 */
+const URGENT_WINDOW_DAYS = 3;
 
 // ── 时间桶定义（顺序即渲染顺序） ──
 const BUCKETS: Array<{ key: TaskBucketKey; label: string; dot: string }> = [
@@ -157,6 +171,8 @@ const StatusPill = memo(function StatusPill({
 
 export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: TaskManagerProps) {
   const mobile = useIsMobile();
+  /** 响应式今天：跨 0 点 / 页面重新可见时自动滚动，不会停在打开页面那天。 */
+  const todayStr = useTodayStr();
   const {
     cases, projects, standaloneTasks, timelineEvents,
     addTask: addCaseTask, updateTask, deleteTask,
@@ -200,11 +216,11 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
       // 开「含已完成」：全部统计——今日/明日/未来完成按时间归对应桶（taskTimeBucket
       // 对 done 已按时间归桶），done 桶 = 其他已完成（过期完成 + 无 deadline 完成）。
       if (t.status === 'done' && !showDone) continue;
-      const b = taskTimeBucket(t);
+      const b = taskTimeBucket(t, todayStr);
       c[b] = (c[b] ?? 0) + 1;
     }
     return c;
-  }, [allTasks, showDone]);
+  }, [allTasks, showDone, todayStr]);
 
   // 待办数（不含已办）——备忘录 #7：「全部」等数字基数应为待办。
   const openTaskCount = useMemo(() => allTasks.filter(t => t.status !== 'done').length, [allTasks]);
@@ -214,7 +230,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
     () =>
       allTasks.filter(t => {
         if (!showDone && t.status === 'done') return false;
-        if (bucketFilter !== 'all' && taskTimeBucket(t) !== bucketFilter) return false;
+        if (bucketFilter !== 'all' && taskTimeBucket(t, todayStr) !== bucketFilter) return false;
         if (filterStatus && t.status !== filterStatus) return false;
         if (filterCase && (filterCase === '__none__' ? t.caseId !== null : t.caseId !== filterCase)) return false;
         if (searchQuery) {
@@ -223,22 +239,22 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
         }
         return true;
       }),
-    [allTasks, showDone, bucketFilter, filterStatus, filterCase, searchQuery],
+    [allTasks, showDone, bucketFilter, filterStatus, filterCase, searchQuery, todayStr],
   );
 
   const groups = useMemo(() => {
     const m: Record<string, UnifiedTask[]> = {};
     for (const b of BUCKETS) m[b.key] = [];
-    for (const t of filtered) m[taskTimeBucket(t)].push(t);
+    for (const t of filtered) m[taskTimeBucket(t, todayStr)].push(t);
     return BUCKETS.filter(b => m[b.key].length).map(b => ({ key: b.key, tasks: m[b.key] }));
-  }, [filtered]);
+  }, [filtered, todayStr]);
 
   // ── 今日副标 / hero ──
   const todayProgress = useMemo(() => {
     const tt = allTasks.filter(t => t.deadline === todayStr);
     const dn = tt.filter(t => t.status === 'done').length;
     return { total: tt.length, done: dn };
-  }, [allTasks]);
+  }, [allTasks, todayStr]);
   const overdueCount = bucketCounts.overdue ?? 0;
   // ── 今日事项（事件 + 到期任务）：备忘录 #4「今日日程」→「今日事项」 ──
   const todayItems = useMemo(() => {
@@ -273,7 +289,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
     }
     items.sort((a, b) => (a.time ?? '99:99').localeCompare(b.time ?? '99:99'));
     return items;
-  }, [timelineEvents, allTasks]);
+  }, [timelineEvents, allTasks, todayStr]);
 
   // ── 日历同源数据（事件 + 案件/项目/独立任务截止） ──
   const calByDate = useMemo(() => {
@@ -328,7 +344,7 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
     }
     items.sort((a, b) => a.date.localeCompare(b.date));
     return items;
-  }, [timelineEvents, projects, standaloneTasks, cases]);
+  }, [timelineEvents, projects, standaloneTasks, cases, todayStr]);
 
   // ── Calendar grid ──
   const calDays = useMemo(() => {
@@ -912,8 +928,13 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                     <p className="py-8 text-center text-xs text-[var(--ink-faint)]">暂无未来日程</p>
                   ) : (
                     keyDates.slice(0, 8).map(e => {
-                      const dd = daysUntil(e.date);
-                      const urgent = dd <= 3 && (e.type === 'hearing' || e.type === 'arbitration' || e.type === 'evidence_deadline' || e.type === 'limitation_expiry');
+                      // 天数按界面上的「今天」算：daysUntil 默认自己再取一次今天，
+                      // 跨 0 点后两边可能不是同一天，条目会同时「已过期」又「紧急」。
+                      const dd = daysUntil(e.date, todayStr);
+                      const isHearing = e.type === 'hearing' || e.type === 'arbitration';
+                      // 已过去的不标紧急——10/19 开庭在 10/20 仍标红就是这么来的；
+                      // 只有真正的开庭与期限进入预警，送达/立案/进展类不标红。
+                      const urgent = dd >= 0 && dd <= URGENT_WINDOW_DAYS && URGENT_EVENT_TYPES.has(e.type);
                       const soon = dd === 0 || dd === 1;
                       const [, m, d] = e.date.split('-');
                       return (
@@ -936,7 +957,12 @@ export default memo(function TaskManager({ isActive: _isActive, onOpenCase }: Ta
                             <span className={`block truncate text-xs font-semibold ${urgent ? 'text-[var(--error)]' : 'text-[var(--ink)]'}`}>{e.label}</span>
                             <span className="block truncate text-[0.6875rem] text-[var(--ink-muted)]">{e.caseName}</span>
                           </span>
-                          {e.time && <span className={`shrink-0 font-mono text-[0.6875rem] ${urgent ? 'text-[var(--error)]' : 'text-[var(--ink-subtle)]'}`}>{e.time}</span>}
+                          {e.time ? (
+                            <span className={`shrink-0 font-mono text-[0.6875rem] ${urgent ? 'text-[var(--error)]' : 'text-[var(--ink-subtle)]'}`}>{e.time}</span>
+                          ) : isHearing ? (
+                            // 开庭没时间几乎一定是登记时漏了：明确露出来，别让它看起来像全天日程。
+                            <span className="shrink-0 text-[0.625rem] text-[var(--ink-faint)]">时间待登记</span>
+                          ) : null}
                         </button>
                       );
                     })

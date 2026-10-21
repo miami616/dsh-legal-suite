@@ -78,7 +78,9 @@ try {
   const a3 = await mk({ status: 'pretrial' }, [
     { type: 'event', title: '第一次开庭', date: iso(-10), status: 'pending' },
   ])
-  check('A3 开庭已过+状态未推进 → 命中', patrolCase(a3.rec, a3.items, rules).some((f) => f.ruleId === 'hearing.passed_state_not_advanced'))
+  const a3f = patrolCase(a3.rec, a3.items, rules)
+  check('A3 开庭已过+状态未推进 → 命中', a3f.some((f) => f.ruleId === 'hearing.passed_state_not_advanced'))
+  check('A3 证据不含「今天 X」（否则指纹每天变化、天天重推）', !a3f.find((f) => f.ruleId === 'hearing.passed_state_not_advanced')?.evidence.join('|').includes(`今天 ${iso(0)}`))
 
   // A4 已有立案证据但状态仍立案前（用户新增的场景）
   const a4 = await mk({ status: 'filing' }, [
@@ -107,6 +109,12 @@ try {
   check('A6 已结案+未完成任务 → 命中', patrolCase(a6.rec, a6.items, rules).some((f) => f.ruleId === 'case.closed_with_open_tasks'))
 
   /* ══════════ B. 不该报的（误报防线） ══════════ */
+
+  // B0 「收到开庭传票」是收件/排期节点，不是开庭事实 → 不报
+  const b0 = await mk({ status: 'pretrial' }, [
+    { type: 'event', title: '收到开庭传票', date: iso(-3), status: 'pending' },
+  ])
+  check('B0 「收到开庭传票」不算已开庭（2026-063/068 误报回归）', patrolCase(b0.rec, b0.items, rules).length === 0)
 
   // B1 开庭已过但没勾完成、且状态已推进 → 无后果，不报
   const b1 = await mk({ status: 'post_trial' }, [

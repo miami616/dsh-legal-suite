@@ -16,6 +16,7 @@
  */
 import type { Item, TaskGroup } from './store/types.ts'
 import { isTaskItem } from './store/types.ts'
+import { resolveEventType } from '../../shared/event-type.ts'
 
 /** 把一条 item（event/both）映射成 legacy TimelineEvent 形状。 */
 export function itemToTimelineEvent(it: Item): Record<string, unknown> {
@@ -24,8 +25,9 @@ export function itemToTimelineEvent(it: Item): Record<string, unknown> {
     caseId: it.ownerId,
     caseName: it.ownerName,
     ownerType: it.ownerType ?? '',
-    // kind 透传事件类型（0.2.x 统一模型补回）；缺失时按 0.2.2 旧行为兜底。
-    type: it.kind ?? (it.type === 'both' ? 'hearing' : 'case_event'),
+    // kind 透传事件类型（0.2.x 统一模型补回）；缺失时先按标题推断
+    // （开庭/上诉期/举证期…都没写 kind 的历史数据全靠这一步），最后按 0.2.2 旧行为兜底。
+    type: resolveEventType(it.kind, it.title, it.type),
     title: it.title,
     label: it.title,
     detail: it.detail,

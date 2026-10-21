@@ -90,6 +90,12 @@ const PRE_FILING_STATE = /^(intake|pre_filing|filing)$/
  * 是**硬矛盾**，与日期精度无关。
  */
 const FILED_EVIDENCE = /(传票|受理通知|立案通知|应诉通知|举证通知|缴费通知|开庭通知|开庭排期|缴纳诉讼费|受理案件通知|开庭|答辩期)/
+/**
+ * 「收到开庭传票」「开庭通知」是**送达收件/排期告知**节点，不是开庭事实。
+ * 旧实现直接 /开庭/ 匹配，把收件日当作开庭日 → 未开庭案件天天误报（2026-063/068）。
+ */
+const RECEIPT_OR_SCHEDULE = /(传票|收到|领取|送达|通知|排期|改期|延期|申请)/
+const isHearingFact = (title: string): boolean => /开庭/.test(title) && !RECEIPT_OR_SCHEDULE.test(title)
 
 /** 该案的关键日期事项。 */
 const keyDatesOf = (items: Item[]): Item[] => items.filter(isEventItem)
@@ -216,12 +222,13 @@ const ruleHearingPassedStateNotAdvanced: PatrolRule = {
     if (s(record.status) !== 'pretrial') return null
     const T = today()
     const past = eventsOf(items)
-      .filter((e) => /开庭/.test(s(e.title)) && d(e.date) !== '' && d(e.date) < T)
+      .filter((e) => isHearingFact(s(e.title)) && d(e.date) !== '' && d(e.date) < T)
       .sort((a, b) => d(a.date).localeCompare(d(b.date)))
     const last = past[past.length - 1]
     if (last === undefined) return null
     return {
-      evidence: [`「${s(last.title)}」${d(last.date)} 已开庭（今天 ${T}）`, `案件状态仍为「pretrial / 庭前准备」`],
+      // 证据里不放「今天 X」：日期每天变化会让指纹变化，去重台账失效、天天重推。
+      evidence: [`「${s(last.title)}」${d(last.date)} 已开庭`, `案件状态仍为「pretrial / 庭前准备」`],
       expectation: '开庭结束后应推进到庭后管理（等判决/补充代理意见），否则庭后任务不会展开',
       action: `update_case(caseId="${s(record.caseId)}", status="post_trial")，再 apply_stage_template 展开「庭后管理」阶段`,
     }

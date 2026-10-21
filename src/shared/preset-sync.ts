@@ -28,7 +28,7 @@
  * built layout.
  */
 
-import { cp, mkdir, readdir, rename, rm } from 'node:fs/promises'
+import { access, cp, mkdir, readdir, rename, rm } from 'node:fs/promises'
 import { readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -181,10 +181,18 @@ async function readPresetSource(id: string, entryUrl: string): Promise<PresetSou
 export async function shippedPresetIds(): Promise<string[]> {
   try {
     const entries = await readdir(join(packageRoot(), 'presets'), { withFileTypes: true })
-    return entries
-      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-      .map((entry) => entry.name)
-      .sort()
+    const ids: string[] = []
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+      // 只收「agent 预设」（有 agent.cordis.yml）。同目录下可能还有 bundle 形态的
+      // 预设（package.json + cordis.patch.yml），它们走 dsh plugin 安装，不归这里；
+      // 混进来会让 readPresetSource 读不到 agent.cordis.yml 而整次 sync 失败。
+      try {
+        await access(join(packageRoot(), 'presets', entry.name, 'agent.cordis.yml'))
+        ids.push(entry.name)
+      } catch { /* 不是 agent 预设，跳过 */ }
+    }
+    return ids.sort()
   } catch {
     return []
   }

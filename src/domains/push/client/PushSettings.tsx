@@ -49,6 +49,7 @@ export function PushSettings(): React.JSX.Element {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [running, setRunning] = useState(false)
+  const [runningWeekly, setRunningWeekly] = useState<'weekly-plan' | 'weekly-review' | null>(null)
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [status, setStatus] = useState<PushStatusView | null>(null)
   const [preview, setPreview] = useState<PushPreviewView | null>(null)
@@ -136,6 +137,26 @@ export function PushSettings(): React.JSX.Element {
       setMessage({ kind: 'err', text: `执行失败：${error instanceof Error ? error.message : String(error)}` })
     } finally {
       setRunning(false)
+    }
+  }
+
+  const handleRunWeekly = async (mode: 'weekly-plan' | 'weekly-review'): Promise<void> => {
+    setRunningWeekly(mode)
+    setMessage(null)
+    try {
+      const result = await runPushNow(false, mode)
+      setMessage({
+        kind: 'ok',
+        text: result.error !== undefined
+          ? `发送失败：${result.error}`
+          : result.pushed > 0 ? `已发送（${result.pushed} 行）。` : '本周没有可汇总的内容，未发送空卡。',
+      })
+      const st = await readPushStatus().catch(() => null)
+      if (st !== null) setStatus(st)
+    } catch (error) {
+      setMessage({ kind: 'err', text: `发送失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setRunningWeekly(null)
     }
   }
 
@@ -294,6 +315,49 @@ export function PushSettings(): React.JSX.Element {
         />
       </div>
 
+      {/* 周报 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <label style={label}>周报（与日报同一条飞书通道）</label>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--dsw-alias-label-primary)' }}>
+          <input
+            type="checkbox"
+            checked={config.weeklyPlanEnabled !== false}
+            onChange={(e) => setConfig((prev) => (prev === null ? prev : { ...prev, weeklyPlanEnabled: e.target.checked }))}
+            style={{ marginTop: 2 }}
+          />
+          <span>
+            周一早上「本周重点工作」
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)' }}>
+              按下面的每日推送时间发出；周一早上只发这一张，替代当天日报——同一批事项不会推两遍
+            </span>
+          </span>
+        </label>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--dsw-alias-label-primary)' }}>
+          <input
+            type="checkbox"
+            checked={config.weeklyReviewEnabled !== false}
+            onChange={(e) => setConfig((prev) => (prev === null ? prev : { ...prev, weeklyReviewEnabled: e.target.checked }))}
+            style={{ marginTop: 2 }}
+          />
+          <span>
+            周五下午「本周总结与下周重点」
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)' }}>
+              本周完成 / 本周顺延 / 下周要点；顺延只列已经过去且仍未完成的，今天在办的不算，不重复当天日报
+            </span>
+          </span>
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12.5, color: 'var(--dsw-alias-label-secondary)' }}>周五发送时间</span>
+          <input
+            style={{ ...input, maxWidth: 140 }}
+            type="time"
+            disabled={config.weeklyReviewEnabled === false}
+            value={config.weeklyReviewTime ?? '16:30'}
+            onChange={(e) => setConfig((prev) => (prev === null ? prev : { ...prev, weeklyReviewTime: e.target.value }))}
+          />
+        </div>
+      </div>
+
       {/* 标题前缀 */}
       <div>
         <label style={label}>标题前缀（可选）</label>
@@ -313,6 +377,13 @@ export function PushSettings(): React.JSX.Element {
         <div style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--dsw-alias-bg-l2)', fontSize: 11.5, lineHeight: 1.7, color: 'var(--dsw-alias-label-secondary)' }}>
           <span style={{ fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>运行状态</span>
           <div>下次摘要：{status.nextDigestAt} · 今日计划 {status.due} 项</div>
+          {status.weekly !== undefined && (
+            <div>
+              周报：{status.weekly.planEnabled ? `本周重点 ${status.weekly.nextPlanAt}` : '本周重点已关'}
+              {' · '}
+              {status.weekly.reviewEnabled ? `本周总结 ${status.weekly.nextReviewAt}` : '本周总结已关'}
+            </div>
+          )}
           {status.workday === false && (
             <div style={{ color: 'var(--dsw-alias-label-tertiary)' }}>今天是非工作日（周末/法定节假日），每日摘要暂停；开庭/法定期限的精确提醒仍会发送。</div>
           )}
@@ -378,6 +449,12 @@ export function PushSettings(): React.JSX.Element {
         </button>
         <button type="button" onClick={() => void handleRunNow()} disabled={running} style={ghostButton}>
           {running ? '执行中…' : '立即执行一次'}
+        </button>
+        <button type="button" onClick={() => void handleRunWeekly('weekly-plan')} disabled={runningWeekly !== null} style={ghostButton}>
+          {runningWeekly === 'weekly-plan' ? '发送中…' : '发送本周重点'}
+        </button>
+        <button type="button" onClick={() => void handleRunWeekly('weekly-review')} disabled={runningWeekly !== null} style={ghostButton}>
+          {runningWeekly === 'weekly-review' ? '发送中…' : '发送本周总结'}
         </button>
       </div>
 

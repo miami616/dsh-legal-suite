@@ -24,7 +24,7 @@ import { isEventItem, isTaskItem } from '../item/store/types.ts'
 import { runPatrol, groupItemsByCase, type PatrolFinding } from '../litigation/patrol.ts'
 import { createPatrolLedgerStore } from '../litigation/store/patrol-ledger-store.ts'
 import { createPeriodRuleStore } from '../litigation/store/period-rule-store.ts'
-import { sendPatrolCard, sendReminderCard, sendReminderImageCard, sendFeishuCard } from './feishu-card.ts'
+import { sendPatrolCard, sendReminderCard, sendReminderImageCard, sendFeishuCard, sendWeeklyCard } from './feishu-card.ts'
 import type { CaseRegistry, TimelineEvent } from '../litigation/store/types.ts'
 import { ledgerKey, parsePushTime, type PushConfig, type PushStore, type PushRunState, type PushStateStore } from './store/push-config.ts'
 import {
@@ -44,6 +44,16 @@ import {
   type ReminderPreview,
   type SuppressedSummary,
 } from './reminder-plan.ts'
+import {
+  buildWeeklyPlan,
+  buildWeeklyReview,
+  isFirstWorkdayOfWeek,
+  isLastWorkdayOfWeek,
+  isoWeekKey,
+  weekBounds,
+  type WeeklyDoneItem,
+  type WeeklyFinding,
+} from './weekly.ts'
 import { notifyLocal } from './notify-local.ts'
 import { cleanupReminderImage, renderReminderImage } from './reminder-image.ts'
 import { join } from 'node:path'
@@ -139,7 +149,7 @@ export interface PushRunResult {
 /** Result of one tick (digest / incremental / intraday). */
 export interface ReminderTickResult extends PushRunResult {
   /** What this tick did. */
-  kind: 'digest' | 'incremental' | 'intraday' | 'retry' | 'none'
+  kind: 'digest' | 'incremental' | 'intraday' | 'retry' | 'weekly-plan' | 'weekly-review' | 'none'
   /** 精确提醒条数（kind=intraday 时有意义）。 */
   intraday?: number
 }
@@ -557,6 +567,45 @@ function successPatch(now: number, extra: Partial<PushRunState>): (state: PushRu
   })
 }
 
+/** 巡检发现 → 周报行（只取人读的规则名与案件名）。 */
+function weeklyFindings(findings: PatrolFinding[]): WeeklyFinding[] {
+  return findings.map((finding) => ({
+    caseId: finding.caseId,
+    caseName: finding.caseName,
+    message: finding.ruleName,
+    severity: finding.severity,
+  }))
+}
+
+/**
+ * 读取本周已完成的任务（统一事项里 status=done，且 updatedAt 落在本周）。
+ *
+ * 周报「本周完成」用它统计，不读案件任务树：周报口径与任务面板一致
+ * （都来自 items.json），避免两处状态各说各话。
+ */
+async function collectDoneThisWeek(litigationDir: string, from: string, to: string): Promise<WeeklyDoneItem[]> {
+  try {
+    const itemStore = createItemStore(join(litigationDir, '..', 'items'))
+    const all = await itemStore.listItems()
+    const rows: WeeklyDoneItem[] = []
+    for (const it of all) {
+      if (it.status !== 'done' || !isTaskItem(it)) continue
+      const day = (it.updatedAt ?? '').slice(0, 10)
+      if (day === '' || day < from || day > to) continue
+      rows.push({
+        title: it.title,
+        ownerName: it.ownerName,
+        date: it.date === undefined ? undefined : it.date.slice(0, 10),
+        updatedAt: it.updatedAt,
+      })
+    }
+    return rows.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')).slice(0, 20)
+  } catch (error) {
+    console.warn('[agentlex-push] 本周完成事项读取失败:', error instanceof Error ? error.message : String(error))
+    return []
+  }
+}
+
 /**
  * 分钟级巡检入口（host 每 5 分钟调用一次）。
  *
@@ -571,7 +620,7 @@ export async function runReminderTick(
   cfg: PushConfig,
   store: PushStore,
   stateStore: PushStateStore,
-  opts: { force?: boolean; mode?: 'auto' | 'manual' | 'digest' | 'intraday'; now?: number } = {},
+  opts: { force?: boolean; mode?: 'auto' | 'manual' | 'digest' | 'intraday' | 'weekly-plan' | 'weekly-review'; now?: number } = {},
 ): Promise<ReminderTickResult> {
   const now = opts.now ?? Date.now()
   if (!cfg.enabled && opts.force !== true) {
@@ -581,13 +630,28 @@ export async function runReminderTick(
   const state = await stateStore.read()
   const today = localDate(now)
   const slotReached = digestSlotReached(cfg, now)
-  const manual = opts.force === true || opts.mode === 'manual' || opts.mode === 'digest'
+  const manual = (opts.force === true || opts.mode === 'manual' || opts.mode === 'digest')
+    && opts.mode !== 'weekly-plan' && opts.mode !== 'weekly-review'
   const lastKind = state.lastKind ?? 'digest'
   const failed = (state.lastError ?? '') !== ''
   const retryWaitOver = state.lastAttemptAt === undefined
     || now - Date.parse(state.lastAttemptAt) >= RETRY_INTERVAL_MS
   // 每天摘要只在工作日发；周末/法定节假日静默（精确提醒不受影响）。
   const workday = isDigestWorkday(now)
+  const weekKey = isoWeekKey(today)
+  // 周报：周一早上「本周重点工作」替代当天日报（只发一张卡）；周五下午「本周总结」独立档期。
+  // 周一/周五碰上法定假日时，按「本周第一个/最后一个工作日」顺延。
+  const manualPlan = opts.mode === 'weekly-plan'
+  const manualReview = opts.mode === 'weekly-review'
+  const planDue = cfg.weeklyPlanEnabled !== false
+    && (manualPlan || (workday && isFirstWorkdayOfWeek(today) && slotReached && state.lastWeeklyPlanWeek !== weekKey))
+    && (manualPlan || !(failed && lastKind === 'weekly-plan' && !retryWaitOver))
+  const [reviewHour, reviewMinute] = parsePushTime(cfg.weeklyReviewTime ?? '16:30')
+  const reviewSlot = new Date(now)
+  reviewSlot.setHours(reviewHour, reviewMinute, 0, 0)
+  const reviewDue = cfg.weeklyReviewEnabled !== false
+    && (manualReview || (workday && isLastWorkdayOfWeek(today) && now >= reviewSlot.getTime() && state.lastWeeklyReviewWeek !== weekKey))
+    && (manualReview || !(failed && lastKind === 'weekly-review' && !retryWaitOver))
   // 失败后 10 分钟内不再重试，避免飞书持续故障时每 5 分钟打一次。
   const digestDue = (manual || (workday && slotReached && state.lastDigestDate !== today))
     && !(failed && lastKind === 'digest' && !retryWaitOver)
@@ -599,7 +663,7 @@ export async function runReminderTick(
     && !(failed && lastKind === 'incremental' && !retryWaitOver)
   const intradayAllowed = intradayWindow && !(failed && lastKind === 'intraday' && !retryWaitOver)
 
-  if (!digestDue && !retryDue && !intradayWindow && !incrementalAllowed) {
+  if (!digestDue && !retryDue && !intradayWindow && !incrementalAllowed && !planDue && !reviewDue) {
     return { due: 0, pushed: 0, attempted: false, kind: 'none' }
   }
 
@@ -622,11 +686,117 @@ export async function runReminderTick(
   }
   const intraday = await filterFreshIntraday(intradayCandidates(items, options, now), store, opts.force === true)
 
+  // ⓪ 周一「本周重点工作」：成功即视为当天早报已发（不再另发日报）。
+  //    失败时记一次错误并把本周标记掉，落到下面的日报分支——宁可少一张周报，也不要空一天。
+  if (planDue) {
+    const patrolPass = await collectPatrolPass(dirs.litigation, { weekly: true })
+    const sunday = weekBounds(today).sunday
+    // 日报被周一卡替代后，T-30/T-7 这类「提前提醒」不能再丢：把落到下周及更远的
+    // 进阶提醒补成一节（同时记台账，避免周二日报原样再推一遍）。
+    const aheadEntries = selection.entries
+      .filter((entry) => entry.section === 'ahead' && entry.item.date > sunday)
+    const ahead = aheadEntries.map((entry) => ({
+      label: entry.item.label,
+      date: entry.item.date,
+      time: entry.item.time,
+      caseName: entry.item.caseName,
+      phaseLabel: entry.phaseLabel,
+      severity: entry.severity,
+    }))
+    const payload = buildWeeklyPlan({
+      items,
+      done: [],
+      findings: weeklyFindings(patrolPass.findings),
+      ahead,
+    }, now)
+    if (payload === null) {
+      await stateStore.mutate(successPatch(now, {
+        lastWeeklyPlanWeek: weekKey,
+        ...(manualPlan ? {} : { lastDigestDate: today }),
+        lastKind: 'weekly-plan',
+      }))
+      await patrolPass.commit()
+      return { due: 0, pushed: 0, attempted: false, kind: 'weekly-plan' }
+    }
+    try {
+      await sendWeeklyCard(payload, { titlePrefix: cfg.titlePrefix })
+      await patrolPass.commit()
+      await store.recordPushed(aheadEntries.map((entry) => entry.key))
+      await stateStore.mutate(successPatch(now, {
+        lastWeeklyPlanWeek: weekKey,
+        ...(manualPlan ? {} : {
+          lastDigestDate: today,
+          lastIncrementalAt: new Date(now).toISOString(),
+        }),
+        lastPushedCount: payload.total,
+        lastKind: 'weekly-plan',
+      }))
+      return { due: payload.total, pushed: payload.total, attempted: true, kind: 'weekly-plan' }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await stateStore.mutate((s) => ({
+        ...s,
+        ...(manualPlan ? {} : { lastWeeklyPlanWeek: weekKey }),
+        lastAttemptAt: new Date(now).toISOString(),
+        lastError: message,
+        consecutiveFailures: (s.consecutiveFailures ?? 0) + 1,
+        lastKind: 'weekly-plan',
+      }))
+      if (manualPlan) return { due: payload.total, pushed: 0, attempted: true, error: message, kind: 'weekly-plan' }
+      console.warn('[agentlex-push] 本周重点工作发送失败，退化为日报:', message)
+      // 自动档失败：继续走下面的日报分支（digestDue 仍成立），当天不至于一条都没有。
+    }
+  }
+
+  // ④½ 周五下午「本周总结与下周重点」：独立档期；手动触发时优先于日报，
+  //     正常档期如果当天日报还没发，先发日报（下一轮再发总结）。
+  if (reviewDue && (manualReview || !digestDue)) {
+    const { monday } = weekBounds(today)
+    const [patrolPass, done] = await Promise.all([
+      collectPatrolPass(dirs.litigation),
+      collectDoneThisWeek(dirs.litigation, monday, today),
+    ])
+    const payload = buildWeeklyReview({
+      items,
+      done,
+      findings: weeklyFindings(patrolPass.findings),
+    }, now)
+    if (payload === null) {
+      await stateStore.mutate(successPatch(now, {
+        lastWeeklyReviewWeek: weekKey,
+        lastKind: 'weekly-review',
+      }))
+      await patrolPass.commit()
+      return { due: 0, pushed: 0, attempted: false, kind: 'weekly-review' }
+    }
+    try {
+      await sendWeeklyCard(payload, { titlePrefix: cfg.titlePrefix })
+      await patrolPass.commit()
+      await stateStore.mutate(successPatch(now, {
+        lastWeeklyReviewWeek: weekKey,
+        lastPushedCount: payload.total,
+        lastKind: 'weekly-review',
+      }))
+      return { due: payload.total, pushed: payload.total, attempted: true, kind: 'weekly-review' }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await stateStore.mutate((s) => ({
+        ...s,
+        lastAttemptAt: new Date(now).toISOString(),
+        lastError: message,
+        consecutiveFailures: (s.consecutiveFailures ?? 0) + 1,
+        lastKind: 'weekly-review',
+      }))
+      return { due: payload.total, pushed: 0, attempted: true, error: message, kind: 'weekly-review' }
+    }
+  }
+
+
   // ① 摘要 / ② 失败重试
   if (digestDue || retryDue) {
     // 进展检查分级投递：高优先级新发现当天推；中/低优先级只在周一汇总，
     // 避免「已结案仍有未完成任务」这类清理型问题每天打扰。
-    const weekly = new Date(now).getDay() === 1
+    const weekly = isFirstWorkdayOfWeek(today)
     const patrolPass = await collectPatrolPass(dirs.litigation, { weekly })
     const patrol = { total: patrolPass.total, pushed: 0, summary: patrolPass.summary }
     if (fresh.length === 0) {

@@ -61,7 +61,8 @@ function check(name, cond, extra = '') {
 
 const store = createPushStore(dir)
 const stateStore = createRunStateStore(dir)
-const cfg = { enabled: true, pushTime: '08:30', smartLead: true, preciseReminder: true, includeConsequence: true }
+// 本用例只测日报/精确提醒，关掉周报以免周一档期先发「本周重点工作」。
+const cfg = { enabled: true, pushTime: '08:30', smartLead: true, preciseReminder: true, includeConsequence: true, weeklyPlanEnabled: false, weeklyReviewEnabled: false }
 
 console.log('== 摘要 / 精确提醒 ==')
 const r1 = await runReminderTick({ litigation: dir, nonlitigation: dir, tasks: dir }, cfg, store, stateStore, { now: at(8, 35) })
@@ -129,6 +130,11 @@ await release1?.()
 const release3 = await acquirePushRunLock(lockDir)
 check('释放后可再次拿锁', release3 !== undefined)
 await release3?.()
+// 数据目录尚不存在时也应能拿锁（首次使用/手动触发周报的场景）。
+const freshLockDir = join(mkdtempSync(join(tmpdir(), 'push-lock-fresh-')), 'push')
+const releaseFresh = await acquirePushRunLock(freshLockDir)
+check('数据目录不存在时首次拿锁成功（自动建目录）', releaseFresh !== undefined)
+await releaseFresh?.()
 mkdirSync(join(lockDir, 'push-run.lock'))
 const old = new Date(Date.now() - 20 * 60_000)
 utimesSync(join(lockDir, 'push-run.lock'), old, old)

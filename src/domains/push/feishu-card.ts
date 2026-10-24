@@ -22,6 +22,7 @@ import { join } from 'node:path'
 import type { DeadlineItem } from '../litigation/deadlines.ts'
 import { loadFeishuConfig, loadSecret } from './feishu-config.ts'
 import { groupEntries, SEVERITY_RANK, type ReminderDensity, type ReminderEntry, type Severity, type SuppressedSummary } from './reminder-plan.ts'
+import type { WeeklyPayload } from './weekly.ts'
 
 const FEISHU_BASE = 'https://open.feishu.cn'
 
@@ -315,6 +316,100 @@ export async function sendReminderCard(entries: ReminderEntry[], opts: ReminderC
         tag: 'plain_text',
         content: `${prefix}${opts.supplement === true ? '日程提醒（补充）' : opts.late === true ? '日程提醒（补发）' : '日程提醒'}`,
       },
+    },
+    elements,
+  }
+  const url = `${FEISHU_BASE}/open-apis/im/v1/messages?receive_id_type=open_id`
+  return httpJson(url, {
+    receive_id: owner,
+    msg_type: 'interactive',
+    content: JSON.stringify(card),
+  }, token)
+}
+
+/** 周报卡可选参数。 */
+export interface WeeklyCardOptions {
+  /** 标题前缀（与日报共用 titlePrefix）。 */
+  titlePrefix?: string
+  /** 页脚说明，默认按周报类型给「每周一 08:30 / 每周五 16:30」。 */
+  note?: string
+}
+
+/**
+ * 发送周报卡（周一「本周重点工作」/ 周五「本周总结与下周重点」）。
+ *
+ * 与日报卡共用同一条飞书通道与视觉口径（分区 + 分区标题 + 每事一行），
+ * 但周报按「周」聚合，所以固定用文字卡：分区多、需要一眼扫完，
+ * 图片版在手机上要来回缩放反而更慢。
+ *
+ * @param payload - weekly.ts 装配好的内容。
+ * @param opts - 标题前缀与页脚。
+ * @returns 飞书 API 响应。
+ */
+export async function sendWeeklyCard(payload: WeeklyPayload, opts: WeeklyCardOptions = {}): Promise<Record<string, unknown>> {
+  const bot = await loadFeishuConfig()
+  const secret = await loadSecret(bot.secretRef)
+  const token = await getToken(bot.appId, secret)
+  const owner = bot.ownerOpenIds[0]
+
+  const prefix = opts.titlePrefix !== undefined && opts.titlePrefix.trim() !== '' ? `${opts.titlePrefix.trim()} ` : ''
+  const plan = payload.kind === 'plan'
+  const title = plan ? '本周重点工作' : '本周总结与下周重点'
+  const template = plan
+    ? (payload.worst === 'critical' ? 'red' : payload.worst === 'high' ? 'orange' : 'blue')
+    : 'green'
+
+  const elements: Array<Record<string, unknown>> = []
+  const summary: string[] = [`**${payload.rangeLabel}**`, payload.weekLabel]
+  if (!plan) {
+    const done = payload.sections.find((section) => section.title === '本周完成')
+    const deferred = payload.sections.find((section) => section.title === '本周顺延')
+    const next = payload.sections.find((section) => section.title === '下周重点')
+    if (done !== undefined) summary.push(`完成 ${done.rows.length} 项`)
+    if (deferred !== undefined) summary.push(`顺延 ${deferred.rows.length} 项`)
+    if (next !== undefined) summary.push(`下周 ${next.rows.length} 项`)
+  } else {
+    summary.push(`共 ${payload.total} 项`)
+  }
+  elements.push({ tag: 'div', text: { tag: 'lark_md', content: summary.join(' · ') } })
+
+  for (const section of payload.sections) {
+    elements.push({ tag: 'hr' })
+    elements.push({ tag: 'div', text: { tag: 'lark_md', content: `**${section.title}**` } })
+    for (const row of section.rows) {
+      const time = row.when !== '' ? `${row.when}` : ''
+      const casePart = row.caseName !== undefined && row.caseName !== '' && row.caseName !== row.label ? ` · ${row.caseName}` : ''
+      const detailPart = row.detail !== undefined && row.detail !== '' ? ` · ${row.detail}` : ''
+      const tagPart = row.tag !== undefined && row.tag !== ''
+        ? ` <text_tag color='${row.tagColor ?? 'grey'}'>${row.tag}</text_tag>`
+        : ''
+      const head = time !== '' ? `${time} ` : ''
+      elements.push({
+        tag: 'div',
+        text: { tag: 'lark_md', content: `${head}**${row.label}**${casePart}${detailPart}${tagPart}` },
+      })
+    }
+    if (section.note !== undefined && section.note !== '') {
+      elements.push({ tag: 'div', text: { tag: 'lark_md', content: `<font color='grey'>${section.note}</font>` } })
+    }
+  }
+
+  elements.push({ tag: 'hr' })
+  elements.push({
+    tag: 'note',
+    elements: [{
+      tag: 'plain_text',
+      content: opts.note ?? (plan
+        ? '由 AgentLex 自动推送 · 每周一早上 · 与当日早报合并为一张'
+        : '由 AgentLex 自动推送 · 每周五下午'),
+    }],
+  })
+
+  const card = {
+    config: { wide_screen_mode: true },
+    header: {
+      template,
+      title: { tag: 'plain_text', content: `${prefix}${title}` },
     },
     elements,
   }

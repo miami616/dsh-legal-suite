@@ -16,6 +16,7 @@ import { previewReminderPlan, runReminderTick } from './push.ts'
 import { sendReminderCard } from './feishu-card.ts'
 import { isFeishuConfigured, loadFeishuConfig, saveFeishuConfig } from './feishu-config.ts'
 import { localDate, reminderCandidates, type ReminderPlanOptions } from './reminder-plan.ts'
+import { nextPlanDate, nextReviewDate } from './weekly.ts'
 import type { DeadlineItem } from '../litigation/deadlines.ts'
 
 /** Route prefix for the whole family. */
@@ -115,6 +116,11 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
     if (b.density === 'concise' || b.density === 'standard') next.density = b.density
     if (typeof b.imageMode === 'boolean') next.imageMode = b.imageMode
     if (b.frequency === 'low' || b.frequency === 'normal') next.frequency = b.frequency
+    if (typeof b.weeklyPlanEnabled === 'boolean') next.weeklyPlanEnabled = b.weeklyPlanEnabled
+    if (typeof b.weeklyReviewEnabled === 'boolean') next.weeklyReviewEnabled = b.weeklyReviewEnabled
+    if (typeof b.weeklyReviewTime === 'string' && /^\d{1,2}:\d{2}$/.test(b.weeklyReviewTime.trim())) {
+      next.weeklyReviewTime = b.weeklyReviewTime.trim()
+    }
     ok(res, await d.store.writeConfig(next))
     // 配置变更（如推送时间）后让 host 重建定时器。
     d.onConfigChange?.()
@@ -187,9 +193,13 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
       return
     }
     try {
+      const requested = typeof b.mode === 'string' ? b.mode : 'manual'
+      const mode = requested === 'digest' || requested === 'intraday' || requested === 'weekly-plan' || requested === 'weekly-review'
+        ? requested
+        : 'manual'
       const result = await runReminderTick(
         { litigation: d.litigationDataDir, nonlitigation: d.nonlitigationDataDir, tasks: d.tasksDataDir },
-        cfg, d.store, d.stateStore, { mode: 'manual', force: b.force === true },
+        cfg, d.store, d.stateStore, { mode, force: b.force === true },
       )
       ok(res, result)
     } finally {
@@ -212,6 +222,13 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
         config,
       ),
     ])
+    // 周报的下一次档期：周一（或本周首个工作日）早报时间 / 周五（或本周末个工作日）16:30。
+    const planTime = config.pushTime ?? '08:30'
+    const reviewTime = config.weeklyReviewTime ?? '16:30'
+    const [planHour, planMinute] = planTime.split(':').map(Number)
+    const [reviewHour, reviewMinute] = reviewTime.split(':').map(Number)
+    const planDay = nextPlanDate(Date.now(), planHour ?? 8, planMinute ?? 30)
+    const reviewDay = nextReviewDate(Date.now(), reviewHour ?? 16, reviewMinute ?? 30)
     ok(res, {
       config,
       state,
@@ -220,6 +237,12 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
       due: preview.total,
       suppressed: preview.suppressed,
       workday: preview.workday,
+      weekly: {
+        planEnabled: config.weeklyPlanEnabled !== false,
+        reviewEnabled: config.weeklyReviewEnabled !== false,
+        nextPlanAt: `${planDay} ${planTime}`,
+        nextReviewAt: `${reviewDay} ${reviewTime}`,
+      },
       serverTime: new Date().toISOString(),
     })
   })

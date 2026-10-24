@@ -58,6 +58,12 @@ export interface PushConfigView {
   imageMode?: boolean
   /** 提醒频率：low（默认，低频）/ normal（标准）。 */
   frequency?: 'low' | 'normal'
+  /** 周一「本周重点工作」（默认开；随早报时间发，替代当天日报，不重复）。 */
+  weeklyPlanEnabled?: boolean
+  /** 周五「本周总结与下周重点」（默认开）。 */
+  weeklyReviewEnabled?: boolean
+  /** 周五周报时间（HH:mm，默认 16:30）。 */
+  weeklyReviewTime?: string
   updatedAt?: string
 }
 
@@ -73,9 +79,18 @@ export interface PushStatusView {
     lastIncrementalAt?: string
     lastPushedCount?: number
     lastKind?: string
+    lastWeeklyPlanWeek?: string
+    lastWeeklyReviewWeek?: string
   }
   feishuConfigured: boolean
   nextDigestAt: string
+  /** 周报档期（设置页展示）。 */
+  weekly?: {
+    planEnabled: boolean
+    reviewEnabled: boolean
+    nextPlanAt: string
+    nextReviewAt: string
+  }
   due: number
   suppressed?: { overdue: number; ahead: number; oldestOverdueAge?: number }
   /** 今天是否工作日（周末/法定节假日每日摘要不发）。 */
@@ -117,9 +132,12 @@ export function sendPushTest(config: { titlePrefix?: string }): Promise<{ sent: 
   return call('test', config)
 }
 
-/** Trigger a manual push run now (force=true 绕过台账推全部). */
-export function runPushNow(force = true): Promise<{ due: number; pushed: number; attempted: boolean; error?: string; kind?: string }> {
-  return call('run', { force })
+/** Trigger a manual push run now (force=true 绕过台账推全部；mode 可指定周报). */
+export function runPushNow(
+  force = true,
+  mode?: 'manual' | 'digest' | 'intraday' | 'weekly-plan' | 'weekly-review',
+): Promise<{ due: number; pushed: number; attempted: boolean; error?: string; kind?: string }> {
+  return call('run', { force, ...(mode === undefined ? {} : { mode }) })
 }
 
 /** 读取提醒健康状态（上次成功/失败、下次摘要时间、今日计划条数）。 */

@@ -57,6 +57,15 @@ export interface PushConfig {
    *  - standard：保留全部档位（T-30/T-15 也每天可见）。
    */
   density?: 'concise' | 'standard'
+  /**
+   * 周一「本周重点工作」（默认开）：随当日早报时间发出，并**替代当天日报**——
+   * 周一早上只发一张卡，避免同一批事项推两遍。
+   */
+  weeklyPlanEnabled?: boolean
+  /** 周五「本周总结与下周重点」（默认开）。 */
+  weeklyReviewEnabled?: boolean
+  /** 周五周报时间（HH:mm，默认 16:30）。 */
+  weeklyReviewTime?: string
   updatedAt?: string
 }
 
@@ -72,6 +81,9 @@ export function pushConfigDefault(): PushConfig {
     imageMode: true,
     frequency: 'low',
     density: 'concise',
+    weeklyPlanEnabled: true,
+    weeklyReviewEnabled: true,
+    weeklyReviewTime: '16:30',
   }
 }
 
@@ -154,8 +166,12 @@ export interface PushRunState {
   lastFallbackAt?: string
   /** 最近一次成功推送的条目数。 */
   lastPushedCount?: number
-  /** 最近一次推送的性质：digest / incremental / intraday / manual。 */
+  /** 最近一次推送的性质：digest / incremental / intraday / weekly-plan / weekly-review / manual。 */
   lastKind?: string
+  /** 最近一次成功的「本周重点工作」所属 ISO 周（2026-W44），用于本周不重复发。 */
+  lastWeeklyPlanWeek?: string
+  /** 最近一次成功的「本周总结」所属 ISO 周。 */
+  lastWeeklyReviewWeek?: string
 }
 
 /** 默认运行状态。 */
@@ -244,6 +260,9 @@ export async function acquirePushRunLock(dataDir: string, ttlMs = 10 * 60_000): 
   const lockDir = join(dataDir, 'push-run.lock')
   const release = async (): Promise<void> => { await rm(lockDir, { recursive: true, force: true }) }
   try {
+    // 首次使用时 push 数据目录可能还不存在：先建父目录，再原子 mkdir 锁目录
+    // （recursive 建锁目录不会在已存在时报 EEXIST，会破坏互斥，所以分两步）。
+    await mkdir(dataDir, { recursive: true })
     await mkdir(lockDir)
     await writeFile(join(lockDir, 'owner'), `${process.pid} ${new Date().toISOString()}\n`, 'utf8')
     return release

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AgentLex 周报</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #F3EFE5;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+    color: #1F2328;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { width: 1080px; margin: 0 auto; padding: 64px 64px 48px; background: #FBF8F1; }
+  .brand { font-size: 19px; letter-spacing: .22em; color: #8A7A5E; font-weight: 600; }
+  .week { display: flex; align-items: flex-end; gap: 20px; margin-top: 18px; }
+  .week-title { font-family: "Songti SC", "STSong", serif; font-size: 60px; font-weight: 700; letter-spacing: .02em; }
+  .week-sub { font-size: 26px; color: #6F6656; letter-spacing: .08em; padding-bottom: 10px; }
+  .chips { display: flex; gap: 12px; margin-top: 22px; }
+  .chip { font-size: 21px; padding: 8px 18px; border-radius: 999px; color: #fff; font-weight: 600; }
+  .chip.red { background: #B23A3A; }
+  .chip.blue { background: #2F5D8A; }
+  .chip.amber { background: #B26B2E; }
+  .chip.green { background: #3F6B52; }
+  .chip.grey { background: #8A8172; }
+  .rule { height: 2px; background: #E2D8C6; margin: 28px 0 8px; }
+  section { margin-top: 32px; }
+  .sec-head { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+  .bar { width: 8px; height: 34px; border-radius: 4px; display: inline-block; }
+  h2 { font-size: 31px; font-weight: 700; letter-spacing: .04em; font-family: "Songti SC", "STSong", serif; }
+  .count { margin-left: auto; font-size: 21px; color: #8A8172; }
+  .row {
+    display: grid; grid-template-columns: 210px 1fr auto; gap: 22px;
+    align-items: start; padding: 20px 0; border-bottom: 1px solid #E7DFD1;
+  }
+  .when { font-size: 25px; font-weight: 600; font-variant-numeric: tabular-nums; padding-top: 2px; white-space: nowrap; }
+  .when.muted { color: #B4AA98; font-weight: 400; }
+  .label { font-size: 31px; font-weight: 650; line-height: 1.35; }
+  .case { font-size: 22px; color: #6F6656; line-height: 1.55; margin-top: 6px; }
+  .sec-note { font-size: 20px; color: #8A8172; margin-top: 12px; }
+  .tag { font-size: 20px; font-weight: 600; padding: 8px 18px; border-radius: 999px; color: #fff; white-space: nowrap; margin-top: 2px; }
+  .tag.red { background: #B23A3A; }
+  .tag.orange { background: #B26B2E; }
+  .tag.green { background: #3F6B52; }
+  .tag.grey { background: #8A8172; }
+  footer {
+    margin-top: 40px; border-top: 2px solid #E2D8C6; padding-top: 22px;
+    display: flex; justify-content: space-between; font-size: 19px; color: #8A8172;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="brand" id="brand">AGENTLEX · 本周重点</div>
+  <div class="week"><div class="week-title" id="range"></div><div class="week-sub" id="week-label"></div></div>
+  <div class="chips" id="chips"></div>
+  <div class="rule"></div>
+  <div id="sections"></div>
+  <footer><span id="foot-left"></span><span id="foot-right"></span></footer>
+</div>
+<script>
+  const DATA = /*__DATA__*/;
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // 分区配色：硬节点/逾期用红，推进/任务用琥珀，下周与提前提醒用绿，完成用绿。
+  const COLOR_OF = (title) => {
+    if (/硬节点|逾期|核对|顺延/.test(title)) return '#B23A3A';
+    if (/推进|任务|下周重点/.test(title)) return '#B26B2E';
+    if (/完成|提前/.test(title)) return '#3F6B52';
+    return '#2F5D8A';
+  };
+  const TAG_CLASS = { red: 'red', orange: 'orange', green: 'green', grey: 'grey' };
+
+  const plan = DATA.kind !== 'review';
+  document.getElementById('brand').textContent = plan ? 'AGENTLEX · 本周重点' : 'AGENTLEX · 本周回顾';
+  document.getElementById('range').textContent = DATA.rangeLabel || '';
+  document.getElementById('week-label').textContent = DATA.weekLabel || '';
+
+  const byTitle = (name) => (DATA.sections || []).find((s) => s.title === name);
+  const chips = [];
+  if (plan) {
+    const hard = byTitle('本周硬节点');
+    const todo = byTitle('本周要推进');
+    const late = byTitle('逾期未办');
+    if (hard && hard.rows.length) chips.push(`<span class="chip red">硬节点 ${hard.rows.length}</span>`);
+    if (todo && todo.rows.length) chips.push(`<span class="chip amber">本周要办 ${todo.rows.length}</span>`);
+    if (late && late.rows.length) chips.push(`<span class="chip red">逾期 ${late.rows.length}</span>`);
+    chips.push(`<span class="chip blue">共 ${DATA.total} 项</span>`);
+  } else {
+    const done = byTitle('本周完成');
+    const deferred = byTitle('本周顺延');
+    const next = byTitle('下周重点');
+    if (done && done.rows.length) chips.push(`<span class="chip green">完成 ${done.rows.length}</span>`);
+    if (deferred && deferred.rows.length) chips.push(`<span class="chip red">顺延 ${deferred.rows.length}</span>`);
+    if (next && next.rows.length) chips.push(`<span class="chip amber">下周 ${next.rows.length}</span>`);
+  }
+  document.getElementById('chips').innerHTML = chips.join('');
+
+  const row = (r) => `<div class="row">
+    <div class="when ${r.when ? '' : 'muted'}">${esc(r.when || '')}</div>
+    <div>
+      <div class="label">${esc(r.label)}</div>
+      ${r.caseName || r.detail ? `<div class="case">${esc([r.caseName, r.detail].filter((v) => v !== undefined && v !== '').join(' · '))}</div>` : ''}
+    </div>
+    ${r.tag ? `<div class="tag ${TAG_CLASS[r.tagColor] || 'grey'}">${esc(r.tag)}</div>` : '<div></div>'}
+  </div>`;
+
+  document.getElementById('sections').innerHTML = (DATA.sections || []).map((s) => `<section>
+    <div class="sec-head"><span class="bar" style="background:${COLOR_OF(s.title)}"></span><h2>${esc(s.title)}</h2><span class="count">${s.rows.length} 项</span></div>
+    ${s.rows.map(row).join('')}
+    ${s.note ? `<div class="sec-note">${esc(s.note)}</div>` : ''}
+  </section>`).join('');
+
+  document.getElementById('foot-left').textContent = plan ? 'AgentLex · 每周一早上的本周重点' : 'AgentLex · 每周五下午的本周总结';
+  document.getElementById('foot-right').textContent = '点开图片可放大';
+  document.documentElement.dataset.ready = '1';
+</script>
+</body>
+</html>

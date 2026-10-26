@@ -13,7 +13,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { acquirePushRunLock, parseMaxDigestRows, type PushStateStore, type PushStore } from './store/push-config.ts'
 import { previewReminderPlan, runReminderTick } from './push.ts'
-import { sendReminderCard } from './feishu-card.ts'
+import { sendReminderCard, sendReminderImageCard } from './feishu-card.ts'
+import { cleanupReminderImage, renderReminderImage } from './reminder-image.ts'
 import { isFeishuConfigured, loadFeishuConfig, saveFeishuConfig } from './feishu-config.ts'
 import { localDate, reminderCandidates, type ReminderPlanOptions } from './reminder-plan.ts'
 import { nextPlanDate, nextReviewDate } from './weekly.ts'
@@ -174,9 +175,30 @@ export function makeRoutes(ctx: Context, deps: PushRouteDeps): () => void {
       },
     ]
     const plan: ReminderPlanOptions = { smartLead: true, includeConsequence: true }
+    const entries = reminderCandidates(sample, plan)
+    const cfg = await d.store.readConfig()
     try {
-      await sendReminderCard(reminderCandidates(sample, plan), { titlePrefix: prefix, pushTime: '08:30' })
-      ok(res, { sent: true })
+      if (cfg.imageMode === true) {
+        try {
+          const png = await renderReminderImage({
+            entries,
+            now: Date.now(),
+            pushTime: cfg.pushTime,
+            total: entries.length,
+          })
+          try {
+            await sendReminderImageCard(png, entries, { titlePrefix: prefix, pushTime: cfg.pushTime })
+          } finally {
+            await cleanupReminderImage(png)
+          }
+          ok(res, { sent: true, image: true })
+          return
+        } catch (error) {
+          console.warn('[agentlex-push] 测试推送图片版失败，回退文字卡:', error instanceof Error ? error.message : String(error))
+        }
+      }
+      await sendReminderCard(entries, { titlePrefix: prefix, pushTime: '08:30' })
+      ok(res, { sent: true, image: false })
     } catch (error) {
       fail(res, error, 502, '请检查飞书凭据（integrations/dsh-feishu/config.json 与 .credentials.yaml）')
     }

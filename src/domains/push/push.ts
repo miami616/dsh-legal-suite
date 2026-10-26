@@ -24,7 +24,7 @@ import { isEventItem, isTaskItem } from '../item/store/types.ts'
 import { runPatrol, groupItemsByCase, type PatrolFinding } from '../litigation/patrol.ts'
 import { createPatrolLedgerStore } from '../litigation/store/patrol-ledger-store.ts'
 import { createPeriodRuleStore } from '../litigation/store/period-rule-store.ts'
-import { sendPatrolCard, sendReminderCard, sendReminderImageCard, sendFeishuCard, sendWeeklyCard } from './feishu-card.ts'
+import { sendPatrolCard, sendReminderCard, sendReminderImageCard, sendFeishuCard, sendWeeklyCard, sendWeeklyImageCard } from './feishu-card.ts'
 import type { CaseRegistry, TimelineEvent } from '../litigation/store/types.ts'
 import { ledgerKey, parsePushTime, type PushConfig, type PushStore, type PushRunState, type PushStateStore } from './store/push-config.ts'
 import {
@@ -53,9 +53,11 @@ import {
   weekBounds,
   type WeeklyDoneItem,
   type WeeklyFinding,
+  type WeeklyPayload,
 } from './weekly.ts'
 import { notifyLocal } from './notify-local.ts'
 import { cleanupReminderImage, renderReminderImage } from './reminder-image.ts'
+import { cleanupWeeklyImage, renderWeeklyImage } from './weekly-image.ts'
 import { join } from 'node:path'
 
 /** 旧版提醒窗口：今天（0）与明天（1）。保留导出供兼容性校验使用。 */
@@ -437,6 +439,29 @@ async function sendIntraday(
   await sendFeishuCard(formatIntradayMarkdown(entries, cfg.titlePrefix), { template: intradayTemplate(entries) })
 }
 
+/**
+ * 发送周报：图片模式优先，失败自动回退文字卡。
+ *
+ * 周报同样只发一条消息：图片生成/上传失败时不重试图片，直接走文字卡，
+ * 避免同一周出现「图片 + 文字」两张。
+ */
+async function sendWeekly(payload: WeeklyPayload, cfg: PushConfig, now: number): Promise<void> {
+  if (cfg.imageMode === true) {
+    try {
+      const png = await renderWeeklyImage(payload, now)
+      try {
+        await sendWeeklyImageCard(png, payload, { titlePrefix: cfg.titlePrefix })
+      } finally {
+        await cleanupWeeklyImage(png)
+      }
+      return
+    } catch (error) {
+      console.warn('[agentlex-push] 周报图片版生成失败，回退文字卡:', error instanceof Error ? error.message : String(error))
+    }
+  }
+  await sendWeeklyCard(payload, { titlePrefix: cfg.titlePrefix })
+}
+
 /** 过滤掉已推送过的条目（force 时全部保留）。 */
 async function filterFresh(entries: ReminderEntry[], store: PushStore, force: boolean): Promise<ReminderEntry[]> {
   if (force) return entries
@@ -719,7 +744,7 @@ export async function runReminderTick(
       return { due: 0, pushed: 0, attempted: false, kind: 'weekly-plan' }
     }
     try {
-      await sendWeeklyCard(payload, { titlePrefix: cfg.titlePrefix })
+      await sendWeekly(payload, cfg, now)
       await patrolPass.commit()
       await store.recordPushed(aheadEntries.map((entry) => entry.key))
       await stateStore.mutate(successPatch(now, {
@@ -770,7 +795,7 @@ export async function runReminderTick(
       return { due: 0, pushed: 0, attempted: false, kind: 'weekly-review' }
     }
     try {
-      await sendWeeklyCard(payload, { titlePrefix: cfg.titlePrefix })
+      await sendWeekly(payload, cfg, now)
       await patrolPass.commit()
       await stateStore.mutate(successPatch(now, {
         lastWeeklyReviewWeek: weekKey,

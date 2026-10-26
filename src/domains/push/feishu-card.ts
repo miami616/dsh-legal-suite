@@ -436,21 +436,7 @@ export async function sendReminderImageCard(
   const token = await getToken(bot.appId, secret)
   const owner = bot.ownerOpenIds[0]
 
-  const png = await readFile(pngPath)
-  const form = new FormData()
-  form.append('image_type', 'message')
-  form.append('image', new Blob([png], { type: 'image/png' }), 'reminder.png')
-  const uploadRes = await fetch(`${FEISHU_BASE}/open-apis/im/v1/images`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${token}` },
-    body: form,
-  })
-  const uploaded = await uploadRes.json().catch(() => ({})) as Record<string, unknown>
-  if (!uploadRes.ok || uploaded.code !== 0) {
-    throw new Error(`feishu image upload ${uploadRes.status}: ${JSON.stringify(uploaded)}`)
-  }
-  const imageKey = (uploaded.data as { image_key?: string } | undefined)?.image_key
-  if (imageKey === undefined) throw new Error('feishu image upload returned no image_key')
+  const imageKey = await uploadImage(token, pngPath, 'reminder.png')
 
   const prefix = opts.titlePrefix !== undefined && opts.titlePrefix.trim() !== '' ? `${opts.titlePrefix.trim()} ` : ''
   const critical = entries.filter((entry) => entry.severity === 'critical').length
@@ -476,6 +462,88 @@ export async function sendReminderImageCard(
         ? [{ tag: 'div', text: { tag: 'lark_md', content: `⚠ **上次推送失败**：${opts.failureNote.trim()}` } }]
         : []),
       { tag: 'note', elements: [{ tag: 'plain_text', content: opts.kind === 'intraday' ? '图片版 · 临近开始提醒 · 点开图片可放大' : `图片版 · 每日 ${opts.pushTime ?? '08:30'} · 点开图片可放大` }] },
+    ],
+  }
+  const url = `${FEISHU_BASE}/open-apis/im/v1/messages?receive_id_type=open_id`
+  return httpJson(url, {
+    receive_id: owner,
+    msg_type: 'interactive',
+    content: JSON.stringify(card),
+  }, token)
+}
+
+/**
+ * 把本地 PNG 上传到飞书，返回 `image_key`（图片卡复用）。
+ *
+ * 上传失败一律抛错：调用方据此回退文字卡，不会出现「图片发不出、提醒也没了」。
+ */
+async function uploadImage(token: string, pngPath: string, filename: string): Promise<string> {
+  const png = await readFile(pngPath)
+  const form = new FormData()
+  form.append('image_type', 'message')
+  form.append('image', new Blob([png], { type: 'image/png' }), filename)
+  const uploadRes = await fetch(`${FEISHU_BASE}/open-apis/im/v1/images`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
+  })
+  const uploaded = await uploadRes.json().catch(() => ({})) as Record<string, unknown>
+  if (!uploadRes.ok || uploaded.code !== 0) {
+    throw new Error(`feishu image upload ${uploadRes.status}: ${JSON.stringify(uploaded)}`)
+  }
+  const imageKey = (uploaded.data as { image_key?: string } | undefined)?.image_key
+  if (imageKey === undefined) throw new Error('feishu image upload returned no image_key')
+  return imageKey
+}
+
+/**
+ * 发送图片版周报卡（周一「本周重点工作」/ 周五「本周总结与下周重点」）。
+ *
+ * 与文字版 `sendWeeklyCard` 并存，由 `imageMode` 决定用哪个；图片失败时
+ * 调用方回退文字版。周报只发一条消息，不会出现「图片 + 文字」两张。
+ */
+export async function sendWeeklyImageCard(
+  pngPath: string,
+  payload: WeeklyPayload,
+  opts: WeeklyCardOptions = {},
+): Promise<Record<string, unknown>> {
+  const bot = await loadFeishuConfig()
+  const secret = await loadSecret(bot.secretRef)
+  const token = await getToken(bot.appId, secret)
+  const owner = bot.ownerOpenIds[0]
+
+  const imageKey = await uploadImage(token, pngPath, 'weekly.png')
+
+  const prefix = opts.titlePrefix !== undefined && opts.titlePrefix.trim() !== '' ? `${opts.titlePrefix.trim()} ` : ''
+  const plan = payload.kind === 'plan'
+  const title = plan ? '本周重点工作' : '本周总结与下周重点'
+  const template = plan
+    ? (payload.worst === 'critical' ? 'red' : payload.worst === 'high' ? 'orange' : 'blue')
+    : 'green'
+
+  const summary: string[] = [`**${payload.rangeLabel}**`, payload.weekLabel]
+  if (plan) {
+    summary.push(`共 ${payload.total} 项`)
+  } else {
+    const done = payload.sections.find((section) => section.title === '本周完成')
+    const deferred = payload.sections.find((section) => section.title === '本周顺延')
+    const next = payload.sections.find((section) => section.title === '下周重点')
+    if (done !== undefined) summary.push(`完成 ${done.rows.length} 项`)
+    if (deferred !== undefined) summary.push(`顺延 ${deferred.rows.length} 项`)
+    if (next !== undefined) summary.push(`下周 ${next.rows.length} 项`)
+  }
+
+  const card = {
+    config: { wide_screen_mode: true },
+    header: {
+      template,
+      title: { tag: 'plain_text', content: `${prefix}${title}` },
+    },
+    elements: [
+      { tag: 'img', img_key: imageKey, alt: { tag: 'plain_text', content: title } },
+      { tag: 'hr' },
+      { tag: 'div', text: { tag: 'lark_md', content: summary.join(' · ') } },
+      { tag: 'note', elements: [{ tag: 'plain_text', content: opts.note ?? (plan ? '图片版 · 每周一早上 · 点开图片可放大' : '图片版 · 每周五下午 · 点开图片可放大') }] },
     ],
   }
   const url = `${FEISHU_BASE}/open-apis/im/v1/messages?receive_id_type=open_id`

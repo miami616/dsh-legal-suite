@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.2.29 — 周报卡也走图片版（周一/周五不再是老版文字卡）
+
+### 问题（用户 2026-10-26 反馈）
+
+「任务通知怎么又成了老版本文字的了，不是改用图片了吗」——当天 09:00 收到的是**文字**的
+周一「本周重点工作」（18 项），而 09:17 的补充提醒是图片卡。原因不在配置（`imageMode` 默认开、
+线上也是 true），而是 0.2.28 的两处设计缺口：
+
+- **周报卡固定走文字**：`sendWeeklyCard` 只拼飞书文字元素，`imageMode` 只覆盖「每日摘要」和
+  「即将开始」两条路径，周报（周一计划 / 周五总结）压根没有图片分支；
+- **周一卡替代当天日报**：0.2.28 为了避免同批事项推两遍，周一早上只发这一张周报卡——
+  于是周一（以及周五下午）看起来就像「退回老版本文字卡」。
+
+### 改动
+
+- 新增 `scripts/weekly-card.template.html` + `scripts/render-weekly-image.mjs`：与每日提醒图片版
+  同一套视觉（1080px、米色底、宋体标题、分区色条），周报的分区/行（时间 + 事项 + 案件 + 标签）
+  直接进模板，整页截图成 PNG；
+- 新增 `src/domains/push/weekly-image.ts`（渲染）与 `sendWeeklyImageCard`（上传 PNG + 图片卡）；
+  上传逻辑抽成 `uploadImage`，与每日图片卡共用；
+- `push.ts` 新增 `sendWeekly`：`imageMode` 开时先出图片，**渲染或上传失败自动回退文字卡**，
+  仍然只发一条消息，不会出现「图片 + 文字」两张；
+- 设置页「测试推送」也按 `imageMode` 走图片（此前固定文字卡，测出来像功能没生效）；
+- 周一/周五卡的内容与去重口径完全不变（`lastWeeklyPlanWeek` / `lastWeeklyReviewWeek`、
+  周一替代日报、空周不发、失败退化日报等均未改动）。
+
+### 验证（隔离实例 3103，未触碰 live 3080）
+
+- 新增 `scripts/check-weekly-image.mjs`：19 项全过——PNG 魔数与体积、总结卡渲染、
+  上传失败抛错、`imageMode` 开时周一/周五走图片上传且只发一条、关时仍是文字卡；
+- `pnpm run check:reminder` 全绿（92 + 27 + 周报 + 19）；
+- 打包后在测试 profile 实跑：`node_modules/dsh-legal-suite/scripts/render-weekly-image.mjs`
+  与 `lib/domains/push/weekly-image.js` 都能在安装目录下正确解析模板/脚本并出图；
+- 隔离实例（`DSH_HOME=/tmp/dshhome-weekly`，端口 3103）实测 `/api/agentlex-push/config` 返回
+  `imageMode: true`、`/status` 返回周报档期，插件 0.2.29 正常挂载；
+- 样张：`docs/周报样张-图片版.png`（周一）/ `docs/周报样张-图片版-总结.png`（周五）。
+
 ## 0.2.28 — 周报：周一「本周重点工作」+ 周五「本周总结与下周重点」
 
 提醒系统在原有每日早报之上加两张周报卡，口径与日报一致（同一条飞书通道、同一套期限数据、

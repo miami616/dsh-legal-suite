@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.2.33 — 修正：下载按钮放到文件预览头部（文件树顶部的整目录下载撤掉）
+
+### 问题（用户 2026-10-29 反馈）
+
+「不对，工作区这个错误。应该是在文件预览的时候有这个下载的按钮，不是在工作区显示文件树的时候」。
+
+0.2.32 把「下载」做在文件树顶部（owner 只给文件夹路径），语义变成整个目录打 zip，
+既不是用户要的位置，也不是要的粒度。
+
+### 改动
+
+- 撤掉 `sidebar.right.tab.files.actions` 的「下载」与 `FilesArchiveAction`；
+- 撤掉文件树右键的「打包下载（zip）」，以及 host 的 `folder-archive` /
+  `folder-archive/check` 路由和统计/zip 预检辅助（下次重启后彻底消失）；
+- 新增 `sidebar.right.tab.document.actions` 槽位的「下载」：owner 传**预览文件的
+  绝对路径**，前端拆成 `root=dirname / path=basename`，复用已在跑的
+  `/api/agentlex-workspace/download-stream`（createReadStream 流式 +
+  `Content-Disposition: attachment`），**不新增 host 路由**；
+- 文件树右键的「下载到本机」（单文件）保留；host 侧把流式响应抽成
+  `streamFilePath()`，两个入口共用。
+
+### 验证（隔离 profile `agentlex-dl-test` + 3199，未触碰 live 3080）
+
+- 文件树顶部：只剩 自动刷新 / 重新读取 / 用访达打开 / 更多打开方式，无下载按钮；
+- 打开 `CHANGELOG.md` 预览：头部出现「下载」，点击落盘 200,402 字节，与源文件一致；
+- 文件树右键：预览 / 引用 / 打开 / **下载到本机** / …，文件夹菜单不再有打包下载。
+- 该修复是纯前端（复用 0.2.32 已在跑的 `download-stream`），装好后**刷新页面即生效**，
+  不需要再重启；host 里旧路由随下次重启自然消失。
+
+
 ## 0.2.32 — 工作区文件栏：文件「下载到本机」+ 文件夹「打包下载（zip）」
 
 ### 需求（用户 2026-10-29）

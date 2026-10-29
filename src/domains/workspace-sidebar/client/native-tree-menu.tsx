@@ -21,7 +21,7 @@ import {
   AtSign, Copy, Download, ExternalLink, Eye, FilePlus, FolderOpen, FolderPlus,
   Pencil, RefreshCw, Trash2,
 } from 'lucide-react'
-import { formatBytes, probeDownload, showDownloadNotice, startBrowserDownload } from '../../file-download/client/browser-download.ts'
+import { probeDownload, showDownloadNotice, startBrowserDownload } from '../../file-download/client/browser-download.ts'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { chatInputBridge } from './chat-input-bridge.ts'
 
@@ -56,32 +56,6 @@ async function postWorkspace<T>(path: string, body: Record<string, unknown>): Pr
   } catch (error) {
     console.warn('[agentlex-workspace] 右键操作请求失败:', error)
     return undefined
-  }
-}
-
-/** 「打包下载（zip）」：文件夹整包走系统 zip，流式回浏览器本机。 */
-async function downloadFolderToDevice(absolute: string): Promise<void> {
-  try {
-    const check = await fetch(
-      `/api/agentlex-workspace/folder-archive/check?${new URLSearchParams({ root: absolute }).toString()}`,
-      { credentials: 'same-origin', cache: 'no-store' },
-    )
-    const payload = await check.json() as { success?: boolean; data?: { name?: string; files?: number; bytes?: number; limit?: number; zipAvailable?: boolean }; error?: string }
-    if (payload.success !== true || payload.data === undefined) {
-      throw new Error(payload.error ?? '无法读取文件夹信息')
-    }
-    const info = payload.data
-    if (info.zipAvailable === false) throw new Error('宿主没有可用的 zip 命令，无法打包文件夹')
-    const bytes = info.bytes ?? 0
-    if ((info.limit ?? 0) > 0 && bytes > (info.limit ?? 0)) {
-      throw new Error(`文件夹过大（${formatBytes(bytes)}），请进入文件夹后单独下载文件`)
-    }
-    startBrowserDownload(
-      `/api/agentlex-workspace/folder-archive?${new URLSearchParams({ root: absolute }).toString()}`,
-    )
-    showDownloadNotice(`开始打包「${info.name ?? '文件夹'}」：${info.files ?? 0} 个文件，约 ${formatBytes(bytes)}`)
-  } catch (error) {
-    showDownloadNotice(error instanceof Error ? error.message : String(error), 'error')
   }
 }
 
@@ -306,7 +280,6 @@ export function mountNativeTreeContextMenu(ctx: ClientContext): () => void {
           { label: '新建文件夹', icon: icon(<FolderPlus className="h-4 w-4" />), onClick: () => prompt('新建文件夹', '新建文件夹', '创建', (v) => { void postWorkspace('/api/agentlex-workspace/create-folder', { root: root_, parentDir: relative, name: v }).then(() => setTimeout(refresh, 200)) }) },
           { separator: true },
           { label: '引用', icon: icon(<AtSign className="h-4 w-4" />), onClick: () => chatInputBridge.appendReferenceToken(`@${absolute.replace(/\\/g, '/')}`) },
-          { label: '打包下载（zip）', icon: icon(<Download className="h-4 w-4" />), onClick: () => { void downloadFolderToDevice(absolute) } },
           { label: '打开所在文件夹', icon: icon(<FolderOpen className="h-4 w-4" />), onClick: () => { void postWorkspace('/api/agentlex-workspace/open-path', { path: absolute, kind: 'finder' }) } },
           { label: '复制文件夹路径', icon: icon(<Copy className="h-4 w-4" />), onClick: () => { void copyPlainText(absolute) } },
           { label: '复制相对路径', icon: icon(<Copy className="h-4 w-4" />), onClick: () => { void copyPlainText(relative) } },

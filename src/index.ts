@@ -23,6 +23,7 @@ import * as nonlitigation from './domains/nonlitigation/index.ts'
 import * as task from './domains/task/index.ts'
 import * as skin from './domains/skin/index.ts'
 import * as workspaceSidebar from './domains/workspace-sidebar/index.ts'
+import * as fileDownload from './domains/file-download/index.ts'
 import * as skillsTools from './domains/skills-tools/index.ts'
 import * as memo from './domains/memo/index.ts'
 import * as push from './domains/push/index.ts'
@@ -390,6 +391,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   // 工作区右边栏域（会话工作区右侧面板：文件树/搜索/预览/终端/引用联动；
   // 由桌面端 app renderer 移植，client 经双 renderer 解析打包）。
   ctx.plugin(workspaceSidebar, {})
+  // 会话文件下载域（交付卡片/改动卡片 → 浏览器本机下载）。
+  ctx.plugin(fileDownload)
   // 技能与工具域（技能落盘 ~/.dsh/skills + MCP 热加载，CRUD 路由）。
   ctx.plugin(skillsTools, {})
   // 备忘录域（随手记/标签/归档 + 会话 # 引用自动补全，host 存储 + 工具）。

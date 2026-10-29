@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.2.31 — 会话文件卡片增加「下载」动作（远程登录落客户端本机）
+
+### 问题（用户 2026-10-29 反馈）
+
+「需要增加一个下载的功能，会话中的文件不是可以选择各种方式打开吗 现在需要增加一个下载的
+选项，支持下载到本地文件夹，尤其是远程登录的时候下载的是客户端的本地」。
+
+会话里 present 工具产出的交付文件卡片原本只有「用某个应用打开 / 在文件夹中显示」两个动作，
+两者都由运行 DSH 的那台机器执行。浏览器开在另一台设备（远程登录）时，打开的仍是服务端的
+文件，用户拿不到；卡片上也没有任何把文件取回当前设备的入口。
+
+### 改动
+
+- 新增 host 域 `src/domains/file-download/`：
+  - `GET /api/agentlex-download/presented?sessionId&seq&index` —— 按交付卡片自带的事件
+    坐标，经 `sessionQuery` 读出 `deliverables/presented` 事件里声明的文件路径；
+  - `GET /api/agentlex-download/changed?sessionId&seq&index` —— 同样服务于「改动文件」
+    评审卡片（`workspaceChanges` 摘要）；
+  - 读取走宿主的 `workspaceFiles` 服务（与 Harness 自身文件读取同一套权限/沙箱口径），
+    512 KiB 分块流式写出，`Content-Disposition: attachment` + RFC 5987 中文文件名，
+    浏览器按普通下载保存到**当前客户端设备**的下载目录；
+  - 文件不存在返回 404，服务缺失返回 501，参数不合法返回 400，均为 JSON。
+- 新增浏览器半 `src/domains/file-download/client/`：通过 `slots.inject` 在
+  `deliverables.file.actions`（交付卡片）与 `deliverables.review.file.actions`（改动卡片）
+  两个槽位各加一枚 24px 高的「下载」按钮（下载中 / 已下载 / 下载失败三态，失败 title 带原因）；
+  按钮不依赖 `available`（宿主桌面可用性）——远程登录、宿主无桌面时「打开方式」整组隐藏，
+  「下载」仍在，这正是远程场景的入口。
+- 样式只注入一条带 `data-plugin` 标记的 style，配色/圆角/字号沿用 `--dsw-alias-*` token，
+  与旁边的打开控件同高对齐；深色主题自动跟随。
+
+### 验证（隔离 profile `agentlex-dl-test` + 端口 3199，未触碰 live 3080）
+
+- host 路由：`presented` 正常返回 200 + `content-type: text/markdown` +
+  `content-disposition: attachment; filename="SKILL.md"`，10,973 字节与源文件一致；
+  缺参 400、事件里无此文件 404、改动记录无 live 摘要 404，均按预期返回 JSON。
+- 浏览器实测（Chrome for Testing + CDP `Browser.setDownloadBehavior`）：「法律视频口播复刻与
+  技能封装」会话的交付卡片上出现「下载」按钮，点击后 `/tmp/agentlex-dl` 落盘
+  `公司法小课_EP01_v6_卡通版.mp4`，171,942,003 字节与源文件完全一致（中文文件名正常）。
+- 拦截 `/api/present.host` 返回 `{available:false}` 模拟远程登录：打开控件整组消失，卡片上
+  只剩「下载」按钮，无 console error / pageerror。
+
 ## 0.2.30 — 会话页顶部视图切换：从「散落的胶囊」收成紧凑分段控件
 
 ### 问题（用户 2026-10-29 反馈）

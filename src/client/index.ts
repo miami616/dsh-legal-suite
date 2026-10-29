@@ -27,6 +27,7 @@ import { apply as applyNonlitigation } from '../domains/nonlitigation/client/ind
 import { apply as applyTask } from '../domains/task/client/index.ts'
 import { apply as applySkin } from '../domains/skin/client/index.ts'
 import { apply as applyWorkspaceSidebar } from '../domains/workspace-sidebar/client/index.tsx'
+import { apply as applyFileDownload } from '../domains/file-download/client/index.tsx'
 import { apply as applySkillsTools } from '../domains/skills-tools/client/index.tsx'
 import { apply as applyMemo } from '../domains/memo/client/index.tsx'
 import { apply as applyMootCourt } from '../domains/moot-court/client/index.tsx'
@@ -48,6 +49,7 @@ export function apply(ctx: ClientContext): void {
   applyTask(ctx)
   applySkin(ctx)
   applyWorkspaceSidebar(ctx)
+  applyFileDownload(ctx)
   applySkillsTools(ctx)
   applyMemo(ctx)
   applyMootCourt(ctx)

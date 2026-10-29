@@ -160,7 +160,7 @@ export function apply(ctx: ClientContext): void {
   let navMountDisposer: (() => void) | undefined
   /** 会话轮次数据源（时间/状态/指标），供预览卡增强；启用时建立，停用时释放。 */
   let turnDataSource: TurnDataSource | undefined
-  /** 会话页融合设计样式注入（header 单行化 + tabs 胶囊化），跟随 conversationHeader。 */
+  /** 会话页融合设计样式注入（header 单行化 + 视图切换紧凑分段控件），跟随 conversationHeader。 */
   let headerStyleDisposer: (() => void) | undefined
   /** 会话页融合设计 DOM 控制（tabs 重定位），跟随 conversationHeader。 */
   let headerMountDisposer: (() => void) | undefined

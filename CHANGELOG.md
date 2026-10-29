@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.2.30 — 会话页顶部视图切换：从「散落的胶囊」收成紧凑分段控件
+
+### 问题（用户 2026-10-29 反馈）
+
+「插件现在的会话页面中 顶部的 对话 轨迹 记忆等按钮很松散 也不美观」。实测（Playwright 量 DOM +
+CDP 取匹配规则）定位到三层叠加的毛病：
+
+- **两套互相打架的样式**：`conversation-header.ts` 把每个 tab 做成 28px 胶囊，
+  `sidebar.css.ts` 里给右侧面板页签写的 `[role="tab"]` 分段控件也命中会话视图 tab（它也带
+  `role="tab"`），两边特异性相同、后写的赢——结果每个胶囊一半是胶囊样式（28px 高）、一半是
+  分段样式（7px 圆角、14px 内衬、透明底），激活态还被覆盖成浅蓝底 + 蓝字，同一排里像三种控件；
+- **header 单行化的选择器从来没生效**：原写法 `[data-slot="conversation.session.header"] > header`
+  方向写反了——真实 DOM 是 `header > [data-slot="conversation.session.header"]`，slot 挂在
+  header 里面。于是 header 一直是原生 76px 高、带 0.5px 分隔线，tab 行虽然被 JS 搬进了标题行，
+  上下却留着空档，看着「松散」；
+- **tab 组宽度被撑满**：`_tabs` 带着 `width:100%`，整组在 1320px 的标题行里横着散开。
+
+### 改动
+
+- `conversation-header.ts` 重写 CSS：header 用
+  `[class$="_header"]:has(> [data-slot="conversation.session.header"])` 选中，压到 56px 单行，
+  分隔线换成一根 `--dsw-alias-border-l1` 的极轻 hairline；
+- 视图切换改成一块真正紧凑的分段控件：10px 圆角托盘（`bg-layer-3` + 1px inset 描边、3px 内衬、
+  2px 间隙），每个 tab 是 26px 高 / 7px 圆角 / 左右 12px 内衬的胶囊，激活态白底 + 1px inset
+  描边 + 轻投影，未激活透明底、`label-secondary`；三枚 tab 的整组宽度从 290px 收到 188px；
+- 深色单独一档（托盘 `bg-layer-2` 更沉、激活胶囊 `bg-layer-1` 更亮），门控改为
+  `body[data-ds-dark-theme]`——DSH 把深色标记打在 body 上（`body.setAttribute`），不是 html；
+- 规则特异性补到 (0,4,1)：多带一层 `[class$="_tabs"]`，稳定压过 `sidebar.css.ts` 里右侧面板
+  页签的 `[role="tab"]`（0,3,1），不用删那组规则；同时把 `_tabLabel` 文字节点从
+  `[class*="_tab"]` 的命中里摘出来，避免文字撑出内衬；
+- 保留 `_tabs` 的 `width:100%` 与 flex：harness 用 `clientWidth` 算「…」溢出预算
+  （`floor((clientWidth - 48) / 120)`），宽度一收预算就变 1，除第一个 tab 全被塞进菜单；
+- 设置项文案同步为「会话标题行与视图切换合并为单行，切换做成紧凑分段控件」。
+
+### 验证（隔离实例 3081，未触碰 live 3080）
+
+- 测试 profile（`agentlex-ls-test`，3081）实跑：header 76 → 56px，tab 组 290 → 188px，
+  胶囊 26px/7px/0 12px 内衬，`box-shadow` inset 托盘描边，无 pageerror / console error；
+- 深色按真实路径（body 上 `data-ds-dark-theme` + 深色 token）实测托盘 `#0f1012`、
+  激活胶囊 `#1f2124`、header `#161719`，层次方向与浅色一致；
+- 1440 / 1280 / 1100 / 980 四个宽度下托盘不越界、不与标题/操作区重叠，「…」溢出菜单正常；
+- `node scripts/verify-client-bundle.mjs`（版本串）、`node scripts/verify-ui-consistency.mjs`
+  （面板激活/深色接线）全过。
+
 ## 0.2.29 — 周报卡也走图片版（周一/周五不再是老版文字卡）
 
 ### 问题（用户 2026-10-26 反馈）

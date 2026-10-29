@@ -444,7 +444,7 @@ export function AgentLexSettingsSection(props: {
           />
           <Toggle
             label="会话页融合设计"
-            description="会话标题行与切换 tab 合并为单行，tab 胶囊化；关闭后恢复 DSH 原生会话头"
+            description="会话标题行与视图切换合并为单行，切换做成紧凑分段控件；关闭后恢复 DSH 原生会话头"
             checked={config.conversationHeader}
             onChange={(v) => commitSetting('conversationHeader', v)}
           />

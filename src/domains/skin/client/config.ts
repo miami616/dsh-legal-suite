@@ -48,7 +48,7 @@ export interface AgentLexSkinConfig {
   conversationNavPosition: 'right' | 'left'
   /** 圆角卡片：对话区域显示为左上圆角卡片（附投影）。 */
   centerCard: boolean
-  /** 会话页融合设计：header 单行化 + tabs 胶囊化。 */
+  /** 会话页融合设计：header 单行化 + 视图切换紧凑分段控件。 */
   conversationHeader: boolean
 }
 

@@ -12,7 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { readdir, readFile, stat, writeFile, mkdir, rename, rm, copyFile, access } from 'node:fs/promises'
-import { watch, type FSWatcher } from 'node:fs'
+import { watch, createReadStream, type FSWatcher } from 'node:fs'
 import { basename, dirname, extname, join, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { spawn } from 'node:child_process'
@@ -294,6 +294,79 @@ async function readPreview(root: string, file: string): Promise<PreviewResult> {
   if (info.size > MAX) throw new Error(`file too large to preview: ${file}`)
   const content = await readFile(target, 'utf8')
   return { content, name: basename(target), size: info.size }
+}
+
+/** 「文件夹打包下载」跳过的重目录（依赖 / 版本库 / 构建缓存）。 */
+const ARCHIVE_SKIP_DIRS = new Set([
+  'node_modules', '.git', '.pnpm-store', '.cache', '.turbo', '.next',
+])
+
+/** 打包前的体积上限：超过就让用户右键单个文件下载，避免服务器空转几分钟。 */
+const ARCHIVE_LIMIT_BYTES = 1.5 * 1024 * 1024 * 1024
+
+/** RFC 6266 / RFC 5987 attachment 头（中文文件名兼容）。 */
+function attachmentHeader(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`
+}
+
+/** 递归统计待打包文件数与字节数（跳过依赖/版本库目录与符号链接）。 */
+async function walkArchiveStats(dir: string): Promise<{ files: number; bytes: number }> {
+  let files = 0
+  let bytes = 0
+  let entries
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return { files, bytes }
+  }
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue
+    const target = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (ARCHIVE_SKIP_DIRS.has(entry.name)) continue
+      const sub = await walkArchiveStats(target)
+      files += sub.files
+      bytes += sub.bytes
+    } else if (entry.isFile()) {
+      try {
+        const info = await stat(target)
+        files += 1
+        bytes += info.size
+      } catch { /* raced away; skip */ }
+    }
+  }
+  return { files, bytes }
+}
+
+/** 宿主是否装了可用的 zip 命令（打包是流式的，不落临时文件）。 */
+function zipAvailable(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn('zip', ['-v'], { stdio: 'ignore' })
+    child.on('error', () => resolve(false))
+    child.on('close', () => resolve(true))
+  })
+}
+
+/** 文件夹打包预检：名称、文件数、总字节、上限、zip 可用性。 */
+async function folderArchiveInfo(root: string): Promise<{
+  name: string
+  files: number
+  bytes: number
+  limit: number
+  zipAvailable: boolean
+}> {
+  const base = resolve(root)
+  const info = await stat(base)
+  if (!info.isDirectory()) throw new Error(`not a directory: ${root}`)
+  const stats = await walkArchiveStats(base)
+  return {
+    name: basename(base) || 'workspace',
+    files: stats.files,
+    bytes: stats.bytes,
+    limit: ARCHIVE_LIMIT_BYTES,
+    zipAvailable: await zipAvailable(),
+  }
 }
 
 async function downloadFile(root: string, file: string): Promise<DownloadResult> {
@@ -674,6 +747,22 @@ export function makeRoutes(ctx: Context & { webServer: WorkspaceWebServer }): ()
     }))
   }
 
+  /**
+   * GET 路由（不读 JSON body，参数走 query）：下载/打包这类请求由浏览器直接
+   * 发起（iframe / anchor），不存在 JSON 请求体，也不能用 POST 信封形态。
+   */
+  function rawRoute(path: string, handler: (req: IncomingMessage, res: ServerResponse) => Promise<void> | void): void {
+    disposers.push(ctx.webServer.register({
+      kind: 'exact',
+      path,
+      handler: (req: IncomingMessage, res: ServerResponse) => {
+        Promise.resolve()
+          .then(() => handler(req, res))
+          .catch((error: unknown) => fail(res, error))
+      },
+    }))
+  }
+
   // ── 目录变更监听（内核级 fs.watch，事件驱动，无轮询开销） ──
   // 每个 root 一个 watcher 单例；600ms 防抖合并批量写（构建/install 的
   // 事件风暴只推一次）；最后一个订阅者断开即关闭 watcher。
@@ -774,6 +863,90 @@ export function makeRoutes(ctx: Context & { webServer: WorkspaceWebServer }): ()
   route(`${API_PREFIX}/read-preview`, async (b, res) => ok(res, await readPreview(str(b.root), str(b.path))))
   route(`${API_PREFIX}/download`, async (b, res) => ok(res, await downloadFile(str(b.root), str(b.path))))
   route(`${API_PREFIX}/download-bytes`, async (b, res) => ok(res, await downloadFileBytes(str(b.root), str(b.path))))
+
+  /* ---------------------- 下载到本机（浏览器） ---------------------- */
+  // GET /api/agentlex-workspace/download-stream —— 单文件流式下载。
+  //   与 /download（base64、≤50MB）不同：直接 createReadStream 管道回浏览器，
+  //   大文件不吃内存；Content-Disposition 让浏览器存到**客户端**下载目录。
+  rawRoute(`${API_PREFIX}/download-stream`, async (req, res) => {
+    const query = new URL(req.url ?? '/', 'http://localhost').searchParams
+    const root = query.get('root') ?? ''
+    const file = query.get('path') ?? ''
+    if (root === '') throw new Error('path required')
+    const target = safeResolve(root, file)
+    const info = await stat(target)
+    if (!info.isFile()) throw new Error(`not a file: ${file}`)
+    const name = basename(target)
+    res.writeHead(200, {
+      'content-type': mimeType(name),
+      'content-length': String(info.size),
+      'content-disposition': attachmentHeader(name),
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    })
+    if (req.method === 'HEAD') {
+      res.end()
+      return
+    }
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      const stream = createReadStream(target)
+      stream.once('error', rejectPromise)
+      stream.once('end', () => resolvePromise())
+      res.once('close', () => stream.destroy())
+      stream.pipe(res)
+    })
+  })
+
+  // GET /api/agentlex-workspace/folder-archive/check —— 打包前预检
+  //   （名称/文件数/字节数/上限/zip 是否可用），前端据此决定是否开始下载。
+  rawRoute(`${API_PREFIX}/folder-archive/check`, async (req, res) => {
+    const root = new URL(req.url ?? '/', 'http://localhost').searchParams.get('root') ?? ''
+    if (root === '') throw new Error('path required')
+    ok(res, await folderArchiveInfo(root))
+  })
+
+  // GET /api/agentlex-workspace/folder-archive —— 整个文件夹打包成 zip 流式下载。
+  //   用系统 zip 写 stdout（不落临时文件），从父目录打包以保留顶层文件夹名；
+  //   node_modules/.git 等依赖与版本库目录不打包。
+  rawRoute(`${API_PREFIX}/folder-archive`, async (req, res) => {
+    const root = new URL(req.url ?? '/', 'http://localhost').searchParams.get('root') ?? ''
+    if (root === '') throw new Error('path required')
+    const base = resolve(root)
+    const info = await stat(base)
+    if (!info.isDirectory()) throw new Error(`not a directory: ${root}`)
+    const name = basename(base) || 'workspace'
+    if (!(await zipAvailable())) throw new Error('宿主没有可用的 zip 命令，无法打包文件夹')
+    res.writeHead(200, {
+      'content-type': 'application/zip',
+      'content-disposition': attachmentHeader(`${name}.zip`),
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    })
+    if (req.method === 'HEAD') {
+      res.end()
+      return
+    }
+    const excludes = [...ARCHIVE_SKIP_DIRS].flatMap((dir) => [`*/${dir}/*`, `*/${dir}/`])
+    const child = spawn('zip', ['-r', '-q', '-', name, ...excludes.flatMap((pattern) => ['-x', pattern])], {
+      cwd: dirname(base),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    await new Promise<void>((resolvePromise) => {
+      child.once('error', (error) => {
+        console.error('[agentlex-workspace] folder archive failed:', error)
+        res.destroy()
+        resolvePromise()
+      })
+      child.once('close', () => resolvePromise())
+      res.once('close', () => {
+        if (!res.writableEnded) {
+          try { child.kill('SIGKILL') } catch { /* already gone */ }
+        }
+      })
+      if (child.stdout !== null) child.stdout.pipe(res)
+    })
+  })
+
   route(`${API_PREFIX}/save`, async (b, res) => {
     const { success, path } = await saveFile(
       str(b.root),

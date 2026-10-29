@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.2.32 — 工作区文件栏：文件「下载到本机」+ 文件夹「打包下载（zip）」
+
+### 需求（用户 2026-10-29）
+
+「再就是工作区 打开方式按钮那里也加一个下载按钮啊」（截图指向文件页顶部
+`/Volumes/MEE/agentlex-legal-suite` 的「打开方式」菜单）。
+
+### 改动
+
+- **文件页顶部（打开方式右侧）新增「下载」**：`sidebar.right.tab.files.actions`
+  槽位，当前显示的文件夹整体打包成 zip。服务端 `zip -r -q -` 直接写 stdout，
+  不落临时文件、不整包进内存；`node_modules` / `.git` / `.pnpm-store` 等依赖与
+  版本库目录不打包；点击前先 `folder-archive/check` 预检文件数/体积/zip 可用性，
+  超过 1.5 GB 或宿主无 zip 时用浮层提示改为单文件下载。
+- **原生文件树右键新增「下载到本机」**（文件行）与「打包下载（zip）」（文件夹行）：
+  单文件走 `GET /api/agentlex-workspace/download-stream`（createReadStream 流式，
+  不再受旧的 base64/50MB 限制），先 HEAD 预检再交给隐藏 iframe，浏览器按
+  `Content-Disposition` 存到**当前设备**的下载目录。
+- 新增 `browser-download.ts` 统一预检/隐藏 iframe/浮层与按钮样式；交付卡片与
+  改动卡片的下载按钮复用同一套样式。
+
+### 验证（隔离 profile `agentlex-dl-test` + 3199，未触碰 live 3080）
+
+- `download-stream`：CHANGELOG.md 198,478 字节逐字节一致，中文名
+  `content-disposition` 正确；HEAD 返回同样的头。
+- `folder-archive/check` + `folder-archive`：小文件夹 7 个文件 30,793 字节打包成功，
+  zip 目录结构/文件名正确；超过上限返回提示。
+- 浏览器实测：文件页顶部「下载」→ 落盘 zip；文件行右键「下载到本机」→ 落盘原文件；
+  文件夹行右键「打包下载（zip）」→ 落盘 zip；均无 console error。
+
 ## 0.2.31 — 会话文件卡片增加「下载」动作（远程登录落客户端本机）
 
 ### 问题（用户 2026-10-29 反馈）

@@ -1,8 +1,9 @@
 /**
  * dsh-legal-suite/file-download — browser half entry.
  *
- * Contributes the「下载」action to both file-card surfaces the conversation
- * renders: deliveries (`present`) and changed-file review rows. Registration
+ * Contributes the「下载」action to the file surfaces the conversation and the
+ * workspace sidebar render: delivery cards (`present`), changed-file review
+ * rows, and the workspace files header (folder → zip). Registration
  * waits for the slot declaration through `slots.inject` (harness 0.2.x) and
  * falls back to a bounded retry on older compositions where the slot has not
  * been declared yet. A composition without the deliverables plugin simply
@@ -10,13 +11,15 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { ChangedDownloadAction, PresentedDownloadAction } from './DownloadAction.tsx'
+import { FilesArchiveAction } from './FilesArchiveAction.tsx'
 
 export const name = 'dsh-legal-suite/file-download'
 
-/** The two card surfaces, each with its own host route family. */
+/** Every surface that gains a download control. */
 const SURFACES: Array<{ slot: string; id: string; component: unknown }> = [
   { slot: 'deliverables.file.actions', id: 'agentlex-download-presented', component: PresentedDownloadAction },
   { slot: 'deliverables.review.file.actions', id: 'agentlex-download-changed', component: ChangedDownloadAction },
+  { slot: 'sidebar.right.tab.files.actions', id: 'agentlex-download-folder', component: FilesArchiveAction },
 ]
 
 /** Minimal view of the runtime slot service we use; the real types live in the host's renderer package. */

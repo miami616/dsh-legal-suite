@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Check, Download, Loader2, TriangleAlert } from 'lucide-react'
+import { ensureDownloadStyle } from './browser-download.ts'
 
 /** Coordinates carried by the owning card's authenticated action URL. */
 interface ActionUrlProps {
@@ -22,58 +23,10 @@ interface ActionUrlProps {
   sessionId?: string
 }
 
+ensureDownloadStyle()
+
 type Phase = 'idle' | 'busy' | 'done' | 'error'
 
-const STYLE_ID = 'agentlex-download-action-style'
-
-/** One-time style sheet: visually matches the neighbouring 24px open control. */
-function ensureStyle(): void {
-  if (typeof document === 'undefined') return
-  if (document.getElementById(STYLE_ID) !== null) return
-  const style = document.createElement('style')
-  style.id = STYLE_ID
-  style.textContent = `
-.agentlex-download-action {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 24px;
-  margin-left: 6px;
-  padding: 3px 6px;
-  border: .5px solid var(--dsw-alias-border-l4, rgba(0, 0, 0, .16));
-  border-radius: var(--dsw-radius-sm, 6px);
-  background: transparent;
-  color: var(--dsw-alias-label-primary, inherit);
-  font-family: var(--dsw-font-family, inherit);
-  font-size: 11px;
-  line-height: 16px;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background-color .12s;
-}
-.agentlex-download-action:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, .06));
-}
-.agentlex-download-action:focus-visible {
-  outline: 2px solid var(--dsw-alias-border-focus, currentColor);
-  outline-offset: 1px;
-}
-.agentlex-download-action:disabled {
-  cursor: default;
-  color: var(--dsw-alias-label-secondary, inherit);
-}
-.agentlex-download-action[data-error='true'] {
-  color: var(--dsw-alias-state-error, #d9534f);
-}
-.agentlex-download-action svg { flex: none; }
-.agentlex-download-action[data-phase='busy'] svg { animation: agentlex-download-spin 1s linear infinite; }
-@keyframes agentlex-download-spin { to { transform: rotate(360deg); } }
-`
-  document.head.appendChild(style)
-}
-
-ensureStyle()
 
 /** Pull the file name out of an RFC 6266 Content-Disposition header. */
 function filenameFrom(disposition: string): string | undefined {

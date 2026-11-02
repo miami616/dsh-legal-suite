@@ -23,6 +23,7 @@ import { OPEN_PANEL_EVENT, type SkillsToolsTab } from './summon.ts'
 import { fetchState } from './api.ts'
 import { getState, setState, startPolling } from './store.ts'
 import { getModuleToggles, subscribe as subscribeToggles } from '../../../shared/module-toggles'
+import { clearShellPanel, initShellPanelBridge, onShellPanelChange } from '../../../shared/shell-panel-bridge.ts'
 import css from './skills-tools.module.css'
 
 export const name = 'dsh-legal-suite'
@@ -53,6 +54,7 @@ class SkillsPanelState {
 }
 
 export function apply(ctx: ClientContext): void {
+  initShellPanelBridge(ctx)
   const state = new SkillsPanelState()
   let uiDisposers: Array<() => void> = []
   let mounted = false
@@ -114,6 +116,9 @@ export function apply(ctx: ClientContext): void {
         for (const attr of OTHER_ACTIVE_ATTRS) document.documentElement.removeAttribute(attr)
         document.documentElement.setAttribute(ACTIVE_ATTR, '')
         document.dispatchEvent(new CustomEvent(ACTIVATE_EVENT, { detail: PANEL_NAME }))
+        // 套件面板接管中间列时，把宿主上残留的插件面板选择清掉：否则侧栏高亮是假的，
+        // 再点那一行也不会产生状态变化（见 shared/shell-panel-bridge.ts）。
+        clearShellPanel()
         ensurePanel()
       } else {
         document.documentElement.removeAttribute(ACTIVE_ATTR)
@@ -170,6 +175,11 @@ export function apply(ctx: ClientContext): void {
     document.addEventListener('click', onClickSidebarRow, true)
     document.addEventListener(ACTIVATE_EVENT, onOtherActivate)
     window.addEventListener(OPEN_PANEL_EVENT, onOpenPanel)
+    // 宿主全局面板被选中（插件市场 / MediaHub …）时让出中间列，否则覆盖层会一直盖在
+    // 宿主刚切出来的面板上，用户看到的是「点了没反应」。
+    uiDisposers.push(onShellPanelChange((panelId) => {
+      if (panelId !== null && state.isOpen()) state.setOpen(false)
+    }))
     const unsubscribe = state.subscribe(applyActive)
     applyActive()
 

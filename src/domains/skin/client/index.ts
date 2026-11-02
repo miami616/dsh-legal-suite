@@ -34,6 +34,7 @@ import { isDarkScheme } from '../../../shared/color-scheme.ts'
 import { resolveDirectoryPicker } from '../../../shared/dsh-services.ts'
 import { resolveClientSettings, aliasSettingsScope } from '../../../shared/client-settings.ts'
 import { mountAgentLexSidebarGroup } from './sidebar-group.ts'
+import { mountAccountMenuRestart } from './account-menu-restart.ts'
 import { buildThemesCss, findTheme, DEFAULT_THEME_KEY } from './themes.ts'
 import { getSkinConfig, guardStoredBrand, initThemeFromStorage, loadSkinConfig, restoreBrandFromStorage, setSkinConfig, subscribe as subscribeSkinConfig, type AgentLexSkinConfig } from './config.ts'
 import {
@@ -168,6 +169,8 @@ export function apply(ctx: ClientContext): void {
   let cardStyleDisposer: (() => void) | undefined
   /** 圆角卡片 chrome 盒子挂载（body + ResizeObserver），跟随 centerCard。 */
   let cardMountDisposer: (() => void) | undefined
+  /** 账号菜单「重启 DSH」项（DOM 注入；只跟随套件总开关）。 */
+  let accountMenuDisposer: (() => void) | undefined
 
   /** 按当前配置注入/移除会话排版样式（幂等）。 */
   const syncTypography = (): void => {
@@ -278,6 +281,18 @@ export function apply(ctx: ClientContext): void {
     }
   }
   syncCard()
+
+  /** 账号菜单里的「重启 DSH」：宿主账号插件没有开放槽位，只能 DOM 注入，跟随套件总开关。 */
+  const syncAccountMenu = (): void => {
+    if (getSkinConfig().agentlexEnabled) {
+      if (accountMenuDisposer === undefined) accountMenuDisposer = mountAccountMenuRestart()
+    } else if (accountMenuDisposer !== undefined) {
+      accountMenuDisposer()
+      accountMenuDisposer = undefined
+    }
+  }
+  syncAccountMenu()
+
 
   /** 把当前主题的 lit 变量直接写入 html 内联样式（优先级最高，不依赖注入 style 的存活/顺序）。 */
   const applyLitVars = (): void => {
@@ -426,6 +441,7 @@ export function apply(ctx: ClientContext): void {
     syncNav()
     syncHeader()
     syncCard()
+    syncAccountMenu()
   })
   ctx.effect(() => () => {
     unsubscribeSkin()
@@ -452,6 +468,8 @@ export function apply(ctx: ClientContext): void {
     cardStyleDisposer = undefined
     cardMountDisposer?.()
     cardMountDisposer = undefined
+    accountMenuDisposer?.()
+    accountMenuDisposer = undefined
     for (const dispose of disposers.splice(0)) dispose()
   }, 'dsh-legal-suite/skin: theme+brand+sidebar+settings')
 }

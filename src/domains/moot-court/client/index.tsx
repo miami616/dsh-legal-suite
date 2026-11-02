@@ -23,6 +23,7 @@ import { subscribeMootEvents } from './api.ts'
 import {
   getModuleToggles, setModuleToggles, subscribe as subscribeToggles, type ModuleToggles,
 } from '../../../shared/module-toggles.ts'
+import { initShellPanelBridge } from '../../../shared/shell-panel-bridge.ts'
 
 /** 本插件拥有的 locale 命名空间。 */
 const NS = 'agentlex-moot-court'
@@ -48,6 +49,7 @@ export type { MootPanelSnapshot, MootView } from './controller.ts'
  * @param ctx - 客户端根上下文（locale 服务）。
  */
 export function apply(ctx: ClientContext): void {
+  initShellPanelBridge(ctx)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'agentlex-moot-court: dictionaries')
 
   let uiDisposers: Array<() => void> = []

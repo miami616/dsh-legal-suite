@@ -9,6 +9,7 @@ import { en, zh, type TaskKey } from './locales.ts'
 import { mountPanel } from './mount.tsx'
 import { mountSidebarEntry } from './sidebar-entry.ts'
 import { getModuleToggles, setModuleToggles, subscribe as subscribeToggles } from '../../../shared/module-toggles'
+import { initShellPanelBridge } from '../../../shared/shell-panel-bridge.ts'
 
 const NS = 'agentlex-task'
 
@@ -24,6 +25,7 @@ export type { PanelControllerSnapshot } from './controller.ts'
 export type { TaskKey } from './locales.ts'
 
 export function apply(ctx: ClientContext): void {
+  initShellPanelBridge(ctx)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'agentlex-task: dictionaries')
 
   let uiDisposers: Array<() => void> = []

@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import type { PanelController } from './controller.ts'
 import { OriginalTaskPanel } from './OriginalTaskPanel.tsx'
 import css from './panel.module.css'
+import { clearShellPanel, onShellPanelChange } from '../../../shared/shell-panel-bridge.ts'
 
 export const PANEL_VIEW_SELECTOR = '[data-dsh-task-view]'
 
@@ -49,6 +50,8 @@ export function mountPanel(controller: PanelController): () => void {
       for (const attr of OTHER_ACTIVE_ATTRS) document.documentElement.removeAttribute(attr)
       document.documentElement.setAttribute(ACTIVE_ATTR, '')
       document.dispatchEvent(new CustomEvent(ACTIVATE_EVENT, { detail: PANEL_NAME }))
+      // 套件面板接管中间列：清掉宿主上残留的插件面板选择（见 shared/shell-panel-bridge.ts）。
+      clearShellPanel()
     } else {
       document.documentElement.removeAttribute(ACTIVE_ATTR)
     }
@@ -70,6 +73,10 @@ export function mountPanel(controller: PanelController): () => void {
   }
   document.addEventListener('click', onClickSidebarRow, true)
   document.addEventListener(ACTIVATE_EVENT, onOtherActivate)
+  // 宿主全局面板被选中（插件市场 / MediaHub …）时让出中间列。
+  const offShellPanel = onShellPanelChange((panelId) => {
+    if (panelId !== null && controller.getSnapshot().panelOpen) controller.close()
+  })
   const unsubscribe = controller.subscribe(applyActive)
   applyActive()
   ensure()
@@ -78,6 +85,7 @@ export function mountPanel(controller: PanelController): () => void {
     window.removeEventListener('agentlex:open-task-panel', onOpenTaskPanel)
     document.removeEventListener('click', onClickSidebarRow, true)
     document.removeEventListener(ACTIVATE_EVENT, onOtherActivate)
+    offShellPanel()
     waitObserver.disconnect()
     unsubscribe()
     document.documentElement.removeAttribute(ACTIVE_ATTR)

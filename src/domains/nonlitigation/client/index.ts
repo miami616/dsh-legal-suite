@@ -13,6 +13,7 @@ import { mountPanel } from './mount.tsx'
 import { launchNonLitigationManager, fetchArchivedSessionIds } from './launch-manager.ts'
 import { mountSidebarEntry } from './sidebar-entry.ts'
 import { getModuleToggles, setModuleToggles, subscribe as subscribeToggles } from '../../../shared/module-toggles'
+import { initShellPanelBridge } from '../../../shared/shell-panel-bridge.ts'
 
 const NS = 'agentlex-nonlitigation'
 
@@ -37,6 +38,7 @@ export type { PanelControllerSnapshot } from './controller.ts'
 export type { NonLitigationKey } from './locales.ts'
 
 export function apply(ctx: ClientContext): void {
+  initShellPanelBridge(ctx)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'agentlex-nonlitigation: dictionaries')
   bindCaseWorkspaces(ctx)
   // 旧版 AgentLex 渲染层（Original*Panel）的「绑定/更换文件夹」通过该桥调用

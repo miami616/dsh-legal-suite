@@ -32,6 +32,7 @@ import { openCaseFolderInSidebar, registerCaseFolderTab, type ClientContextWithS
 import { readRegistry } from './api.ts'
 import { PluginUpdaterSettings } from './updater-settings.tsx'
 import { getModuleToggles, setModuleToggles, subscribe as subscribeToggles } from '../../../shared/module-toggles'
+import { initShellPanelBridge } from '../../../shared/shell-panel-bridge.ts'
 
 /** Locale namespace this plugin owns. */
 const NS = 'agentlex-litigation'
@@ -63,6 +64,7 @@ export type { LitigationKey } from './locales.ts'
  * @param ctx - client root context (locale service).
  */
 export function apply(ctx: ClientContextWithSidebar): void {
+  initShellPanelBridge(ctx)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'agentlex-litigation: dictionaries')
   bindCaseWorkspaces(ctx)
   // 旧版 AgentLex 渲染层（Original*Panel）的「绑定/更换文件夹」通过该桥调用

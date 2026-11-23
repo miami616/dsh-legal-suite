@@ -21,3 +21,13 @@ issue-*.md
 # local work-buddy tool cache
 .workbuddy/
 *.tgz
+
+# video pipeline (local artifacts)
+video/.venv/
+video/projects/*/out/vo/
+video/projects/*/out/bgm.wav
+video/projects/*/renders/work-*/
+video/projects/*/renders/.*hf-transaction*/
+video/projects/*/.hyperframes/
+video/projects/*/node_modules/
+video/node_modules/

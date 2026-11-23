@@ -1,5 +1,212 @@
 # Changelog
 
+## 0.2.38 — 适配 DSH 0.2.2-rc.5
+
+### 版本对齐
+
+- 17 个 harness devDependency 由 `0.2.2-rc.3` 提到 **`0.2.2-rc.5`**（rc.4 于 2026-11-17、
+  rc.5 于 2026-11-18 发布，对应 tag `dsh-v0.2.2-rc.5`，commit `9c2670d3bc`）；
+- `@deepseek-ai/cordis` **4.1.0**、`@deepseek-ai/schemastery` **3.19.0** 不变
+  （rc.5 各包 peer 仍为 `~4.1.0` / `~3.19.0`）；
+- `peerDependencies.dsh-mcp-client` 追加 `^0.2.2-rc.5`，保留 `^0.2.2-rc.1` 分支
+  （`^0.2.2-rc.1` 覆盖 rc.3，live 的 0.2.1-rc.3 走 `^0.2.1-alpha.1` 分支）；
+- `pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 74 条同步到 rc.5。
+
+### rc.3 → rc.5 的实质差异
+
+区间只有 **13 个提交、131 个文件（+180 / −149）**，且全部落在与本插件无关的区域：
+
+- rc.4：Web 搜索默认模型改为 DeepSeek（`ui-settings-web-search`、`tool-web`、
+  `bundle/base` 的 patch）；
+- `llm-deepseek`：新增内容安全审查开关 `safetyCheck` 与拒答码（refusal）处理；
+- `experimental/liveshare`：tunnel worker 在 Host 的 Electron Node 模式下启动的修复；
+- 其余为测试、文档与各包 `package.json` 版本号。
+
+本插件实际依赖的 `ui-slots` / `ui-conversation` / `ui-sidebar` / `ui-settings` /
+`dsh-tools` / `dsh-settings` / `dsh-system-prompt` / `dsh-mcp-client` /
+`host-webserver` / `api-*` **源码零改动**，因此无需改业务代码，本轮只做版本对齐与回归验证。
+
+### 验证（隔离实例，未触碰 live 3080）
+
+- `pnpm install` 19.6s（store 复用）；`pnpm run build` 通过（tsc 按 rc.5 类型 + tsdown + banner）；
+- 离线自测全部通过：`check:settings` 26、`check:defaults` 46、`check:preset` 16、
+  `check:redact` 55、`check:calendar` 16、`check:reconcile` 9、`check:event-type`、
+  `check:reminder` 19、`check:weekly` 19，失败 0；`pnpm install --frozen-lockfile` 一致；
+- **rc.5 测试台**：`/Volumes/MEE/dsh-rc5`（npm 装 `@deepseek-ai/dsh@0.2.2-rc.5`）+
+  `DSH_HOME=/Volumes/MEE/dsh-rc5-home`，profile `agentlex-rc5`，端口 **3102**；
+  本地 mock OpenAI 兼容服务（127.0.0.1:3199）制造真实回合；
+- 浏览器实测（1600×1000，本机 Chrome）：
+  - 四个侧栏入口、9 个 `style[data-agentlex-skin]`、`data-agentlex-theme="pure"`、品牌正常；
+  - 四个面板全部挂载可见（含 `data-dsh-*-active`）；点宿主全局面板「插件」后套件面板自动关闭，
+    0.2.34 的面板切换死锁修复仍生效；
+  - AgentLex 设置页整页渲染，版本显示 **0.2.38**；
+  - 真实 2 轮会话：`_viewTabs` 与 2 个 tab 按钮正常；正文 `textAlign=justify`、
+    `letterSpacing=-0.42px`；`nav[aria-label="轮次导航"]` 2 个 mark，且被套件接管
+    （`data-agentlex-nav="right"`、`data-agentlex-nav-hover-bound`）；
+  - 插件 API 13 项全部 200（含 `events-stream` 的 `text/event-stream`）；
+  - `console.error` / `pageerror` 均为 0。
+- 运维变动：`/tmp` 下的旧测试台被系统清理，本轮起适配台改放
+  `/Volumes/MEE/dsh-rc5` 与 `/Volumes/MEE/dsh-rc5-home`（持久目录），
+  截图与核对脚本在 `/Volumes/MEE/pw`。
+
+## 0.2.37 — 适配 DSH 0.2.2-rc.3
+
+### 版本对齐
+
+- 17 个 harness devDependency 由 `0.2.2-rc.1` 提到 **`0.2.2-rc.3`**（2026-11-13 08:05 UTC
+  发布的 npm 包，对应 tag `dsh-v0.2.2-rc.3`，commit `38a6a5c965`；rc.2 于 11-12 发布，
+  本轮直接对齐 rc.3）；
+- `@deepseek-ai/cordis` **4.1.0**、`@deepseek-ai/schemastery` **3.19.0** 保持不变——
+  rc.3 各包 `peerDependencies` 仍为 `~4.1.0` / `~3.19.0`，类型面与运行面同代；
+- `peerDependencies.dsh-mcp-client` 追加 `^0.2.2-rc.3` 分支（保留 rc.1 及更早的分支）；
+- `pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 同步改为 rc.3（74 条）。
+
+### rc.3 与本插件相关的实质差异（逐项核对）
+
+rc.1 → rc.3 区间共 **1574 个提交**（rc.2 / rc.3 两次发布之间并入 master 的大量改动），
+逐个比对本插件实际依赖的包，结论是**新增能力为主，没有破坏性变化**：
+
+- `ui-slots`：新增 slot 类型 **`hoc`**（`conversation.hero.frame`、`sidebar.session.action`
+  用），既有 `single/list/keyed/chain` 语义不变；
+- `ui-sidebar`：只新增（`sidebar.panel.icon` 工厂、`sidebar.session.action` hoc、
+  `sidebar.workspaces` 增加 hookContext/inject）；本插件占用的
+  `sidebar.brand.mark` / `sidebar.brand.name` / `sidebar.right.*` / `sidebar.panellist`
+  契约未变；
+- `ui-conversation`：`conversation.composer.bar` 注入面新增 `registerFileIntake` /
+  `retry`（只增字段）；`conversation.session` / `conversation.session.header` 的
+  `data-slot` 锚点与 `_tabs` / `_viewTabs` / `_tab` 类名仍在；
+- `ui-settings`：`openSettings` 签名放宽为 `(sectionId?: string)`，向后兼容；
+- 宿主侧 `ctx.layout` / `ctx.settings` / `ctx.tools` / `ctx.systemPrompt` 在本插件使用范围内
+  无破坏性变化（tsc 按 rc.3 类型面全量编译通过）。
+
+因此**本轮不改业务代码**，只做版本对齐与回归验证。
+
+### 验证（隔离实例，未触碰 live 3080）
+
+- `pnpm install` 15.3s（pnpm store 复用，仅下载 74 个 rc.3 小包）；`pnpm run build` 通过
+  （tsc 按 rc.3 类型 + tsdown 出包 + banner 归一）；
+- 离线自测全部通过：`check:settings` 26、`check:defaults` 46、`check:preset` 16、
+  `check:redact` 55、`check:calendar` 16、`check:reconcile` 9、`check:event-type`、
+  `check:reminder` 19、`check:weekly` 19，失败 0；
+- **rc.3 测试台**：`/tmp/dsh-rc3-1113`（npm 装 `@deepseek-ai/dsh@0.2.2-rc.3`）+
+  `DSH_HOME=/Volumes/MEE/dsh-rc3-1113-home`，profile `agentlex-rc3`，端口 **3102**；
+  本地 mock OpenAI 兼容服务制造真实回合；
+- 浏览器实测（1600×1000，本机 Chrome）：
+  - 四个侧栏入口（诉讼 / 非诉 / 任务 / 技能与工具）、AgentLex 皮肤 9 个
+    `style[data-agentlex-skin]`、品牌与欢迎语正常；
+  - 四个面板全部挂载可见（含 `data-dsh-*-active`），宿主全局面板「插件」点击后套件面板
+    自动关闭——0.2.34 的「面板切换死锁」修复在 rc.3 上仍生效；
+  - AgentLex 设置页整页渲染（版本 0.2.37、8 套主题、品牌字段、模块开关）；
+  - 会话区：真实回合下 `conversation.session.header` 的 `_viewTabs` 两个 tab 正常；
+    正文两端对齐生效（`textAlign=justify`、`letterSpacing=-0.42px`）；
+    `nav[aria-label="轮次导航"]` 渲染且被套件接管（`data-agentlex-nav="right"`、
+    `data-agentlex-nav-hover-bound`）；
+  - 右侧边栏：`sidebar.right.*` 槽位正常，「案件卷宗」tab 类型注册成功并可打开文件树；
+  - `console.error` / `pageerror` 均为 0。
+- HTTP：`/api/agentlex-suite/config`、`/api/agentlex-skin/config`、item / memo health、
+  `read` / case events / schedules、nonlitigation projects、`events-stream`（text/event-stream）
+  全 200；`/api/agentlex-moot/health` 404 属「模拟法庭实验性默认关闭」的预期行为。
+
+## 0.2.36 — 适配 DSH 0.2.2-rc.1（npm 正式包）
+
+### 版本对齐
+
+- 17 个 harness devDependency 由 `0.2.2-alpha.3` 提到 **`0.2.2-rc.1`**（2026-11-04 09:20 UTC
+  发布的 npm 包，对应 tag `dsh-v0.2.2-rc.1`，commit `66491b05e3`）；
+- `@deepseek-ai/cordis` 4.0.6-alpha.2 → **4.1.0**、`@deepseek-ai/schemastery`
+  3.18.6-alpha.2 → **3.19.0**（rc.1 各包 `peerDependencies` 为 `~4.1.0` / `~3.19.0`）；
+- `peerDependencies.dsh-mcp-client` 追加 `^0.2.2-rc.1`（保留 `^0.2.2-alpha.3` 分支）；
+- `pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 同步到 rc.1 / cordis 4.1.0 /
+  schemastery 3.19.0 / cosmokit 1.9.0，pnpm 自动补入 cordis-plugin 三件套 1.1.0。
+
+### rc.1 与 alpha.3 的实质差异：无
+
+- tag 区间只有 4 个提交（`release(dsh): 0.2.2-rc.1` 与 `release(vendor): …`），
+  `git diff dsh-v0.2.2-alpha.3 dsh-v0.2.2-rc.1` 全文只改各包 `package.json` 的
+  `version` 字段（372 个 packages + 14 个 vendor/apps 文件，各 1 行），**没有任何源码改动**；
+- 逐包比对 npm 产出的 alpha.3 / rc.1 tarball：`dsh-tools` / `dsh-settings` /
+  `dsh-system-prompt` / `dsh-client-ui-conversation` 内容完全一致；
+  `dsh-client-ui-sidebar/lib/client.js` 唯一差异是内嵌版本串
+  `0.2.2-alpha.3-43a1ef1` → `0.2.2-rc.1-c59d10a`；
+- 因此**本插件不需要改任何业务代码**，本轮只做版本对齐与回归验证。
+
+### 验证（隔离实例，未触碰 live 3080）
+
+- `pnpm install` 16.7s 通过，解析到 cordis 4.1.0 / schemastery 3.19.0 / 17 个 rc.1 包；
+- `pnpm run build` 通过（tsc 按 rc.1 类型面编译 + tsdown 出包 + banner 归一）；
+- 离线自测全部通过：`check:settings` 26、`check:defaults` 46、`check:preset` 16、
+  `check:redact` 55、`check:calendar` 16、`check:reconcile` 9、`check:event-type`、
+  `check:reminder` 19、`check:weekly` 19，失败 0；
+- **rc.1 测试台**：`/tmp/dsh-rc1`（npm 装 `@deepseek-ai/dsh@0.2.2-rc.1`）+
+  `DSH_HOME=/Volumes/MEE/dsh-rc1-home`，profile `rc1web`，端口 **3090**：
+  - 四个侧栏入口（Litigation / Non-litigation / Tasks / 技能与工具）与
+    AgentLex 设置页整页正常渲染（页面显示「版本 0.2.36」、8 套主题、品牌字段、功能模块开关）；
+  - 诉讼看板读到真实种子案件（2026-001 / 2026-002）、非诉项目、任务面板 27 项台账；
+  - HTTP：`/api/agentlex-suite/config`、`/api/agentlex-skin/config` 200，
+    `item` / `memo` health 200，`/api/agentlex-case/events-stream` 200 `text/event-stream`；
+  - 浏览器 `pageerror` / `console.error` 均为 0；
+- **回退对照**：同一份 0.2.36 tarball 挂到 0.2.1-rc.3 宿主（全局 dsh，端口 **3091**），
+  四个面板渲染结果与 3090 逐项一致（body 长度 573 / 425 / 2077 / 253），无报错；
+- **上游阻塞已解除**：`dsh-mnemon@0.5.40`（2026-11-04 发布）在 rc.1 上启动无
+  `ctx.agents.roots` 报错、无 pending 条目，0.2.35 记录的 mnemon 阻塞不再是升级障碍
+  （其余第三方插件未在本轮逐一复验）。
+
+## 0.2.35 — 适配 DSH 0.2.2-alpha.3（master，源码本地构建）
+
+### 版本对齐
+
+- 17 个 harness devDependency 由 `0.2.1-rc.3` 提到 **`0.2.2-alpha.3`**（2026-11-03 的
+  `origin/master` HEAD `8bd073392e`，即仓库 tag `dsh-v0.2.2-alpha.3`）；
+- `@deepseek-ai/cordis` 4.0.5 → **4.0.6-alpha.2**、`@deepseek-ai/schemastery`
+  3.18.5 → **3.18.6-alpha.2**，与 alpha.3 各包 `peerDependencies` 声明的范围一致
+  （`~4.0.6-alpha.2` / `~3.18.6-alpha.2`）——类型面与运行面不能错代；
+- `peerDependencies.dsh-mcp-client` 追加 `^0.2.2-alpha.3` 分支；
+- `pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 同步改为 alpha.3，另按 pnpm
+  提示补入 cordis 系列 6 项 + `dsh-fs-patch` / `dsh-official-bundles`。
+
+### 0.2.2-alpha.3 改了什么、与本插件的关系（逐项核对）
+
+| alpha.3 变更 | 影响面 | 结论 |
+|---|---|---|
+| `@deepseek-ai/dsh-tools` 重构：`ToolRuntime` → `ToolsService`，入口按 `contracts/executor/presentation/schema` 拆文件 | 本插件只依赖 `defineTool` + 类型增强 | **无需改动**，导出仍在，工具照常注册、按预设作用域挂载可用 |
+| `dsh-host-webserver` 新增 `WebResource` / `WebResourceRoute` | 静态资源路由 | 纯增量；本插件 13 处 `import type {}` 增强不受影响，自有路由族全部正常注册 |
+| `dsh-settings` **零改动**（rc.3 → master diffstat 为空） | 设置注册 / `settings.register(ns, schema, {base})` | 无需改动；设置页字段渲染、开关写入并落盘到 profile patch 实测通过 |
+| `dsh-client-ui-slots` 仅版本号变化 | 槽位声明 | 无需改动 |
+| `dsh-system-prompt` 新增 `PromptPresentation`（`PromptAssembly` 继承它） | 系统提示装配 | 纯增量，管家 persona 注入正常 |
+| `ui-conversation` / `ui-sidebar` 大量内部重构（+5355 / +1637 行） | 会话头、视图切换、侧栏行 | 本插件对二者只做 type-only 导入 + DOM 锚点/CSS 覆盖；实测 `[class$="_body"]`、`[data-lexical-editor]`、`[data-slot="conversation"]`、`[data-slot="conversation.composer.bar"]` 在旧/新两代 DOM 上**计数完全一致**，皮肤与排版增强无漂移 |
+| `ISessions.list` 固化为 `ObservableSnapshot<SessionListState>`（`getSnapshot` + `subscribe`） | 会话列表订阅 | `subscribe` 仍在（`packages/client/store/src/contract.ts`），绑定案件的 tab 同步链路不断 |
+
+### 验证（隔离实例，未触碰 live 3080）
+
+- **本地源码构建台**：`/Volumes/MEE/dsh-latest` 切到 `origin/master`，`pnpm install` +
+  `pnpm run build` 全 10 道 gate 通过（80s），产物 `node apps/cli/lib/bin.js` 版本
+  `0.2.2-alpha.3`；
+- **隔离 home**：`DSH_HOME=/Volumes/MEE/dsh-next-home`，两个 profile：
+  - `nextweb`（base + web-app + 本插件，端口 3081）——干净环境；
+  - `liveclone`（live `web` profile 的 package.json + cordis.patch.yml 全量克隆，端口 3083）
+    ——真实环境压力测试；
+- Playwright 实测（两处实例）：五个侧栏入口、诉讼/非诉/任务/技能与工具面板挂载与数据渲染、
+  AgentLex 设置页整页（全部开关/主题/品牌字段）、开关写入后落盘 `- id: agentlex` +
+  `conversationJustify: false`、输入框 `#` 备忘浮窗、真实会话收发（LLM 通）、
+  `data-agentlex-theme` 与 5 段皮肤 CSS 注入、右侧边栏面板挂载；`pageerror` / `console.error` **0**；
+- 预设端到端：选「诉讼管家」建会话 → 提问「列出所有诉讼案件」→ 6s 内答出 `2026-001`，
+  证明 agent-preset 挂载 + 作用域工具 + host 路由在 alpha.3 上整链可用；
+- HTTP 冒烟（3083）：suite/skin、case（建案→回读）、task（含 `time` 字段的独立任务）、
+  item/unified、memo（建→列）、case/task SSE（`200 text/event-stream`）全部通过；
+  未注册路由返回 401（如关闭状态下的 `moot`）属宿主既有语义；
+- 回退兼容：同一份构建产物挂回 **0.2.1-rc.3** 旧宿主（端口 3084）照样跑通五个入口与面板，
+  即插件可先发、宿主后升；
+- 离线自测：`check:settings / defaults / preset / redact / calendar / reconcile / event-type /
+  reminder / weekly` 全部通过（26+46+16+55+16+9+… 项）。
+
+### 已知外部阻塞（不在本仓库范围）
+
+`dsh-mnemon@0.5.39`（当前 latest）在 alpha.3 上抛
+`TypeError: this.ctx.agents.roots is not a function`，连带其 5 个 source/strategy 子条目
+pending，Memory System 整块不可用。全量 profile 升级前需等 mnemon 适配，或临时禁用该插件。
+其余第三方（dshmarket / genui / im / bridge / modsearch / mhub / media-hub-remote /
+video-producer / opencode-go）在 alpha.3 上均正常激活。
+
 ## 0.2.34 — 修正：套件面板盖住宿主全局面板导致「切不过去」；账号菜单加「重启 DSH」
 
 ### 问题一（用户 2026-11-02 反馈）
